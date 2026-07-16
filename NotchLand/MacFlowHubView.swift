@@ -2,47 +2,42 @@
 //  MacFlowHubView.swift
 //  MacFlow
 //
-//  Persistent navigation shell for all MacFlow modules.
+//  Native, adaptive navigation shell shared by every MacFlow module.
 //
 
 import SwiftUI
 
 struct MacFlowHubView: View {
     @EnvironmentObject private var settings: NotchSettings
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("macflow.selectedSection") private var selection: MacFlowSection = .home
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     #if DEBUG
     @AppStorage("settings.debugMenuUnlocked") private var debugMenuUnlocked = false
     @State private var aboutIconTapCount = 0
     #endif
 
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             MacFlowSidebarView(selection: $selection, showsDebug: showsDebug)
-                .frame(width: MacFlowMetrics.sidebarWidth)
-
-            Rectangle()
-                .fill(MacFlowColor.borderSubtle)
-                .frame(width: 1)
-
+                .navigationSplitViewColumnWidth(
+                    min: 168,
+                    ideal: MacFlowMetrics.sidebarWidth,
+                    max: 240
+                )
+        } detail: {
             detail
                 .id(selection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MacFlowColor.canvas)
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .macFlowContent
-                )
+                .transition(.opacity)
         }
-        .background(MacFlowColor.appBackground)
+        .navigationSplitViewStyle(.balanced)
         .frame(
             minWidth: MacFlowMetrics.minimumWindowWidth,
             idealWidth: MacFlowMetrics.idealWindowWidth,
             minHeight: MacFlowMetrics.minimumWindowHeight,
             idealHeight: MacFlowMetrics.idealWindowHeight
         )
-        .animation(MacFlowMotion.navigation(reduceMotion: reduceMotion), value: selection)
         .preferredColorScheme(settings.theme.colorScheme)
     }
 

@@ -87,23 +87,23 @@ struct MacFlowPageHeader<Actions: View>: View {
         HStack(alignment: .center, spacing: MacFlowSpacing.space16) {
             VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                 Text(eyebrow.uppercased())
-                    .font(.system(size: 9.5, weight: .bold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(MacFlowColor.textTertiary)
                     .tracking(1.05)
                 Text(title)
-                    .font(.system(size: 21, weight: .semibold))
-                    .tracking(-0.35)
+                    .font(.title2.weight(.semibold))
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(MacFlowColor.textSecondary)
                         .lineLimit(1)
+                        .help(subtitle)
                 }
             }
             Spacer(minLength: MacFlowSpacing.space16)
             actions
         }
-        .padding(.horizontal, MacFlowSpacing.space20)
+        .padding(.horizontal, MacFlowSpacing.space24)
         .frame(minHeight: MacFlowMetrics.pageHeaderHeight)
     }
 }
@@ -132,12 +132,12 @@ struct MacFlowSectionHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: MacFlowSpacing.space12) {
             Text(title.uppercased())
-                .font(.system(size: 10, weight: .semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(MacFlowColor.textSecondary)
                 .tracking(0.85)
             if let detail {
                 Text(detail)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(MacFlowColor.textTertiary)
             }
             Spacer()
@@ -191,20 +191,21 @@ struct MacFlowSettingsRow<Trailing: View>: View {
         HStack(spacing: MacFlowSpacing.space12) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(tint)
                     .frame(width: 28, height: 28)
                     .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.callout)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(MacFlowColor.textSecondary)
                         .lineLimit(2)
+                        .help(subtitle)
                 }
             }
 
@@ -233,19 +234,19 @@ struct MacFlowStatusPill: View {
     let color: Color
 
     var body: some View {
-        HStack(spacing: MacFlowSpacing.space6) {
+        HStack(spacing: MacFlowSpacing.space8) {
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.caption.weight(.semibold))
             } else {
                 Circle().fill(color).frame(width: 6, height: 6)
             }
             Text(title)
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(.caption.weight(.semibold))
         }
         .foregroundStyle(color)
-        .padding(.horizontal, MacFlowSpacing.space10)
-        .padding(.vertical, MacFlowSpacing.space6)
+        .padding(.horizontal, MacFlowSpacing.space8)
+        .padding(.vertical, MacFlowSpacing.space4)
         .background(color.opacity(0.10), in: Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title)
@@ -276,12 +277,12 @@ struct MacFlowEmptyState: View {
     var body: some View {
         VStack(spacing: MacFlowSpacing.space12) {
             Image(systemName: systemImage)
-                .font(.system(size: 28, weight: .light))
+                .font(.title)
                 .foregroundStyle(MacFlowColor.textTertiary)
             VStack(spacing: MacFlowSpacing.space4) {
                 Text(title).font(.headline)
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.callout)
                     .foregroundStyle(MacFlowColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 340)
@@ -309,7 +310,7 @@ struct MacFlowInspectorSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
             Text(title.uppercased())
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(MacFlowColor.textTertiary)
                 .tracking(0.75)
             content

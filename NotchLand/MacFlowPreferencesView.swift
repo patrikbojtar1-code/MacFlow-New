@@ -31,7 +31,6 @@ struct MacFlowPreferencesView: View {
     @EnvironmentObject private var focusMode: FocusModeController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var section: Section = .general
-    @Namespace private var sectionSelectionNamespace
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,66 +40,34 @@ struct MacFlowPreferencesView: View {
             )
             Divider().overlay(MacFlowColor.borderSubtle)
 
-            HStack(spacing: 0) {
-                preferenceNavigation
-                Divider().overlay(MacFlowColor.borderSubtle)
-                ScrollView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
+                    preferenceNavigation
                     preferenceContent
-                        .frame(maxWidth: 640)
-                        .padding(MacFlowSpacing.space20)
-                        .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .scrollIndicators(.never)
+                .frame(maxWidth: 640)
+                .padding(MacFlowSpacing.space24)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
+            .scrollIndicators(.never)
         }
-        .animation(MacFlowMotion.content(reduceMotion: reduceMotion), value: section)
     }
 
     private var preferenceNavigation: some View {
-        VStack(alignment: .leading, spacing: MacFlowSpacing.space6) {
-            Text("SETTINGS")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(MacFlowColor.textTertiary)
-                .tracking(1)
-                .padding(.horizontal, MacFlowSpacing.space12)
-                .padding(.bottom, MacFlowSpacing.space6)
-
+        Picker("Preference category", selection: $section) {
             ForEach(Section.allCases) { item in
-                Button {
-                    section = item
-                } label: {
-                    HStack(spacing: MacFlowSpacing.space10) {
-                        Image(systemName: item.systemImage)
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(width: 18)
-                        Text(item.title)
-                            .font(.system(size: 12, weight: .medium))
-                        Spacer()
-                    }
-                    .foregroundStyle(section == item ? Color.white : MacFlowColor.textSecondary)
-                    .padding(.horizontal, MacFlowSpacing.space12)
-                    .frame(height: 36)
-                    .background {
-                        if section == item {
-                            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                                .fill(MacFlowColor.surface3)
-                                .matchedGeometryEffect(id: "preference-selection", in: sectionSelectionNamespace)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(section == item ? .isSelected : [])
+                Label(item.title, systemImage: item.systemImage)
+                    .tag(item)
             }
-            Spacer()
         }
-        .padding(MacFlowSpacing.space12)
-        .frame(width: 148)
-        .background(MacFlowColor.sidebar.opacity(0.45))
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .accessibilityLabel("Preference category")
     }
 
     @ViewBuilder
     private var preferenceContent: some View {
-        VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
+        VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
             preferenceTitle
 
             switch section {
@@ -120,7 +87,7 @@ struct MacFlowPreferencesView: View {
 
     private var preferenceTitle: some View {
         Text(section.title)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.headline)
     }
 
     private var generalPreferences: some View {
@@ -130,17 +97,17 @@ struct MacFlowPreferencesView: View {
                 MacFlowSettingsRow(
                     icon: "power",
                     title: "Launch at Login"
-                ) { Toggle("", isOn: $settings.launchAtLogin).labelsHidden() }
+                ) { Toggle("Launch at Login", isOn: $settings.launchAtLogin).labelsHidden() }
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "menubar.rectangle",
                     title: "Menu Bar Item"
-                ) { Toggle("", isOn: $settings.showMenuBarItem).labelsHidden() }
+                ) { Toggle("Menu Bar Item", isOn: $settings.showMenuBarItem).labelsHidden() }
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "macbook",
                     title: "Notch Workspace"
-                ) { Toggle("", isOn: $settings.showNotch).labelsHidden() }
+                ) { Toggle("Notch Workspace", isOn: $settings.showNotch).labelsHidden() }
             }
         }
     }
@@ -166,7 +133,7 @@ struct MacFlowPreferencesView: View {
                 MacFlowSettingsRow(
                     icon: "drop.halffull",
                     title: "Notch Material"
-                ) { Toggle("", isOn: $settings.useBlurMaterial).labelsHidden() }
+                ) { Toggle("Notch Material", isOn: $settings.useBlurMaterial).labelsHidden() }
             }
 
         }

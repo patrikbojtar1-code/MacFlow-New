@@ -25,11 +25,13 @@ struct MacFlowHomeView: View {
             Divider().overlay(MacFlowColor.borderSubtle)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
                     commandStrip
                     runtimeOverview
                 }
-                .padding(MacFlowSpacing.space20)
+                .padding(MacFlowSpacing.space24)
+                .frame(maxWidth: MacFlowMetrics.readableContentMaxWidth)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .scrollIndicators(.hidden)
         }
@@ -81,7 +83,7 @@ struct MacFlowHomeView: View {
                     Text(section.title)
                         .font(.system(size: 14, weight: .semibold))
                     Spacer()
-                    HStack(spacing: MacFlowSpacing.space6) {
+                    HStack(spacing: MacFlowSpacing.space8) {
                         Circle()
                             .fill(isActive ? Color.green : MacFlowColor.textTertiary)
                             .frame(width: 6, height: 6)

@@ -5,6 +5,7 @@
 //  Semantic design tokens shared by every MacFlow module.
 //
 
+import AppKit
 import SwiftUI
 
 nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
@@ -90,16 +91,13 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
 }
 
 nonisolated enum MacFlowSpacing {
-    static let space2: CGFloat = 2
     static let space4: CGFloat = 4
-    static let space6: CGFloat = 6
     static let space8: CGFloat = 8
-    static let space10: CGFloat = 10
     static let space12: CGFloat = 12
     static let space16: CGFloat = 16
-    static let space20: CGFloat = 20
     static let space24: CGFloat = 24
     static let space32: CGFloat = 32
+    static let space48: CGFloat = 48
 }
 
 nonisolated enum MacFlowRadius {
@@ -121,11 +119,12 @@ nonisolated enum MacFlowMetrics {
     static let pageHeaderHeight: CGFloat = 64
     static let compactHeaderHeight: CGFloat = 58
     static let settingsRowHeight: CGFloat = 50
+    static let readableContentMaxWidth: CGFloat = 1_120
 
     // Compatibility aliases while module views migrate to semantic tokens.
     static let shellInset: CGFloat = 0
     static let detailPadding = MacFlowSpacing.space24
-    static let sectionSpacing = MacFlowSpacing.space20
+    static let sectionSpacing = MacFlowSpacing.space24
     static let cardRadius = MacFlowRadius.panel
     static let largeRadius = MacFlowRadius.preview
     static let compactCardRadius = MacFlowRadius.compact
@@ -135,24 +134,24 @@ nonisolated enum MacFlowMetrics {
 }
 
 enum MacFlowColor {
-    static let accent = Color(red: 0.30, green: 0.55, blue: 1.00)
+    static let accent = Color.accentColor
     static let notch = Color(red: 0.32, green: 0.62, blue: 1.00)
     static let mouseFree = Color(red: 0.96, green: 0.60, blue: 0.22)
     static let wallpaper = Color(red: 0.49, green: 0.47, blue: 0.91)
 
-    static let appBackground = Color(red: 0.047, green: 0.051, blue: 0.063)
-    static let sidebar = Color(red: 0.067, green: 0.075, blue: 0.094)
-    static let canvas = Color(red: 0.057, green: 0.064, blue: 0.078)
-    static let surface1 = Color.white.opacity(0.035)
-    static let surface2 = Color.white.opacity(0.055)
-    static let surface3 = Color.white.opacity(0.075)
-    static let opaqueSurface1 = Color(red: 0.078, green: 0.086, blue: 0.103)
-    static let opaqueSurface2 = Color(red: 0.094, green: 0.102, blue: 0.120)
-    static let opaqueSurface3 = Color(red: 0.112, green: 0.120, blue: 0.139)
-    static let borderSubtle = Color.white.opacity(0.070)
-    static let borderStrong = Color.white.opacity(0.120)
-    static let textSecondary = Color.white.opacity(0.62)
-    static let textTertiary = Color.white.opacity(0.42)
+    static let appBackground = Color(nsColor: .windowBackgroundColor)
+    static let sidebar = Color(nsColor: .underPageBackgroundColor)
+    static let canvas = Color(nsColor: .windowBackgroundColor)
+    static let surface1 = Color(nsColor: .controlBackgroundColor)
+    static let surface2 = Color(nsColor: .textBackgroundColor)
+    static let surface3 = Color.accentColor.opacity(0.12)
+    static let opaqueSurface1 = Color(nsColor: .controlBackgroundColor)
+    static let opaqueSurface2 = Color(nsColor: .textBackgroundColor)
+    static let opaqueSurface3 = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    static let borderSubtle = Color(nsColor: .separatorColor)
+    static let borderStrong = Color(nsColor: .gridColor)
+    static let textSecondary = Color(nsColor: .secondaryLabelColor)
+    static let textTertiary = Color(nsColor: .tertiaryLabelColor)
 }
 
 enum MacFlowTheme {
@@ -186,44 +185,8 @@ nonisolated enum MacFlowMotion {
             : .spring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)
     }
 
-    static func navigation(reduceMotion: Bool) -> Animation {
-        reduceMotion
-            ? .easeOut(duration: 0.12)
-            : .spring(response: 0.40, dampingFraction: 1.0, blendDuration: 0)
-    }
-
     static func hover(reduceMotion: Bool) -> Animation {
         .easeOut(duration: reduceMotion ? 0.08 : 0.12)
-    }
-}
-
-private struct MacFlowContentRevealModifier: ViewModifier {
-    let opacity: Double
-    let scale: CGFloat
-    let blur: CGFloat
-    let x: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(opacity)
-            .scaleEffect(scale, anchor: .center)
-            .blur(radius: blur)
-            .offset(x: x)
-    }
-}
-
-extension AnyTransition {
-    static var macFlowContent: AnyTransition {
-        .asymmetric(
-            insertion: .modifier(
-                active: MacFlowContentRevealModifier(opacity: 0, scale: 0.995, blur: 5, x: 7),
-                identity: MacFlowContentRevealModifier(opacity: 1, scale: 1, blur: 0, x: 0)
-            ),
-            removal: .modifier(
-                active: MacFlowContentRevealModifier(opacity: 0, scale: 0.998, blur: 2, x: -3),
-                identity: MacFlowContentRevealModifier(opacity: 1, scale: 1, blur: 0, x: 0)
-            )
-        )
     }
 }
 

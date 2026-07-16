@@ -110,7 +110,7 @@ struct ScenesSettingsView: View {
                     .accessibilityLabel("Clear search")
                 }
             }
-            .padding(.horizontal, MacFlowSpacing.space10)
+            .padding(.horizontal, MacFlowSpacing.space12)
             .frame(width: 168, height: 30)
             .background(MacFlowColor.surface2, in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous))
             .overlay {
@@ -187,12 +187,12 @@ struct ScenesSettingsView: View {
                 libraryHeader
                     .padding(.horizontal, MacFlowSpacing.space16)
                     .padding(.top, MacFlowSpacing.space16)
-                    .padding(.bottom, MacFlowSpacing.space10)
+                    .padding(.bottom, MacFlowSpacing.space12)
 
                 if isImporting {
                     WallpaperImportSkeleton()
                         .padding(.horizontal, MacFlowSpacing.space16)
-                        .padding(.bottom, MacFlowSpacing.space10)
+                        .padding(.bottom, MacFlowSpacing.space12)
                 }
 
                 sceneLibrary
@@ -213,7 +213,7 @@ struct ScenesSettingsView: View {
             if let scene = selectedScene {
                 MacFlowPanel(.elevated) {
                     HStack(spacing: 0) {
-                        VStack(alignment: .leading, spacing: MacFlowSpacing.space10) {
+                        VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
                             HStack(spacing: MacFlowSpacing.space8) {
                                 Circle()
                                     .fill(scene.id == controller.activeSceneID ? Color.green : MacFlowColor.textTertiary)
@@ -253,7 +253,7 @@ struct ScenesSettingsView: View {
                                     .font(.system(size: 9.5, weight: .semibold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, MacFlowSpacing.space8)
-                                    .padding(.vertical, MacFlowSpacing.space6)
+                                    .padding(.vertical, MacFlowSpacing.space8)
                                     .background(.black.opacity(0.60), in: Capsule())
                                     .padding(MacFlowSpacing.space12)
                             }
@@ -352,8 +352,8 @@ struct ScenesSettingsView: View {
         .buttonStyle(MacFlowInteractiveButtonStyle())
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(isSelected ? .primary : MacFlowColor.textSecondary)
-        .padding(.horizontal, MacFlowSpacing.space10)
-        .padding(.vertical, MacFlowSpacing.space6)
+        .padding(.horizontal, MacFlowSpacing.space12)
+        .padding(.vertical, MacFlowSpacing.space8)
         .background(
             isSelected ? MacFlowColor.surface3 : MacFlowColor.surface1,
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -383,7 +383,7 @@ struct ScenesSettingsView: View {
                 if browser.layout == .grid {
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 145, maximum: 230), spacing: MacFlowSpacing.space8)],
-                        spacing: MacFlowSpacing.space10
+                        spacing: MacFlowSpacing.space12
                     ) {
                         ForEach(visibleScenes) { scene in
                             WallpaperSceneTile(
@@ -398,7 +398,7 @@ struct ScenesSettingsView: View {
                         }
                     }
                 } else {
-                    LazyVStack(spacing: MacFlowSpacing.space6) {
+                    LazyVStack(spacing: MacFlowSpacing.space8) {
                         ForEach(visibleScenes) { scene in
                             WallpaperSceneListRow(
                                 scene: scene,
@@ -443,9 +443,9 @@ struct ScenesSettingsView: View {
     }
 
     private func inspectorHeader(_ scene: WallpaperScene) -> some View {
-        HStack(spacing: MacFlowSpacing.space10) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
-                HStack(spacing: MacFlowSpacing.space6) {
+        HStack(spacing: MacFlowSpacing.space12) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                HStack(spacing: MacFlowSpacing.space8) {
                     Text(scene.title)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
@@ -537,7 +537,7 @@ struct ScenesSettingsView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(MacFlowColor.textSecondary)
                 } else {
-                    MacFlowWrapLayout(spacing: MacFlowSpacing.space6) {
+                    MacFlowWrapLayout(spacing: MacFlowSpacing.space8) {
                         ForEach(memberships) { collection in
                             Text(collection.title)
                                 .font(.system(size: 9.5, weight: .medium))
@@ -594,7 +594,7 @@ struct ScenesSettingsView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space6) {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space8) {
                     HStack {
                         Text("Dimming").font(.system(size: 11.5))
                         Spacer()
@@ -630,10 +630,10 @@ struct ScenesSettingsView: View {
         VStack(spacing: 0) {
             MacFlowInspectorSection("Connected displays") {
                 ForEach(Array(NSScreen.screens.enumerated()), id: \.offset) { index, screen in
-                    HStack(spacing: MacFlowSpacing.space10) {
+                    HStack(spacing: MacFlowSpacing.space12) {
                         Image(systemName: "display")
                             .foregroundStyle(scene.id == controller.activeSceneID ? MacFlowColor.wallpaper : MacFlowColor.textSecondary)
-                        VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
+                        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                             Text(screen.localizedName)
                                 .font(.system(size: 11.5, weight: .medium))
                             Text(index == 0 ? "Primary display" : "Secondary display")
@@ -645,7 +645,7 @@ struct ScenesSettingsView: View {
                             Circle().fill(.green).frame(width: 6, height: 6)
                         }
                     }
-                    .padding(.vertical, MacFlowSpacing.space6)
+                    .padding(.vertical, MacFlowSpacing.space8)
                 }
             }
             Divider().overlay(MacFlowColor.borderSubtle)
@@ -801,7 +801,7 @@ private struct WallpaperSceneTile: View {
                     }
 
                 HStack(spacing: MacFlowSpacing.space8) {
-                    VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
+                    VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                         Text(scene.title)
                             .font(.system(size: 11.5, weight: .medium))
                             .lineLimit(1)
@@ -819,7 +819,7 @@ private struct WallpaperSceneTile: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(isSelected ? MacFlowColor.wallpaper : MacFlowColor.textTertiary)
                 }
-                .padding(MacFlowSpacing.space10)
+                .padding(MacFlowSpacing.space12)
             }
             .background(MacFlowColor.surface1)
             .clipShape(RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
@@ -947,7 +947,7 @@ private struct WallpaperImportSkeleton: View {
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(MacFlowColor.textSecondary)
         }
-        .padding(MacFlowSpacing.space10)
+        .padding(MacFlowSpacing.space12)
         .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
         .overlay {
             if !reduceMotion {
@@ -974,7 +974,7 @@ private struct WallpaperAutomationEditor: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
+        VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
             HStack {
                 VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                     Text("Wallpaper Automation")
@@ -1067,7 +1067,7 @@ private struct WallpaperAutomationEditor: View {
     }
 
     private func rulePicker(title: String, icon: String, selection: Binding<UUID?>) -> some View {
-        HStack(spacing: MacFlowSpacing.space10) {
+        HStack(spacing: MacFlowSpacing.space12) {
             Image(systemName: icon)
                 .foregroundStyle(MacFlowColor.wallpaper)
                 .frame(width: 22)
@@ -1083,7 +1083,7 @@ private struct WallpaperAutomationEditor: View {
             .labelsHidden()
             .frame(width: 150)
         }
-        .padding(MacFlowSpacing.space10)
+        .padding(MacFlowSpacing.space12)
         .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)

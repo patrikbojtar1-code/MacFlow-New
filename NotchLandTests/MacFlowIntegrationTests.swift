@@ -19,6 +19,19 @@ struct MacFlowIntegrationTests {
         #expect(MacFlowMetrics.idealWindowHeight <= 680)
         #expect(MacFlowMetrics.minimumWindowWidth <= 900)
         #expect(MacFlowMetrics.minimumWindowHeight <= 620)
+        #expect(MacFlowMetrics.readableContentMaxWidth >= MacFlowMetrics.idealWindowWidth - MacFlowMetrics.sidebarWidth)
+    }
+
+    @Test func macFlowSpacingUsesTheDocumentedScale() {
+        #expect([
+            MacFlowSpacing.space4,
+            MacFlowSpacing.space8,
+            MacFlowSpacing.space12,
+            MacFlowSpacing.space16,
+            MacFlowSpacing.space24,
+            MacFlowSpacing.space32,
+            MacFlowSpacing.space48,
+        ] == [4, 8, 12, 16, 24, 32, 48])
     }
 
     @Test func minimumWallpaperCanvasRemainsUsableBesideInspector() {

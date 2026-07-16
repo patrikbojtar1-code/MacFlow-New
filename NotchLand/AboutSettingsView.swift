@@ -50,7 +50,7 @@ struct AboutSettingsView: View {
                     }
                 }
                 .frame(maxWidth: 800)
-                .padding(MacFlowSpacing.space20)
+                .padding(MacFlowSpacing.space24)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .scrollIndicators(.never)
@@ -59,12 +59,12 @@ struct AboutSettingsView: View {
 
     private var identityPanel: some View {
         MacFlowPanel(.elevated) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
                 MacFlowLogoTile(size: 72)
                     .onTapGesture(perform: onIconClick)
                     .accessibilityLabel("MacFlow application icon")
 
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space6) {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space8) {
                     Text("MacFlow")
                         .font(.system(size: 24, weight: .semibold))
                         .tracking(-0.5)
@@ -79,7 +79,7 @@ struct AboutSettingsView: View {
                     productChip("Wallpapers", icon: "photo.fill", color: MacFlowColor.wallpaper)
                 }
             }
-            .padding(MacFlowSpacing.space20)
+            .padding(MacFlowSpacing.space24)
         }
         .frame(width: 300)
     }
@@ -116,7 +116,7 @@ struct AboutSettingsView: View {
                 .padding(MacFlowSpacing.space16)
             }
 
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space6) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space8) {
                 Text(copyrightLine)
                     .font(.system(size: 10.5))
                     .foregroundStyle(MacFlowColor.textTertiary)

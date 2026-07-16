@@ -32,7 +32,7 @@ struct MacFlowNotchWorkspaceView: View {
                 eyebrow: "Notch workspace",
                 title: "Notch"
             ) {
-                HStack(spacing: MacFlowSpacing.space10) {
+                HStack(spacing: MacFlowSpacing.space12) {
                     Text(settings.showNotch ? "Enabled" : "Paused")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(settings.showNotch ? .green : MacFlowColor.textSecondary)
@@ -107,7 +107,7 @@ struct MacFlowNotchWorkspaceView: View {
             RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
                 .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
         }
-        .padding(.horizontal, MacFlowSpacing.space20)
+        .padding(.horizontal, MacFlowSpacing.space24)
         .padding(.bottom, MacFlowSpacing.space12)
     }
 
@@ -136,7 +136,9 @@ struct MacFlowNotchWorkspaceView: View {
                     }
                 }
             }
-            .padding(MacFlowSpacing.space20)
+            .padding(MacFlowSpacing.space24)
+            .frame(maxWidth: MacFlowMetrics.readableContentMaxWidth)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollIndicators(.hidden)
     }
@@ -153,7 +155,7 @@ struct MacFlowNotchWorkspaceView: View {
                     let shellWidth = min(max(330, proxy.size.width - 28), 460)
                     ZStack(alignment: .top) {
                         RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
-                            .fill(Color.white.opacity(0.025))
+                            .fill(MacFlowColor.surface1)
 
                         NotchShape(
                             topWidth: min(previewNotchWidth, shellWidth * 0.42),

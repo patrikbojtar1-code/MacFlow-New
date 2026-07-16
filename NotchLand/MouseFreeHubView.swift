@@ -45,7 +45,9 @@ struct MouseFreeHubView: View {
                         behavior.frame(width: 260)
                     }
                 }
-                .padding(MacFlowSpacing.space20)
+                .padding(MacFlowSpacing.space24)
+                .frame(maxWidth: MacFlowMetrics.readableContentMaxWidth)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .scrollIndicators(.hidden)
         }
@@ -61,7 +63,7 @@ struct MouseFreeHubView: View {
                     .frame(width: 34, height: 34)
                     .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                     Text(permissionTitle)
                         .font(.system(size: 13, weight: .medium))
                 }
@@ -98,8 +100,8 @@ struct MouseFreeHubView: View {
                     Text(controller.selectedPreset?.title ?? "Custom")
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(MacFlowColor.mouseFree)
-                        .padding(.horizontal, MacFlowSpacing.space10)
-                        .padding(.vertical, MacFlowSpacing.space6)
+                        .padding(.horizontal, MacFlowSpacing.space12)
+                        .padding(.vertical, MacFlowSpacing.space8)
                         .background(MacFlowColor.mouseFree.opacity(0.09), in: Capsule())
                 }
 
@@ -134,7 +136,7 @@ struct MouseFreeHubView: View {
             NotchHaptics.perform(.navigation)
             controller.apply(preset)
         } label: {
-            HStack(spacing: MacFlowSpacing.space10) {
+            HStack(spacing: MacFlowSpacing.space12) {
                 Image(systemName: isSelected ? "checkmark" : "waveform.path")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(isSelected ? MacFlowColor.mouseFree : MacFlowColor.textSecondary)
