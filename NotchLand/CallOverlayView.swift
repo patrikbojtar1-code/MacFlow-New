@@ -12,12 +12,14 @@ enum CallOverlayMetrics {
     nonisolated static let activeSize = CGSize(width: 520, height: 50)
     nonisolated static let endedSize = CGSize(width: 520, height: 50)
     nonisolated static let mediumSize = CGSize(width: 700, height: 78)
+    nonisolated static let largeSize = CGSize(width: 760, height: 90)
 
     nonisolated static func size(
         for presentation: CallPresentation,
         notchSize: NotchSize = .small
     ) -> CGSize {
-        if notchSize == .medium || notchSize == .large { return mediumSize }
+        if notchSize == .large { return largeSize }
+        if notchSize == .medium { return mediumSize }
         return switch presentation.phase {
         case .incoming, .connecting: incomingSize
         case .active: activeSize
@@ -38,7 +40,7 @@ struct CallOverlayView: View {
     @State private var isRinging = false
 
     private var notchSize: NotchSize {
-        settings.notchContentSize == .large ? .medium : settings.notchContentSize
+        settings.notchContentSize
     }
 
     private var exclusionWidth: CGFloat {

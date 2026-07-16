@@ -13,9 +13,11 @@ import SwiftUI
 
 enum ImportantEventReminderMetrics {
     nonisolated static func size(for notchSize: NotchSize) -> CGSize {
-        notchSize == .small
-            ? CGSize(width: 620, height: 58)
-            : CGSize(width: 720, height: 78)
+        switch notchSize {
+        case .small: CGSize(width: 620, height: 58)
+        case .medium: CGSize(width: 720, height: 78)
+        case .large: CGSize(width: 780, height: 90)
+        }
     }
 }
 
@@ -27,7 +29,7 @@ struct ImportantEventReminderView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var notchSize: NotchSize {
-        settings.notchContentSize == .large ? .medium : settings.notchContentSize
+        settings.notchContentSize
     }
 
     var body: some View {

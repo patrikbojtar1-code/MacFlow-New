@@ -88,7 +88,7 @@ nonisolated enum NotchLayoutMetrics {
         switch size {
         case .small: CGSize(width: 520, height: 50)
         case .medium: CGSize(width: 700, height: 78)
-        case .large: CGSize(width: 820, height: 318)
+        case .large: CGSize(width: 760, height: 90)
         }
     }
 

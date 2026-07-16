@@ -45,6 +45,7 @@ final class HUDController: ObservableObject {
 
     @Published private(set) var current: Kind?
     @Published private(set) var isAccessibilityTrusted = AXIsProcessTrusted()
+    @Published private(set) var hasRequestedAccessibilityThisRun = false
 
     private let settings: NotchSettings
     private var defaultDeviceID: AudioObjectID = AudioObjectID(kAudioObjectUnknown)
@@ -141,6 +142,11 @@ final class HUDController: ObservableObject {
 
     func requestAccessibilityPermissionIfNeeded() {
         guard !refreshAccessibilityTrust() else { return }
+        guard !hasRequestedAccessibilityThisRun else {
+            startAccessibilityRetryTimer()
+            return
+        }
+        hasRequestedAccessibilityThisRun = true
 
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         isAccessibilityTrusted = AXIsProcessTrustedWithOptions(options)

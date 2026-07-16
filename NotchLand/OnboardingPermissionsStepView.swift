@@ -22,7 +22,7 @@ struct OnboardingPermissionsStepView: View {
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
 
-            Text("NotchLand works without these. Enable only the experiences you want.")
+            Text("MacFlow works without these. Enable only the experiences you want.")
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.48))
 
@@ -41,8 +41,14 @@ struct OnboardingPermissionsStepView: View {
                     title: "Accessibility",
                     detail: "Replace the system volume/brightness HUD.",
                     isGranted: hud.isAccessibilityTrusted,
-                    actionTitle: "Enable",
-                    action: { hud.requestAccessibilityPermissionIfNeeded() }
+                    actionTitle: hud.hasRequestedAccessibilityThisRun ? "Open Settings" : "Enable",
+                    action: {
+                        if hud.hasRequestedAccessibilityThisRun {
+                            openAccessibilitySettings()
+                        } else {
+                            hud.requestAccessibilityPermissionIfNeeded()
+                        }
+                    }
                 )
 
                 HStack(spacing: 10) {
@@ -159,6 +165,13 @@ struct OnboardingPermissionsStepView: View {
     private func openCalendarPrivacySettings() {
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
+        ) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openAccessibilitySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         ) else { return }
         NSWorkspace.shared.open(url)
     }

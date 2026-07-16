@@ -49,6 +49,46 @@ enum NowPlayingMetrics {
     static let collapsedArtSize: CGFloat = 22
     /// EQ bars area in the collapsed pill.
     static let collapsedBarsSize = CGSize(width: 22, height: 14)
+
+    static func compactHeight(for size: NotchSize) -> CGFloat {
+        switch size {
+        case .small: 64
+        case .medium: 72
+        case .large: 82
+        }
+    }
+
+    static func surfaceHeight(for size: NotchSize) -> CGFloat {
+        compactHeight(for: size) - 6
+    }
+
+    static func sourceSize(for size: NotchSize) -> CGFloat {
+        switch size {
+        case .small: 32
+        case .medium: 36
+        case .large: 40
+        }
+    }
+
+    static func titleSize(for size: NotchSize) -> CGFloat {
+        switch size {
+        case .small: 14
+        case .medium: 15
+        case .large: 16
+        }
+    }
+
+    static func subtitleSize(for size: NotchSize) -> CGFloat {
+        size == .small ? 11 : 12
+    }
+
+    static func widthAddition(for size: NotchSize) -> CGFloat {
+        switch size {
+        case .small: 0
+        case .medium: 60
+        case .large: 120
+        }
+    }
 }
 
 private enum MediaSourceLogo {
@@ -256,6 +296,7 @@ struct NowPlayingCollapsedView: View {
                 CGFloat(settings.collapsedWidth),
                 presentation.preferredWidth * 0.38
             ),
+            notchSize: settings.notchContentSize,
             isHovering: isHovering,
             revealsContent: revealsContent,
             accessibilityContrast: accessibilityContrast,
@@ -312,6 +353,7 @@ struct CompactMediaContent: View {
     let processedBackground: NSImage?
     let backgroundIdentity: String?
     let hardwareNotchWidth: CGFloat
+    var notchSize: NotchSize = .small
     let isHovering: Bool
     let revealsContent: Bool
     let accessibilityContrast: ColorSchemeContrast
@@ -335,7 +377,7 @@ struct CompactMediaContent: View {
                 reduceMotion: reduceMotion
             )
             .frame(maxWidth: .infinity)
-            .frame(height: NowPlayingMetrics.compactSurfaceHeight)
+            .frame(height: NowPlayingMetrics.surfaceHeight(for: notchSize))
             .clipShape(compactSurfaceShape)
             .overlay {
                 compactSurfaceShape
@@ -363,20 +405,23 @@ struct CompactMediaContent: View {
 
             HStack(spacing: 0) {
                 HStack(spacing: 10) {
-                    CompactSourceIdentityView(style: presentation.source, size: 32)
+                    CompactSourceIdentityView(
+                        style: presentation.source,
+                        size: NowPlayingMetrics.sourceSize(for: notchSize)
+                    )
                         .scaleEffect(revealsContent && !reduceMotion ? 1 : 0.88)
                         .opacity(revealsContent ? 1 : 0)
                         .animation(entranceAnimation(delay: 0), value: revealsContent)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(presentation.primaryTitle)
-                            .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                            .font(.system(size: NowPlayingMetrics.titleSize(for: notchSize), weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .contentTransition(.interpolate)
                         Text(presentation.secondaryTitle)
-                            .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
+                            .font(.system(size: NowPlayingMetrics.subtitleSize(for: notchSize), weight: .regular))
                             .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -430,7 +475,7 @@ struct CompactMediaContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .frame(height: NowPlayingMetrics.compactContentHeight)
+            .frame(height: NowPlayingMetrics.compactContentHeight + (notchSize == .small ? 0 : 6))
             .padding(.horizontal, NowPlayingMetrics.compactHorizontalPadding)
             .padding(.bottom, NowPlayingMetrics.compactContentBottomPadding)
             .scaleEffect(isHovering ? 1.006 : 1, anchor: .bottom)

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct MacFlowHubView: View {
     @EnvironmentObject private var settings: NotchSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("macflow.selectedSection") private var selection: MacFlowSection = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     #if DEBUG
@@ -30,8 +31,22 @@ struct MacFlowHubView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MacFlowColor.canvas)
                 .transition(.opacity)
+                .toolbar(removing: .sidebarToggle)
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                        columnVisibility = sidebarIsVisible ? .detailOnly : .all
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
+                .accessibilityLabel(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
+            }
+        }
         .frame(
             minWidth: MacFlowMetrics.minimumWindowWidth,
             idealWidth: MacFlowMetrics.idealWindowWidth,
@@ -39,6 +54,10 @@ struct MacFlowHubView: View {
             idealHeight: MacFlowMetrics.idealWindowHeight
         )
         .preferredColorScheme(settings.theme.colorScheme)
+    }
+
+    private var sidebarIsVisible: Bool {
+        columnVisibility != .detailOnly
     }
 
     private var showsDebug: Bool {

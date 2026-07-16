@@ -40,7 +40,7 @@ struct MacFlowSidebarView: View {
             set: { newSelection in
                 guard let newSelection, newSelection != selection else { return }
                 NotchHaptics.perform(.navigation)
-                withAnimation(MacFlowMotion.selection(reduceMotion: reduceMotion)) {
+                withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
                     selection = newSelection
                 }
             }
@@ -48,10 +48,9 @@ struct MacFlowSidebarView: View {
     }
 
     private var brand: some View {
-        HStack(spacing: MacFlowSpacing.space8) {
-            MacFlowLogoTile(size: 32, showsShadow: false)
+        HStack {
             Text("MacFlow")
-                .font(.headline)
+                .font(.title3.weight(.semibold))
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)

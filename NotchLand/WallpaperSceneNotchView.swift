@@ -11,10 +11,15 @@ import SwiftUI
 enum WallpaperSceneNotchMetrics {
     nonisolated static let compactSize = CGSize(width: 520, height: 50)
     nonisolated static let mediumSize = CGSize(width: 700, height: 78)
+    nonisolated static let largeSize = CGSize(width: 760, height: 90)
     nonisolated static let dropSize = CGSize(width: 360, height: 138)
 
     nonisolated static func size(for notchSize: NotchSize) -> CGSize {
-        notchSize == .small ? compactSize : mediumSize
+        switch notchSize {
+        case .small: compactSize
+        case .medium: mediumSize
+        case .large: largeSize
+        }
     }
 }
 
@@ -27,7 +32,7 @@ struct WallpaperSceneCompactView: View {
     @State private var animatesScene = false
 
     private var notchSize: NotchSize {
-        settings.notchContentSize == .large ? .medium : settings.notchContentSize
+        settings.notchContentSize
     }
 
     private var exclusionWidth: CGFloat {

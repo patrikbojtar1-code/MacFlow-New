@@ -5,6 +5,7 @@
 //  Structured workspace for notch runtime and feature configuration.
 //
 
+import AppKit
 import SwiftUI
 
 struct MacFlowNotchWorkspaceView: View {
@@ -64,7 +65,7 @@ struct MacFlowNotchWorkspaceView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .id(tab)
             .transition(reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 5)))
-            .animation(MacFlowMotion.content(reduceMotion: reduceMotion), value: tab)
+            .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: tab)
         }
     }
 
@@ -100,7 +101,7 @@ struct MacFlowNotchWorkspaceView: View {
                 .buttonStyle(.plain)
             }
         }
-        .animation(MacFlowMotion.selection(reduceMotion: reduceMotion), value: tab)
+        .animation(AppMotion.interaction(reduceMotion: reduceMotion), value: tab)
         .padding(MacFlowSpacing.space4)
         .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
         .overlay {
@@ -151,50 +152,8 @@ struct MacFlowNotchWorkspaceView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(MacFlowColor.textSecondary)
                 }
-                GeometryReader { proxy in
-                    let shellWidth = min(max(330, proxy.size.width - 28), 460)
-                    ZStack(alignment: .top) {
-                        RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
-                            .fill(MacFlowColor.surface1)
-
-                        NotchShape(
-                            topWidth: min(previewNotchWidth, shellWidth * 0.42),
-                            bottomCornerRadius: 17,
-                            shoulderRadius: 13
-                        )
-                        .fill(.black)
-                        .frame(width: shellWidth, height: 58)
-                        .overlay {
-                            HStack(spacing: 0) {
-                                HStack(spacing: MacFlowSpacing.space8) {
-                                    Circle()
-                                        .fill(settings.liveActivitiesEnabled ? MacFlowColor.notch : MacFlowColor.textTertiary)
-                                        .frame(width: 7, height: 7)
-                                    Text(settings.liveActivitiesEnabled ? "Activity" : "Ready")
-                                        .font(.system(size: 10, weight: .medium))
-                                        .lineLimit(1)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-
-                                Color.clear
-                                    .frame(width: min(previewNotchWidth, shellWidth * 0.42))
-                                    .accessibilityHidden(true)
-
-                                HStack(spacing: MacFlowSpacing.space8) {
-                                    Image(systemName: "waveform")
-                                    Image(systemName: "pause.fill")
-                                }
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(MacFlowColor.notch)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                            }
-                            .padding(.horizontal, MacFlowSpacing.space16)
-                            .padding(.top, 29)
-                            .padding(.bottom, MacFlowSpacing.space8)
-                        }
-                    }
-                }
-                .frame(height: 82)
+                RealNotchMediaPreview(size: settings.notchContentSize)
+                    .frame(height: 112)
             }
             .padding(MacFlowSpacing.space12)
         }
@@ -301,11 +260,84 @@ struct MacFlowNotchWorkspaceView: View {
         }
     }
 
-    private var previewNotchWidth: CGFloat {
-        switch settings.notchContentSize {
-        case .small: 136
-        case .medium: 154
-        case .large: 174
+}
+
+private struct RealNotchMediaPreview: View {
+    let size: NotchSize
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var accessibilityContrast
+
+    private let hardwareWidth: CGFloat = 184
+    private let invertedRadius = FloatingNotchView.musicInvertedRadius
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bodyWidth = presentation.preferredWidth + NowPlayingMetrics.widthAddition(for: size)
+            let outerWidth = bodyWidth + invertedRadius * 2
+            let height = NowPlayingMetrics.compactHeight(for: size)
+            let availableWidth = max(1, proxy.size.width - MacFlowSpacing.space16)
+            let previewScale = min(1, availableWidth / outerWidth)
+            let shape = NotchDropShape(
+                invertedCornerRadius: invertedRadius,
+                bottomCornerRadius: NotchLayoutMetrics.bottomRadius(for: size)
+            )
+
+            ZStack(alignment: .bottom) {
+                shape.fill(.black)
+                CompactMediaContent(
+                    presentation: presentation,
+                    processedBackground: Self.previewBackground,
+                    backgroundIdentity: "macflow-notch-preview",
+                    hardwareNotchWidth: hardwareWidth,
+                    notchSize: size,
+                    isHovering: false,
+                    revealsContent: true,
+                    accessibilityContrast: accessibilityContrast,
+                    reduceMotion: reduceMotion,
+                    onPlayPause: {}
+                )
+                .frame(width: bodyWidth, height: height)
+            }
+            .frame(width: outerWidth, height: height)
+            .clipShape(shape)
+            .scaleEffect(previewScale, anchor: .center)
+            .frame(width: outerWidth * previewScale, height: height * previewScale)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .animation(AppMotion.emphasized(reduceMotion: reduceMotion), value: size)
         }
+        .background(
+            MacFlowColor.canvas,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Real notch media preview")
+        .accessibilityValue("\(size.title) content size")
     }
+
+    private var presentation: NowPlayingService.CompactMediaPresentation {
+        NowPlayingService.Track(
+            title: "A Dios Le Pido",
+            artist: "Juanes",
+            album: nil,
+            artwork: nil,
+            duration: 213,
+            elapsedAtTimestamp: 48,
+            timestamp: .now,
+            playbackRate: 1,
+            sourceApplicationName: "Spotify",
+            sourceBundleIdentifier: "com.spotify.client"
+        ).compactPresentation
+    }
+
+    private static let previewBackground: NSImage = {
+        let image = NSImage(size: NSSize(width: 240, height: 96))
+        image.lockFocus()
+        NSGradient(colors: [
+            NSColor(calibratedRed: 0.12, green: 0.46, blue: 0.28, alpha: 1),
+            NSColor(calibratedRed: 0.05, green: 0.08, blue: 0.07, alpha: 1),
+        ])?.draw(in: NSRect(origin: .zero, size: image.size), angle: 0)
+        image.unlockFocus()
+        return image
+    }()
 }

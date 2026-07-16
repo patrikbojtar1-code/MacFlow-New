@@ -219,6 +219,7 @@ final class AccessibilitySystemCallScanner: SystemCallScanning {
 @MainActor
 final class SystemCallActivitySource: ObservableObject {
     @Published private(set) var isAccessibilityTrusted = AXIsProcessTrusted()
+    @Published private(set) var hasRequestedAccessibilityThisRun = false
 
     private static let pollInterval: TimeInterval = 0.35
     private static let missingPollLimit = 3
@@ -267,6 +268,9 @@ final class SystemCallActivitySource: ObservableObject {
     }
 
     func requestAccessibilityPermission() {
+        refreshPermissionStatus()
+        guard !isAccessibilityTrusted, !hasRequestedAccessibilityThisRun else { return }
+        hasRequestedAccessibilityThisRun = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         isAccessibilityTrusted = AXIsProcessTrustedWithOptions(options)
     }

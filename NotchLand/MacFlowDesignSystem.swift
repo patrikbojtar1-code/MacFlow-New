@@ -111,11 +111,10 @@ nonisolated enum MacFlowRadius {
 nonisolated enum MacFlowMetrics {
     // Tuned for a 13-inch MacBook Air while still allowing a dense pro layout.
     static let sidebarWidth: CGFloat = 188
-    static let inspectorWidth: CGFloat = 252
-    static let minimumWindowWidth: CGFloat = 900
-    static let idealWindowWidth: CGFloat = 1_040
-    static let minimumWindowHeight: CGFloat = 620
-    static let idealWindowHeight: CGFloat = 680
+    static let minimumWindowWidth: CGFloat = 820
+    static let idealWindowWidth: CGFloat = 980
+    static let minimumWindowHeight: CGFloat = 560
+    static let idealWindowHeight: CGFloat = 640
     static let pageHeaderHeight: CGFloat = 64
     static let compactHeaderHeight: CGFloat = 58
     static let settingsRowHeight: CGFloat = 50
@@ -172,24 +171,6 @@ enum MacFlowTheme {
     static let ambientGlow = Color.clear
 }
 
-nonisolated enum MacFlowMotion {
-    static func selection(reduceMotion: Bool) -> Animation {
-        reduceMotion
-            ? .easeOut(duration: 0.10)
-            : .spring(response: 0.30, dampingFraction: 0.92, blendDuration: 0)
-    }
-
-    static func content(reduceMotion: Bool) -> Animation {
-        reduceMotion
-            ? .easeOut(duration: 0.12)
-            : .spring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)
-    }
-
-    static func hover(reduceMotion: Bool) -> Animation {
-        .easeOut(duration: reduceMotion ? 0.08 : 0.12)
-    }
-}
-
 struct MacFlowSurfaceModifier: ViewModifier {
     let radius: CGFloat
     var elevated = false
@@ -233,7 +214,7 @@ struct MacFlowInteractiveButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
             .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.46)
-            .animation(MacFlowMotion.hover(reduceMotion: reduceMotion), value: configuration.isPressed)
+            .animation(AppMotion.interaction(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 

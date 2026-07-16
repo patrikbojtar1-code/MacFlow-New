@@ -170,7 +170,7 @@ struct MacFlowHomeView: View {
 
     private func navigate(to section: MacFlowSection) {
         NotchHaptics.perform(.navigation)
-        withAnimation(MacFlowMotion.selection(reduceMotion: reduceMotion)) {
+        withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
             selection = section
         }
     }
@@ -183,6 +183,9 @@ private struct MacFlowModuleButtonStyle: ButtonStyle {
         configuration.label
             .background(configuration.isPressed ? MacFlowColor.surface2 : .clear)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.992 : 1)
-            .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
+            .animation(
+                .easeOut(duration: AppMotion.Duration.instant),
+                value: configuration.isPressed
+            )
     }
 }

@@ -2,7 +2,7 @@
 //  ScenesSettingsView.swift
 //  MacFlow
 //
-//  Wallpaper browser, active preview, library, and selected-scene inspector.
+//  Wallpaper browser with click-to-apply scene selection.
 //
 
 import AppKit
@@ -15,18 +15,10 @@ struct ScenesSettingsView: View {
     @State private var presentsImporter = false
     @State private var presentsAutomation = false
     @State private var presentsNewCollection = false
+    @State private var presentsSceneConfiguration = false
     @State private var newCollectionName = ""
     @State private var isImporting = false
-    @State private var inspectorTab: InspectorTab = .details
-
-    private enum InspectorTab: String, CaseIterable, Identifiable {
-        case details
-        case settings
-        case displays
-
-        var id: String { rawValue }
-        var title: String { rawValue.capitalized }
-    }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,6 +70,11 @@ struct ScenesSettingsView: View {
         .sheet(isPresented: $presentsAutomation) {
             WallpaperAutomationEditor()
                 .environmentObject(controller)
+        }
+        .sheet(isPresented: $presentsSceneConfiguration) {
+            if let scene = selectedScene {
+                sceneConfigurationSheet(scene)
+            }
         }
         .onAppear { synchronizeSelection() }
         .onChange(of: sceneIDs) { _, _ in synchronizeSelection() }
@@ -178,34 +175,29 @@ struct ScenesSettingsView: View {
     }
 
     private var browserContent: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                selectedPreview
-                    .padding(.horizontal, MacFlowSpacing.space16)
-                    .padding(.top, MacFlowSpacing.space16)
+        VStack(spacing: 0) {
+            selectedPreview
+                .padding(.horizontal, MacFlowSpacing.space16)
+                .padding(.top, MacFlowSpacing.space16)
+                .animation(
+                    AppMotion.stateChange(reduceMotion: reduceMotion),
+                    value: browser.selectedSceneID
+                )
 
-                libraryHeader
+            libraryHeader
+                .padding(.horizontal, MacFlowSpacing.space16)
+                .padding(.top, MacFlowSpacing.space16)
+                .padding(.bottom, MacFlowSpacing.space12)
+
+            if isImporting {
+                WallpaperImportSkeleton()
                     .padding(.horizontal, MacFlowSpacing.space16)
-                    .padding(.top, MacFlowSpacing.space16)
                     .padding(.bottom, MacFlowSpacing.space12)
-
-                if isImporting {
-                    WallpaperImportSkeleton()
-                        .padding(.horizontal, MacFlowSpacing.space16)
-                        .padding(.bottom, MacFlowSpacing.space12)
-                }
-
-                sceneLibrary
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Rectangle()
-                .fill(MacFlowColor.borderSubtle)
-                .frame(width: 1)
-
-            sceneInspector
-                .frame(width: MacFlowMetrics.inspectorWidth)
+            sceneLibrary
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var selectedPreview: some View {
@@ -295,16 +287,53 @@ struct ScenesSettingsView: View {
                 .buttonStyle(.bordered)
                 .help("Stop wallpaper")
                 .accessibilityLabel("Stop wallpaper")
-            } else {
-                Button {
-                    NotchHaptics.perform(.confirmation)
-                    controller.apply(scene)
-                } label: {
-                    Label("Apply", systemImage: "display")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(MacFlowColor.accent)
             }
+
+            Button {
+                presentsSceneConfiguration = true
+            } label: {
+                Label("Configure", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.bordered)
+
+            Menu {
+                Button {
+                    controller.library.toggleFavorite(scene)
+                } label: {
+                    Label(
+                        controller.library.isFavorite(scene) ? "Remove from Favorites" : "Add to Favorites",
+                        systemImage: controller.library.isFavorite(scene) ? "star.slash" : "star"
+                    )
+                }
+                Button {
+                    exportScene(scene)
+                } label: {
+                    Label("Export Scene…", systemImage: "square.and.arrow.up")
+                }
+                Menu("Add to Collection") {
+                    ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
+                        Button {
+                            controller.library.toggle(scene, in: collection)
+                        } label: {
+                            Label(
+                                collection.title,
+                                systemImage: controller.library.contains(scene, in: collection)
+                                    ? "checkmark.circle.fill"
+                                    : "circle"
+                            )
+                        }
+                    }
+                }
+                Divider()
+                Button("Remove Scene", role: .destructive) {
+                    controller.remove(scene)
+                    synchronizeSelection()
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton)
+            .help("Scene actions")
         }
     }
 
@@ -392,7 +421,7 @@ struct ScenesSettingsView: View {
                                 isSelected: scene.id == browser.selectedSceneID,
                                 isActive: scene.id == controller.activeSceneID,
                                 isFavorite: controller.library.isFavorite(scene),
-                                select: { browser.selectedSceneID = scene.id },
+                                select: { activate(scene) },
                                 toggleFavorite: { controller.library.toggleFavorite(scene) }
                             )
                         }
@@ -405,7 +434,7 @@ struct ScenesSettingsView: View {
                                 previewURL: controller.library.previewURL(for: scene),
                                 isSelected: scene.id == browser.selectedSceneID,
                                 isActive: scene.id == controller.activeSceneID,
-                                select: { browser.selectedSceneID = scene.id }
+                                select: { activate(scene) }
                             )
                         }
                     }
@@ -414,140 +443,6 @@ struct ScenesSettingsView: View {
             .contentMargins(.horizontal, MacFlowSpacing.space16, for: .scrollContent)
             .contentMargins(.bottom, MacFlowSpacing.space16, for: .scrollContent)
             .scrollIndicators(.hidden)
-        }
-    }
-
-    private var sceneInspector: some View {
-        VStack(spacing: 0) {
-            if let scene = selectedScene {
-                inspectorHeader(scene)
-                inspectorTabs
-                Divider().overlay(MacFlowColor.borderSubtle)
-                ScrollView {
-                    switch inspectorTab {
-                    case .details: inspectorDetails(scene)
-                    case .settings: inspectorSettings(scene)
-                    case .displays: inspectorDisplays(scene)
-                    }
-                }
-                .scrollIndicators(.hidden)
-            } else {
-                MacFlowEmptyState(
-                    systemImage: "sidebar.right",
-                    title: "Select a scene",
-                    detail: "Scene details and controls appear here."
-                )
-            }
-        }
-        .background(MacFlowColor.sidebar.opacity(0.62))
-    }
-
-    private func inspectorHeader(_ scene: WallpaperScene) -> some View {
-        HStack(spacing: MacFlowSpacing.space12) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                HStack(spacing: MacFlowSpacing.space8) {
-                    Text(scene.title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .lineLimit(1)
-                    if scene.id == controller.activeSceneID {
-                        Text("LIVE")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(.green)
-                    }
-                }
-                Text(scene.author)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(MacFlowColor.textSecondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button {
-                controller.library.toggleFavorite(scene)
-            } label: {
-                Image(systemName: controller.library.isFavorite(scene) ? "star.fill" : "star")
-                    .foregroundStyle(controller.library.isFavorite(scene) ? .yellow : MacFlowColor.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help(controller.library.isFavorite(scene) ? "Remove from Favorites" : "Add to Favorites")
-
-            Menu {
-                Button {
-                    exportScene(scene)
-                } label: {
-                    Label("Export Scene…", systemImage: "square.and.arrow.up")
-                }
-                Menu("Add to Collection") {
-                    ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
-                        Button {
-                            controller.library.toggle(scene, in: collection)
-                        } label: {
-                            Label(
-                                collection.title,
-                                systemImage: controller.library.contains(scene, in: collection) ? "checkmark.circle.fill" : "circle"
-                            )
-                        }
-                    }
-                }
-                Divider()
-                Button("Remove Scene", role: .destructive) {
-                    controller.remove(scene)
-                    synchronizeSelection()
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-        }
-        .padding(.horizontal, MacFlowSpacing.space16)
-        .frame(height: 60)
-    }
-
-    private var inspectorTabs: some View {
-        Picker("Inspector", selection: $inspectorTab) {
-            ForEach(InspectorTab.allCases) { tab in
-                Text(tab.title).tag(tab)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .padding(.horizontal, MacFlowSpacing.space12)
-        .padding(.bottom, MacFlowSpacing.space12)
-    }
-
-    private func inspectorDetails(_ scene: WallpaperScene) -> some View {
-        VStack(spacing: 0) {
-            MacFlowInspectorSection("Scene") {
-                inspectorValue("Type", scene.kind.displayName)
-                inspectorValue("Scaling", scene.rendering.scalingMode.title)
-                inspectorValue("Added", scene.createdAt.formatted(date: .abbreviated, time: .omitted))
-                inspectorValue("Package", "Manifest v\(scene.manifestVersion)")
-            }
-            Divider().overlay(MacFlowColor.borderSubtle)
-            MacFlowInspectorSection("Runtime") {
-                inspectorValue("State", scene.id == controller.activeSceneID ? runtimeState : "Not applied")
-                inspectorValue("Performance", controller.performance.effectiveProfile.title)
-                inspectorValue("Displays", "\(NSScreen.screens.count)")
-            }
-            Divider().overlay(MacFlowColor.borderSubtle)
-            MacFlowInspectorSection("Collections") {
-                let memberships = controller.library.collections.filter { controller.library.contains(scene, in: $0) }
-                if memberships.isEmpty {
-                    Text("Not in a collection")
-                        .font(.system(size: 11))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                } else {
-                    MacFlowWrapLayout(spacing: MacFlowSpacing.space8) {
-                        ForEach(memberships) { collection in
-                            Text(collection.title)
-                                .font(.system(size: 9.5, weight: .medium))
-                                .padding(.horizontal, MacFlowSpacing.space8)
-                                .padding(.vertical, MacFlowSpacing.space4)
-                                .background(MacFlowColor.surface2, in: Capsule())
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -615,66 +510,35 @@ struct ScenesSettingsView: View {
                 .buttonStyle(.bordered)
                 .disabled(scene.rendering == .default)
             }
-            Divider().overlay(MacFlowColor.borderSubtle)
-            MacFlowInspectorSection("Automation") {
-                Text(controller.automationStatusDetail)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(MacFlowColor.textSecondary)
-                Button("Edit Automation…") { presentsAutomation = true }
-                    .buttonStyle(.bordered)
-            }
         }
     }
 
-    private func inspectorDisplays(_ scene: WallpaperScene) -> some View {
+    private func sceneConfigurationSheet(_ scene: WallpaperScene) -> some View {
         VStack(spacing: 0) {
-            MacFlowInspectorSection("Connected displays") {
-                ForEach(Array(NSScreen.screens.enumerated()), id: \.offset) { index, screen in
-                    HStack(spacing: MacFlowSpacing.space12) {
-                        Image(systemName: "display")
-                            .foregroundStyle(scene.id == controller.activeSceneID ? MacFlowColor.wallpaper : MacFlowColor.textSecondary)
-                        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                            Text(screen.localizedName)
-                                .font(.system(size: 11.5, weight: .medium))
-                            Text(index == 0 ? "Primary display" : "Secondary display")
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(MacFlowColor.textSecondary)
-                        }
-                        Spacer()
-                        if scene.id == controller.activeSceneID {
-                            Circle().fill(.green).frame(width: 6, height: 6)
-                        }
-                    }
-                    .padding(.vertical, MacFlowSpacing.space8)
+            HStack {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                    Text(scene.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Text("Wallpaper settings")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
+                Button("Done") { presentsSceneConfiguration = false }
+                    .keyboardShortcut(.defaultAction)
             }
-            Divider().overlay(MacFlowColor.borderSubtle)
-            MacFlowInspectorSection("Apply") {
-                Text("MacFlow currently keeps one coordinated scene across every connected display.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(MacFlowColor.textSecondary)
-                Button {
-                    controller.apply(scene)
-                } label: {
-                    Label("Apply to All Displays", systemImage: "display.2")
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(MacFlowColor.accent)
-                .disabled(scene.id == controller.activeSceneID)
-            }
-        }
-    }
+            .padding(MacFlowSpacing.space16)
 
-    private func inspectorValue(_ title: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.system(size: 10.5))
-                .foregroundStyle(MacFlowColor.textSecondary)
-            Spacer()
-            Text(value)
-                .font(.system(size: 10.5, weight: .medium))
-                .multilineTextAlignment(.trailing)
+            Divider()
+
+            ScrollView {
+                inspectorSettings(scene)
+                    .padding(.vertical, MacFlowSpacing.space8)
+            }
         }
+        .frame(minWidth: 380, idealWidth: 420, minHeight: 360, idealHeight: 440)
+        .background(MacFlowColor.canvas)
     }
 
     private func renderingBinding<Value>(
@@ -707,12 +571,6 @@ struct ScenesSettingsView: View {
         controller.library.scenes.map(\.id)
     }
 
-    private var runtimeState: String {
-        if controller.isPaused { return "Paused" }
-        if let detail = controller.suspensionDetail { return detail }
-        return controller.isRunning ? "Live" : "Ready"
-    }
-
     private var collectionFilterTitle: String {
         guard case .collection(let collectionID) = browser.scope,
               let collection = controller.library.collections.first(where: { $0.id == collectionID }) else {
@@ -727,6 +585,15 @@ struct ScenesSettingsView: View {
 
     private func synchronizeSelectionToVisibleScenes() {
         browser.ensureSelection(in: visibleScenes, preferredID: controller.activeSceneID)
+    }
+
+    private func activate(_ scene: WallpaperScene) {
+        withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
+            browser.selectedSceneID = scene.id
+        }
+        guard controller.activeSceneID != scene.id else { return }
+        NotchHaptics.perform(.confirmation)
+        controller.apply(scene)
     }
 
     private func handleImport(_ result: Result<[URL], Error>) {
@@ -786,26 +653,13 @@ private struct WallpaperSceneTile: View {
             VStack(alignment: .leading, spacing: 0) {
                 WallpaperThumbnailView(scene: scene, url: previewURL, scalingMode: .fill, dimming: 0)
                     .aspectRatio(16 / 9, contentMode: .fit)
-                    .overlay(alignment: .topTrailing) {
-                        Button(action: toggleFavorite) {
-                            Image(systemName: isFavorite ? "star.fill" : "star")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(isFavorite ? .yellow : .white.opacity(0.82))
-                                .frame(width: 26, height: 26)
-                                .background(.black.opacity(0.46), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(MacFlowSpacing.space8)
-                        .opacity(isHovered || isFavorite ? 1 : 0)
-                        .accessibilityLabel(isFavorite ? "Remove from Favorites" : "Add to Favorites")
-                    }
 
                 HStack(spacing: MacFlowSpacing.space8) {
                     VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                         Text(scene.title)
                             .font(.system(size: 11.5, weight: .medium))
                             .lineLimit(1)
-                        HStack(spacing: MacFlowSpacing.space5) {
+                        HStack(spacing: MacFlowSpacing.space4) {
                             Circle()
                                 .fill(isActive ? Color.green : MacFlowColor.textTertiary)
                                 .frame(width: 5, height: 5)
@@ -830,6 +684,19 @@ private struct WallpaperSceneTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(MacFlowInteractiveButtonStyle())
+        .overlay(alignment: .topTrailing) {
+            Button(action: toggleFavorite) {
+                Image(systemName: isFavorite ? "star.fill" : "star")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isFavorite ? .yellow : .white.opacity(0.82))
+                    .frame(width: 26, height: 26)
+                    .background(.black.opacity(0.46), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(MacFlowSpacing.space8)
+            .opacity(isHovered || isFavorite ? 1 : 0)
+            .accessibilityLabel(isFavorite ? "Remove from Favorites" : "Add to Favorites")
+        }
         .onHover { isHovered = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -930,9 +797,6 @@ private struct WallpaperThumbnailView: View {
 }
 
 private struct WallpaperImportSkeleton: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = -1
-
     var body: some View {
         HStack(spacing: MacFlowSpacing.space12) {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -943,29 +807,12 @@ private struct WallpaperImportSkeleton: View {
                 RoundedRectangle(cornerRadius: 3).fill(MacFlowColor.surface1).frame(width: 90, height: 8)
             }
             Spacer()
-            Text("Importing…")
-                .font(.system(size: 10.5, weight: .medium))
+            ProgressView("Importing")
+                .controlSize(.small)
                 .foregroundStyle(MacFlowColor.textSecondary)
         }
         .padding(MacFlowSpacing.space12)
         .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
-        .overlay {
-            if !reduceMotion {
-                LinearGradient(
-                    colors: [.clear, .white.opacity(0.08), .clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .offset(x: phase * 260)
-                .mask(RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
-            }
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
-                phase = 1
-            }
-        }
     }
 }
 
@@ -1109,76 +956,5 @@ private struct WallpaperAutomationEditor: View {
                 controller.updateAutomationConfiguration { $0.setSceneID(sceneID, for: period) }
             }
         )
-    }
-}
-
-private extension MacFlowSpacing {
-    static let space5: CGFloat = 5
-}
-
-/// Lightweight layout for the small, variable-width collection chips in the
-/// inspector. It avoids a GeometryReader and performs no continuous updates.
-private struct MacFlowWrapLayout: Layout {
-    let spacing: CGFloat
-
-    struct Cache {
-        var sizes: [CGSize] = []
-    }
-
-    func makeCache(subviews: Subviews) -> Cache {
-        Cache(sizes: subviews.map { $0.sizeThatFits(.unspecified) })
-    }
-
-    func updateCache(_ cache: inout Cache, subviews: Subviews) {
-        cache.sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-    }
-
-    func sizeThatFits(
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout Cache
-    ) -> CGSize {
-        let maximumWidth = proposal.width ?? cache.sizes.reduce(0) { $0 + $1.width + spacing }
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
-        for size in cache.sizes {
-            if x > 0, x + size.width > maximumWidth {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-
-        return CGSize(width: maximumWidth, height: y + rowHeight)
-    }
-
-    func placeSubviews(
-        in bounds: CGRect,
-        proposal: ProposedViewSize,
-        subviews: Subviews,
-        cache: inout Cache
-    ) {
-        var x = bounds.minX
-        var y = bounds.minY
-        var rowHeight: CGFloat = 0
-
-        for (subview, size) in zip(subviews, cache.sizes) {
-            if x > bounds.minX, x + size.width > bounds.maxX {
-                x = bounds.minX
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            subview.place(
-                at: CGPoint(x: x, y: y),
-                anchor: .topLeading,
-                proposal: ProposedViewSize(size)
-            )
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
     }
 }

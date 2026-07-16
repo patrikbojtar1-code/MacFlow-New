@@ -17,8 +17,8 @@ struct MacFlowIntegrationTests {
     @Test func compactShellFitsAThirteenInchMacBookWorkspace() {
         #expect(MacFlowMetrics.idealWindowWidth <= 1_040)
         #expect(MacFlowMetrics.idealWindowHeight <= 680)
-        #expect(MacFlowMetrics.minimumWindowWidth <= 900)
-        #expect(MacFlowMetrics.minimumWindowHeight <= 620)
+        #expect(MacFlowMetrics.minimumWindowWidth <= 820)
+        #expect(MacFlowMetrics.minimumWindowHeight <= 560)
         #expect(MacFlowMetrics.readableContentMaxWidth >= MacFlowMetrics.idealWindowWidth - MacFlowMetrics.sidebarWidth)
     }
 
@@ -34,12 +34,34 @@ struct MacFlowIntegrationTests {
         ] == [4, 8, 12, 16, 24, 32, 48])
     }
 
-    @Test func minimumWallpaperCanvasRemainsUsableBesideInspector() {
+    @Test func minimumWallpaperCanvasRemainsUsableWithoutPermanentInspector() {
         let canvasWidth = MacFlowMetrics.minimumWindowWidth
             - MacFlowMetrics.sidebarWidth
-            - MacFlowMetrics.inspectorWidth
-            - 2
-        #expect(canvasWidth >= 450)
+        #expect(canvasWidth >= 620)
+    }
+
+    @Test func notchContentSizesProduceThreeDistinctCompactGeometries() {
+        let sizes = NotchSize.allCases.map {
+            (
+                NotchLayoutMetrics.bodySize(for: $0),
+                NowPlayingMetrics.compactHeight(for: $0),
+                NowPlayingMetrics.widthAddition(for: $0)
+            )
+        }
+
+        #expect(sizes[0].0.width < sizes[1].0.width)
+        #expect(sizes[1].0.width < sizes[2].0.width)
+        #expect(sizes[0].1 < sizes[1].1)
+        #expect(sizes[1].1 < sizes[2].1)
+        #expect(sizes[0].2 < sizes[1].2)
+        #expect(sizes[1].2 < sizes[2].2)
+    }
+
+    @Test func appMotionUsesTheDocumentedDurationScale() {
+        #expect(AppMotion.Duration.instant == 0.10)
+        #expect(AppMotion.Duration.quick == 0.16)
+        #expect(AppMotion.Duration.standard == 0.22)
+        #expect(AppMotion.Duration.emphasized == 0.34)
     }
 
     @MainActor

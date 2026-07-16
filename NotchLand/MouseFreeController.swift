@@ -101,6 +101,7 @@ final class MouseFreeController: ObservableObject {
     @Published private(set) var selectedPreset: MouseScrollPreset?
     @Published private(set) var status: Status = .disabled
     @Published private(set) var isAccessibilityTrusted = false
+    @Published private(set) var hasRequestedAccessibilityThisRun = false
 
     /// Accessibility approval is tied to the installed app's code signature.
     /// A DerivedData or /tmp build receives a new ad-hoc identity on every build,
@@ -190,9 +191,19 @@ final class MouseFreeController: ObservableObject {
     }
 
     func requestAccessibilityPermission() {
+        guard !refreshAccessibilityTrust() else { return }
+        guard !hasRequestedAccessibilityThisRun else { return }
+        hasRequestedAccessibilityThisRun = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         refreshPermissionStatus()
+    }
+
+    @discardableResult
+    private func refreshAccessibilityTrust() -> Bool {
+        let trusted = trustProvider()
+        isAccessibilityTrusted = trusted
+        return trusted
     }
 
     private func changed(_ key: String, value: Any) {

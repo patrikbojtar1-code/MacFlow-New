@@ -81,9 +81,6 @@ enum OnboardingProfile: String, CaseIterable, Identifiable {
 }
 
 struct OnboardingWelcomeStepView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var waveformPhase = false
-
     private var firstName: String {
         let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
         return fullName.split(separator: " ").first.map(String.init) ?? "there"
@@ -120,9 +117,7 @@ struct OnboardingWelcomeStepView: View {
                             .fill(Color.white.opacity(0.78))
                             .frame(
                                 width: 2,
-                                height: waveformPhase
-                                    ? CGFloat([7, 13, 10, 15, 8][index])
-                                    : CGFloat([11, 7, 14, 9, 12][index])
+                                height: CGFloat([11, 7, 14, 9, 12][index])
                             )
                     }
                     Image(systemName: "pause.fill")
@@ -146,12 +141,6 @@ struct OnboardingWelcomeStepView: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true)) {
-                waveformPhase = true
-            }
-        }
     }
 }
 
@@ -229,7 +218,7 @@ struct OnboardingShowcaseStepView: View {
             HStack(spacing: 7) {
                 ForEach(Demo.allCases) { demo in
                     Button {
-                        withAnimation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion)) {
+                        withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
                             selection = demo
                         }
                     } label: {
@@ -246,17 +235,6 @@ struct OnboardingShowcaseStepView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-        }
-        .task {
-            guard !reduceMotion else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2.4))
-                guard !Task.isCancelled else { return }
-                let next = Demo(rawValue: (selection.rawValue + 1) % Demo.allCases.count) ?? .media
-                withAnimation(NotchMotionGraph.animation(for: .contentEnter, reduceMotion: reduceMotion)) {
-                    selection = next
-                }
-            }
         }
     }
 
@@ -340,7 +318,7 @@ struct OnboardingShowcaseStepView: View {
 
 struct OnboardingProfileStepView: View {
     @Binding var selection: OnboardingProfile
-    @EnvironmentObject private var preferences: WidgetPreferencesController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -365,8 +343,9 @@ struct OnboardingProfileStepView: View {
     private func profileCard(_ profile: OnboardingProfile) -> some View {
         let isSelected = selection == profile
         return Button {
-            selection = profile
-            profile.apply(to: preferences)
+            withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
+                selection = profile
+            }
         } label: {
             HStack(spacing: 11) {
                 Image(systemName: profile.symbol)
@@ -399,7 +378,7 @@ struct OnboardingProfileStepView: View {
             }
         }
         .buttonStyle(.plain)
-        .animation(NotchMotionGraph.animation(for: .selection), value: isSelected)
+        .animation(AppMotion.interaction(reduceMotion: reduceMotion), value: isSelected)
     }
 }
 
@@ -486,6 +465,7 @@ struct OnboardingModulesStepView: View {
 struct OnboardingReadyStepView: View {
     let onFinish: () -> Void
     @EnvironmentObject private var preferences: WidgetPreferencesController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didAppear = false
 
     var body: some View {
@@ -518,19 +498,14 @@ struct OnboardingReadyStepView: View {
                 }
             }
 
-            Button(action: onFinish) {
-                Text("LAUNCH NOTCHLAND")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .tracking(1)
-                    .foregroundStyle(.black)
-                    .frame(width: 190, height: 31)
-                    .background(.green, in: Capsule(style: .continuous))
-            }
-            .buttonStyle(.plain)
+            Button("Start MacFlow", systemImage: "arrow.right", action: onFinish)
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            withAnimation(NotchMotionGraph.animation(for: .success)) {
+            withAnimation(AppMotion.emphasized(reduceMotion: reduceMotion)) {
                 didAppear = true
             }
         }

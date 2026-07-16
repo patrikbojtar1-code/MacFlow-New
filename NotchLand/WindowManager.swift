@@ -1138,9 +1138,7 @@ final class WindowManager: NSObject {
         let focusPresentation = focusMode.currentPresentation
         let screenLockPresentation = screenLock.currentPresentation
         let callPresentation = calls.current
-        let compactNotchSize: NotchSize = settings.notchContentSize == .large
-            ? .medium
-            : settings.notchContentSize
+        let compactNotchSize = settings.notchContentSize
 
         let invertedR: CGFloat
         if batteryPresentation != nil || focusPresentation != nil || screenLockPresentation != nil
@@ -1242,13 +1240,14 @@ final class WindowManager: NSObject {
         if hasMusic {
             let presentation = nowPlaying.track?.compactPresentation
             let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
+            let densityWidth = NowPlayingMetrics.widthAddition(for: compactNotchSize)
             let hoverExpansion = appState.isHovering
                 ? NowPlayingMetrics.compactHoverWidthExpansion
                 : 0
-            let bodyW = max(baseWidth, preferredWidth + hoverExpansion)
+            let bodyW = max(baseWidth, preferredWidth + densityWidth + hoverExpansion)
             return CGSize(
                 width: bodyW + extra,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight)
+                height: max(baseHeight, NowPlayingMetrics.compactHeight(for: compactNotchSize))
             )
         }
         if hasEvent {

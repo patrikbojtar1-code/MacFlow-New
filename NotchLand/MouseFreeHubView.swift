@@ -71,7 +71,13 @@ struct MouseFreeHubView: View {
                 Spacer(minLength: MacFlowSpacing.space16)
 
                 if controller.isStableApplicationLocation {
-                    Button("Allow") { controller.requestAccessibilityPermission() }
+                    Button(controller.hasRequestedAccessibilityThisRun ? "Open Settings" : "Allow") {
+                        if controller.hasRequestedAccessibilityThisRun {
+                            openAccessibilitySettings()
+                        } else {
+                            controller.requestAccessibilityPermission()
+                        }
+                    }
                         .buttonStyle(.borderedProminent)
                         .tint(MacFlowColor.accent)
                 } else {

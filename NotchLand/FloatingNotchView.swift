@@ -1253,7 +1253,7 @@ struct FloatingNotchView: View {
     }
 
     private var effectiveCompactNotchSize: NotchSize {
-        settings.notchContentSize == .large ? .medium : settings.notchContentSize
+        settings.notchContentSize
     }
 
     private func currentVisibleSize(for key: String) -> CGSize {
@@ -1370,13 +1370,14 @@ struct FloatingNotchView: View {
         if hasMusic {
             let presentation = nowPlaying.track?.compactPresentation
             let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
+            let densityWidth = NowPlayingMetrics.widthAddition(for: effectiveCompactNotchSize)
             let hoverExpansion = appState.isHovering
                 ? NowPlayingMetrics.compactHoverWidthExpansion
                 : 0
-            let bodyW = max(baseWidth, preferredWidth + hoverExpansion)
+            let bodyW = max(baseWidth, preferredWidth + densityWidth + hoverExpansion)
             return CGSize(
                 width: bodyW + extra,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight)
+                height: max(baseHeight, NowPlayingMetrics.compactHeight(for: effectiveCompactNotchSize))
             )
         }
         if key == "event-collapsed" {
