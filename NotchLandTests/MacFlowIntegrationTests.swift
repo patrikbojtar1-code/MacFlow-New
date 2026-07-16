@@ -29,6 +29,14 @@ struct MacFlowIntegrationTests {
         #expect(canvasWidth >= 450)
     }
 
+    @MainActor
+    @Test func menuBarBrandMarkUsesNativeTemplateRendering() {
+        let image = MacFlowMenuBarSymbol.image()
+        #expect(image.isTemplate)
+        #expect(image.size.width == 22)
+        #expect(image.size.height == 17)
+    }
+
     @Test func wheelImpulseCreatesGlideAndSettles() {
         let engine = MouseFreeScrollEngine()
         engine.addInput(x: 0, y: 1, timestamp: 1, configuration: balanced)

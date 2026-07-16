@@ -24,6 +24,7 @@ struct MacFlowNotchWorkspaceView: View {
     @EnvironmentObject private var focusMode: FocusModeController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab: Tab = .overview
+    @Namespace private var tabSelectionNamespace
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,22 +80,27 @@ struct MacFlowNotchWorkspaceView: View {
                         .foregroundStyle(tab == item ? .primary : MacFlowColor.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, MacFlowSpacing.space8)
-                        .background(
-                            tab == item ? MacFlowColor.surface2 : .clear,
-                            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                        )
+                        .background {
+                            if tab == item {
+                                RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+                                    .fill(MacFlowColor.surface2)
+                                    .matchedGeometryEffect(id: "notch-tab-surface", in: tabSelectionNamespace)
+                            }
+                        }
                         .overlay(alignment: .bottom) {
                             if tab == item {
                                 Capsule()
                                     .fill(MacFlowColor.notch)
                                     .frame(width: 34, height: 2)
                                     .offset(y: 1)
+                                    .matchedGeometryEffect(id: "notch-tab-indicator", in: tabSelectionNamespace)
                             }
                         }
                 }
                 .buttonStyle(.plain)
             }
         }
+        .animation(MacFlowMotion.selection(reduceMotion: reduceMotion), value: tab)
         .padding(MacFlowSpacing.space4)
         .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
         .overlay {

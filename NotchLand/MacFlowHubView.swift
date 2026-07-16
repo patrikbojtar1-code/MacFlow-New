@@ -32,7 +32,7 @@ struct MacFlowHubView: View {
                 .transition(
                     reduceMotion
                         ? .opacity
-                        : .opacity.combined(with: .offset(x: 6))
+                        : .macFlowContent
                 )
         }
         .background(MacFlowColor.appBackground)
@@ -42,7 +42,7 @@ struct MacFlowHubView: View {
             minHeight: MacFlowMetrics.minimumWindowHeight,
             idealHeight: MacFlowMetrics.idealWindowHeight
         )
-        .animation(MacFlowMotion.content(reduceMotion: reduceMotion), value: selection)
+        .animation(MacFlowMotion.navigation(reduceMotion: reduceMotion), value: selection)
         .preferredColorScheme(settings.theme.colorScheme)
     }
 

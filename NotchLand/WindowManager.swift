@@ -700,16 +700,8 @@ final class WindowManager: NSObject {
         if statusItem == nil {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             if let button = item.button {
-                if let image = NSImage(named: "MenuBarIcon") {
-                    image.isTemplate = true
-                    // Scale to the menu bar's height while preserving the notch's 2:1 aspect ratio.
-                    let height: CGFloat = 18
-                    image.size = NSSize(width: height * (image.size.width / image.size.height), height: height)
-                    button.image = image
-                    button.imagePosition = .imageOnly
-                } else {
-                    button.title = "NL"
-                }
+                button.image = MacFlowMenuBarSymbol.image()
+                button.imagePosition = .imageOnly
                 button.toolTip = "MacFlow"
             }
             item.menu = NSMenu()
@@ -725,42 +717,59 @@ final class WindowManager: NSObject {
 
         let titleItem = NSMenuItem(title: "MacFlow", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
+        if let source = NSImage(named: "MacFlowBrandIcon"),
+           let image = source.copy() as? NSImage {
+            image.size = NSSize(width: 18, height: 18)
+            titleItem.image = image
+        }
         menu.addItem(titleItem)
         menu.addItem(.separator())
 
-        let showItem = makeMenuItem(title: "Show Notch", action: #selector(toggleNotch), key: "n")
+        menu.addItem(makeMenuItem(
+            title: "Open MacFlow",
+            action: #selector(openCompanionWindow),
+            key: "",
+            systemImage: "macwindow"
+        ))
+
+        let showItem = makeMenuItem(
+            title: "Show Notch",
+            action: #selector(toggleNotch),
+            key: "n",
+            systemImage: "macbook"
+        )
         showItem.state = settings.showNotch ? .on : .off
         menu.addItem(showItem)
 
-        let expandItem = makeMenuItem(
-            title: appState.isExpanded ? "Collapse Notch" : "Expand Notch",
-            action: #selector(toggleExpansion),
-            key: "e"
-        )
-        expandItem.isEnabled = settings.showNotch
-        menu.addItem(expandItem)
+        if settings.fileShelfEnabled {
+            let shelfTitle = fileShelf.items.isEmpty
+                ? "File Shelf"
+                : "File Shelf (\(fileShelf.items.count))"
+            let shelfItem = makeMenuItem(
+                title: shelfTitle,
+                action: #selector(openFileShelf),
+                key: "f",
+                systemImage: "folder"
+            )
+            shelfItem.isEnabled = settings.showNotch
+            menu.addItem(shelfItem)
+        }
 
-        let shelfTitle = fileShelf.items.isEmpty
-            ? "Open File Shelf"
-            : "Open File Shelf (\(fileShelf.items.count))"
-        let shelfItem = makeMenuItem(
-            title: shelfTitle,
-            action: #selector(openFileShelf),
-            key: "f"
-        )
-        shelfItem.isEnabled = settings.showNotch && settings.fileShelfEnabled
-        menu.addItem(shelfItem)
-
-        menu.addItem(.separator())
-        menu.addItem(makeMenuItem(title: "Open MacFlow", action: #selector(openCompanionWindow), key: ","))
-        menu.addItem(makeMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), key: ""))
         menu.addItem(.separator())
         menu.addItem(makeMenuItem(title: "Quit MacFlow", action: #selector(quit), key: "q"))
     }
 
-    private func makeMenuItem(title: String, action: Selector, key: String) -> NSMenuItem {
+    private func makeMenuItem(
+        title: String,
+        action: Selector,
+        key: String,
+        systemImage: String? = nil
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
+        if let systemImage {
+            item.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)
+        }
         return item
     }
 

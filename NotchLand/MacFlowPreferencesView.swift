@@ -31,6 +31,7 @@ struct MacFlowPreferencesView: View {
     @EnvironmentObject private var focusMode: FocusModeController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var section: Section = .general
+    @Namespace private var sectionSelectionNamespace
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,10 +80,13 @@ struct MacFlowPreferencesView: View {
                     .foregroundStyle(section == item ? Color.white : MacFlowColor.textSecondary)
                     .padding(.horizontal, MacFlowSpacing.space12)
                     .frame(height: 36)
-                    .background(
-                        section == item ? MacFlowColor.surface3 : .clear,
-                        in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                    )
+                    .background {
+                        if section == item {
+                            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+                                .fill(MacFlowColor.surface3)
+                                .matchedGeometryEffect(id: "preference-selection", in: sectionSelectionNamespace)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(section == item ? .isSelected : [])

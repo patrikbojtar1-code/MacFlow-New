@@ -186,8 +186,44 @@ nonisolated enum MacFlowMotion {
             : .spring(response: 0.36, dampingFraction: 0.94, blendDuration: 0)
     }
 
+    static func navigation(reduceMotion: Bool) -> Animation {
+        reduceMotion
+            ? .easeOut(duration: 0.12)
+            : .spring(response: 0.40, dampingFraction: 1.0, blendDuration: 0)
+    }
+
     static func hover(reduceMotion: Bool) -> Animation {
         .easeOut(duration: reduceMotion ? 0.08 : 0.12)
+    }
+}
+
+private struct MacFlowContentRevealModifier: ViewModifier {
+    let opacity: Double
+    let scale: CGFloat
+    let blur: CGFloat
+    let x: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(opacity)
+            .scaleEffect(scale, anchor: .center)
+            .blur(radius: blur)
+            .offset(x: x)
+    }
+}
+
+extension AnyTransition {
+    static var macFlowContent: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(
+                active: MacFlowContentRevealModifier(opacity: 0, scale: 0.995, blur: 5, x: 7),
+                identity: MacFlowContentRevealModifier(opacity: 1, scale: 1, blur: 0, x: 0)
+            ),
+            removal: .modifier(
+                active: MacFlowContentRevealModifier(opacity: 0, scale: 0.998, blur: 2, x: -3),
+                identity: MacFlowContentRevealModifier(opacity: 1, scale: 1, blur: 0, x: 0)
+            )
+        )
     }
 }
 
