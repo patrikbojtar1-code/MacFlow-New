@@ -50,6 +50,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var audioActivity = AudioDeviceActivitySource(activities: liveActivities)
     lazy var notchTimer = NotchTimerController(activities: liveActivities)
     lazy var downloadsActivity = DownloadsActivitySource(activities: liveActivities)
+    lazy var sceneLibrary = WallpaperSceneLibrary()
+    lazy var scenePerformance = WallpaperPerformanceMonitor()
+    lazy var scenes = WallpaperSceneController(
+        library: sceneLibrary,
+        performance: scenePerformance,
+        focusMode: focusMode
+    )
+    lazy var mouseFree = MouseFreeController()
     lazy var updater = UpdaterController(settings: settings)
     private var didStartServices = false
     private lazy var windowManager = WindowManager(
@@ -79,6 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shortcutsBridge: shortcutsBridge,
         dropIntelligence: dropIntelligence,
         notchTimer: notchTimer,
+        scenes: scenes,
+        mouseFree: mouseFree,
         updater: updater
     )
 
@@ -104,6 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wallet.start()
         audioActivity.start()
         downloadsActivity.start()
+        scenes.start()
+        mouseFree.start()
         eventBridge.start()
         didStartServices = true
     }
@@ -123,12 +135,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mirror.stop()
         audioActivity.stop()
         downloadsActivity.stop()
+        scenes.stop()
+        mouseFree.stop()
         eventBridge.stop()
         notchTimer.suspend()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let sceneURL = urls.first(where: WallpaperSceneFileSupport.isSupportedImport) else {
+            return
+        }
+        Task { @MainActor in
+            _ = await scenes.importAndApply(from: sceneURL)
+        }
     }
 }
 

@@ -366,7 +366,7 @@
 		F5F14C592FAA36320071784D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "NotchLand-logo";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -378,7 +378,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotchLand/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = NotchLand;
+				INFOPLIST_KEY_CFBundleDisplayName = MacFlow;
+				INFOPLIST_KEY_CFBundleName = MacFlow;
 				INFOPLIST_KEY_LSUIElement = NO;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
@@ -407,7 +408,7 @@
 		F5F14C5A2FAA36320071784D /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "NotchLand-logo";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -419,7 +420,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotchLand/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = NotchLand;
+				INFOPLIST_KEY_CFBundleDisplayName = MacFlow;
+				INFOPLIST_KEY_CFBundleName = MacFlow;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";

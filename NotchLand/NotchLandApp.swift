@@ -19,7 +19,12 @@ struct NotchLandApp: App {
             } else {
                 SettingsView()
                     .environmentObject(appDelegate.settings)
-                    .frame(width: 900, height: 620)
+                    .frame(
+                        minWidth: MacFlowMetrics.minimumWindowWidth,
+                        idealWidth: MacFlowMetrics.idealWindowWidth,
+                        minHeight: MacFlowMetrics.minimumWindowHeight,
+                        idealHeight: MacFlowMetrics.idealWindowHeight
+                    )
                     .environmentObject(appDelegate.appState)
                     .environmentObject(appDelegate.hud)
                     .environmentObject(appDelegate.batteryAlerts)
@@ -44,6 +49,8 @@ struct NotchLandApp: App {
                     .environmentObject(appDelegate.shortcutsBridge)
                     .environmentObject(appDelegate.dropIntelligence)
                     .environmentObject(appDelegate.notchTimer)
+                    .environmentObject(appDelegate.scenes)
+                    .environmentObject(appDelegate.mouseFree)
                     .environmentObject(appDelegate.updater)
             }
         }

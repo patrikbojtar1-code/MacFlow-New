@@ -81,6 +81,8 @@ final class WindowManager: NSObject {
     private let shortcutsBridge: ShortcutsBridgeController
     private let dropIntelligence: DropIntelligenceController
     private let notchTimer: NotchTimerController
+    private let scenes: WallpaperSceneController
+    private let mouseFree: MouseFreeController
     private let updater: UpdaterController
 
     private var notchPanel: NotchPanel?
@@ -131,6 +133,8 @@ final class WindowManager: NSObject {
         shortcutsBridge: ShortcutsBridgeController,
         dropIntelligence: DropIntelligenceController,
         notchTimer: NotchTimerController,
+        scenes: WallpaperSceneController,
+        mouseFree: MouseFreeController,
         updater: UpdaterController
     ) {
         self.settings = settings
@@ -159,6 +163,8 @@ final class WindowManager: NSObject {
         self.shortcutsBridge = shortcutsBridge
         self.dropIntelligence = dropIntelligence
         self.notchTimer = notchTimer
+        self.scenes = scenes
+        self.mouseFree = mouseFree
         self.updater = updater
         super.init()
     }
@@ -262,6 +268,19 @@ final class WindowManager: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshStatusMenu() }
+            }
+            .store(in: &cancellables)
+
+        scenes.$libraryPresentationRevision
+            .dropFirst()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    UserDefaults.standard.set(
+                        SettingsSection.scenes.rawValue,
+                        forKey: "settings.selectedSection"
+                    )
+                    self?.showCompanionWindow()
+                }
             }
             .store(in: &cancellables)
 
@@ -441,7 +460,7 @@ final class WindowManager: NSObject {
     private static let dragProximityInset: CGFloat = -60
 
     private func handleGlobalDragMoved() {
-        guard settings.fileShelfEnabled, settings.showNotch else { return }
+        guard settings.showNotch else { return }
         guard let panel = notchPanel, panel.isVisible else { return }
         // Proximity zone: a modest halo around the actual visible notch shape,
         // not the whole (much larger) panel envelope.
@@ -449,33 +468,49 @@ final class WindowManager: NSObject {
             dx: Self.dragProximityInset,
             dy: Self.dragProximityInset
         )
-        guard zone.contains(NSEvent.mouseLocation), isDraggedContentFileURL() else {
-            if fileShelf.isDropTargetVisible {
+        let urls = draggedFileURLs()
+        guard zone.contains(NSEvent.mouseLocation), !urls.isEmpty else {
+            if fileShelf.isDropTargetVisible || scenes.isDropTargetVisible {
                 fileShelf.dragEnded()
+                scenes.dragEnded()
                 panel.ignoresMouseEvents = true
             }
             return
         }
-        fileShelf.dragApproached()
+
+        if WallpaperSceneController.isSceneDrop(urls) {
+            fileShelf.dragEnded()
+            scenes.dragApproached(urls: urls)
+        } else if settings.fileShelfEnabled {
+            scenes.dragEnded()
+            fileShelf.dragApproached()
+        } else {
+            fileShelf.dragEnded()
+            scenes.dragEnded()
+            panel.ignoresMouseEvents = true
+            return
+        }
         panel.ignoresMouseEvents = false   // so the panel can receive the drop
     }
 
-    private func isDraggedContentFileURL() -> Bool {
+    private func draggedFileURLs() -> [URL] {
         guard let urls = NSPasteboard(name: .drag).readObjects(
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty else { return false }
-        return urls.contains { FileManager.default.fileExists(atPath: $0.path) }
+        ) as? [URL], !urls.isEmpty else { return [] }
+        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func handleGlobalDragEnded() {
-        guard fileShelf.isDropTargetVisible else { return }
+        guard fileShelf.isDropTargetVisible || scenes.isDropTargetVisible else { return }
         // Give the NSDraggingDestination a beat to process a drop landing on
         // the panel before the branch retracts.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, self.fileShelf.isDropTargetVisible else { return }
+                guard let self,
+                      self.fileShelf.isDropTargetVisible || self.scenes.isDropTargetVisible else { return }
                 self.fileShelf.dragEnded()
+                self.scenes.dragEnded()
                 self.notchPanel?.ignoresMouseEvents = true
             }
         }
@@ -675,7 +710,7 @@ final class WindowManager: NSObject {
                 } else {
                     button.title = "NL"
                 }
-                button.toolTip = "NotchLand"
+                button.toolTip = "MacFlow"
             }
             item.menu = NSMenu()
             statusItem = item
@@ -688,7 +723,7 @@ final class WindowManager: NSObject {
         menu.removeAllItems()
         menu.autoenablesItems = false
 
-        let titleItem = NSMenuItem(title: "NotchLand", action: nil, keyEquivalent: "")
+        let titleItem = NSMenuItem(title: "MacFlow", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
         menu.addItem(.separator())
@@ -717,10 +752,10 @@ final class WindowManager: NSObject {
         menu.addItem(shelfItem)
 
         menu.addItem(.separator())
-        menu.addItem(makeMenuItem(title: "Settings", action: #selector(openCompanionWindow), key: ","))
+        menu.addItem(makeMenuItem(title: "Open MacFlow", action: #selector(openCompanionWindow), key: ","))
         menu.addItem(makeMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), key: ""))
         menu.addItem(.separator())
-        menu.addItem(makeMenuItem(title: "Quit NotchLand", action: #selector(quit), key: "q"))
+        menu.addItem(makeMenuItem(title: "Quit MacFlow", action: #selector(quit), key: "q"))
     }
 
     private func makeMenuItem(title: String, action: Selector, key: String) -> NSMenuItem {
@@ -813,17 +848,30 @@ final class WindowManager: NSObject {
                 .environmentObject(shortcutsBridge)
                 .environmentObject(dropIntelligence)
                 .environmentObject(notchTimer)
+                .environmentObject(scenes)
+                .environmentObject(mouseFree)
                 .environmentObject(updater)
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: MacFlowMetrics.idealWindowWidth,
+                height: MacFlowMetrics.idealWindowHeight
+            ),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "NotchLand Settings"
-        window.titleVisibility = .visible
-        window.contentMinSize = NSSize(width: 720, height: 480)
+        window.title = "MacFlow"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.isMovableByWindowBackground = true
+        window.contentMinSize = NSSize(
+            width: MacFlowMetrics.minimumWindowWidth,
+            height: MacFlowMetrics.minimumWindowHeight
+        )
         window.contentView = hosting
         window.isReleasedWhenClosed = false
         return window
@@ -891,6 +939,7 @@ final class WindowManager: NSObject {
                 .environmentObject(shortcutsBridge)
                 .environmentObject(dropIntelligence)
                 .environmentObject(notchTimer)
+                .environmentObject(scenes)
         )
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
@@ -898,6 +947,7 @@ final class WindowManager: NSObject {
         hosting.fileShelf = fileShelf
         hosting.appState = appState
         hosting.dropIntelligence = dropIntelligence
+        hosting.scenes = scenes
         hosting.registerForDraggedTypes([.fileURL])
         panel.contentView = hosting
         applyBackingScale(to: panel)
@@ -1215,6 +1265,7 @@ private final class NotchHostingView<Content: View>: NSHostingView<Content> {
     weak var fileShelf: FileShelfController?
     weak var appState: AppState?
     weak var dropIntelligence: DropIntelligenceController?
+    weak var scenes: WallpaperSceneController?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
@@ -1227,19 +1278,36 @@ private final class NotchHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        fileShelf?.setHoveringDropZone(true)
+        let urls = draggedURLs(from: sender)
+        if WallpaperSceneController.isSceneDrop(urls), scenes?.isDropTargetVisible == true {
+            scenes?.setHoveringDropZone(true)
+            fileShelf?.setHoveringDropZone(false)
+        } else {
+            scenes?.setHoveringDropZone(false)
+            fileShelf?.setHoveringDropZone(true)
+        }
         return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         fileShelf?.setHoveringDropZone(false)
+        scenes?.setHoveringDropZone(false)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let urls = sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty else { return false }
+        let urls = draggedURLs(from: sender)
+        guard !urls.isEmpty else { return false }
+
+        if WallpaperSceneController.isSceneDrop(urls),
+           let scenes,
+           scenes.isDropTargetVisible,
+           let url = urls.first {
+            Task { @MainActor [weak scenes] in
+                _ = await scenes?.importAndApply(from: url)
+            }
+            return true
+        }
+
         guard let fileShelf else { return false }
         Task { @MainActor [weak fileShelf, weak appState, weak dropIntelligence] in
             guard let fileShelf else { return }
@@ -1248,6 +1316,13 @@ private final class NotchHostingView<Content: View>: NSHostingView<Content> {
             appState?.expand()
         }
         return true
+    }
+
+    private func draggedURLs(from sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
     }
 }
 
