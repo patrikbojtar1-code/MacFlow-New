@@ -1183,15 +1183,13 @@ final class WindowManager: NSObject {
         if hasMusic {
             let presentation = nowPlaying.track?.compactPresentation
             let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
-            let selectedSize = NotchLayoutMetrics.bodySize(for: compactNotchSize)
-            let hoverExpansion = appState.isHovering ? NotchLayoutMetrics.hoverWidthExpansion : 0
-            let bodyW = max(baseWidth, preferredWidth, selectedSize.width) + hoverExpansion
+            let hoverExpansion = appState.isHovering
+                ? NowPlayingMetrics.compactHoverWidthExpansion
+                : 0
+            let bodyW = max(baseWidth, preferredWidth + hoverExpansion)
             return CGSize(
                 width: bodyW + extra,
-                height: max(
-                    baseHeight,
-                    selectedSize.height + (appState.isHovering ? NotchLayoutMetrics.hoverHeightExpansion : 0)
-                )
+                height: max(baseHeight, NowPlayingMetrics.compactHeight)
             )
         }
         if hasEvent {
