@@ -12,5 +12,40 @@
 	<string>eWaZJZRPV3WMJvDk+8knSLRQqvluAsyZtzbi12lQ9Ww=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>NotchLand Scene</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.rudrashah.notchland.scene</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>notchscene</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>NotchLand Scene</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.rudrashah.notchland.scene</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

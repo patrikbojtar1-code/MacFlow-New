@@ -121,6 +121,7 @@ struct FloatingNotchView: View {
     @EnvironmentObject var calls: CallActivityController
     @EnvironmentObject var widgetPreferences: WidgetPreferencesController
     @EnvironmentObject var wallet: WalletContributionController
+    @EnvironmentObject var scenes: WallpaperSceneController
     @AppStorage("notch.selectedWidget") private var selectedWidgetRaw = NotchWidget.calendar.rawValue
 
     /// Used to morph shared elements (artwork, EQ bars) between the collapsed
@@ -589,6 +590,18 @@ struct FloatingNotchView: View {
             guard nowPlaying.track?.compactPresentation.canPlayPause == true else { return }
             NotchHaptics.perform(.navigation)
             nowPlaying.togglePlayPause()
+        case "scene" where location.x >= size.width - 78:
+            NotchHaptics.perform(.navigation)
+            if scenes.activeScene?.kind == .video {
+                scenes.togglePaused()
+            } else {
+                scenes.requestOpenLibrary()
+            }
+        case "scene":
+            NotchHaptics.perform(.navigation)
+            scenes.requestOpenLibrary()
+        case "scene-drop-target":
+            return
         case "expanded-event-detail":
             return
         case "collapsed-bare" where !fileShelf.items.isEmpty:
@@ -961,6 +974,8 @@ struct FloatingNotchView: View {
             }
         case "file-shelf-drop-target":
             FileShelfDropZoneView()
+        case "scene-drop-target":
+            WallpaperSceneDropZoneView()
         case "call":
             if let presentation = calls.current ?? renderedCallPresentation {
                 CallOverlayView(presentation: presentation)
@@ -1024,6 +1039,14 @@ struct FloatingNotchView: View {
         case "activity":
             if let activity = liveActivities.current {
                 LiveActivityChipView(activity: activity)
+            } else {
+                CollapsedNotchContent(isHovering: appState.isHovering)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 6)
+            }
+        case "scene":
+            if let scene = scenes.activeScene {
+                WallpaperSceneCompactView(scene: scene)
             } else {
                 CollapsedNotchContent(isHovering: appState.isHovering)
                     .padding(.horizontal, 14)
@@ -1103,6 +1126,9 @@ struct FloatingNotchView: View {
         if eventPresentationRoute == .call, calls.current != nil {
             return "call"
         }
+        if scenes.isDropTargetVisible {
+            return "scene-drop-target"
+        }
         if fileShelf.isDropTargetVisible {
             return "file-shelf-drop-target"
         }
@@ -1137,6 +1163,7 @@ struct FloatingNotchView: View {
             return hasEvent ? "collapsed-music-event" : "collapsed-music"
         }
         if hasEvent { return "event-collapsed" }
+        if scenes.activeScene != nil { return "scene" }
         return "collapsed-bare"
     }
 
@@ -1198,10 +1225,15 @@ struct FloatingNotchView: View {
         key == "file-shelf-drop-target"
     }
 
+    private func isSceneDropBranch(_ key: String) -> Bool {
+        key == "scene-drop-target"
+    }
+
     private func isCompactAlertBranch(_ key: String) -> Bool {
         isBatteryAlertBranch(key) || isFocusModeBranch(key) || isScreenLockBranch(key)
-            || isFileShelfDropBranch(key) || isCallBranch(key)
+            || isFileShelfDropBranch(key) || isSceneDropBranch(key) || isCallBranch(key)
             || isWalletContributionBranch(key) || key == "activity" || key == "important-event"
+            || key == "scene"
     }
 
     private func isCollapsedMusicMarqueeBranch(_ key: String) -> Bool {
@@ -1309,10 +1341,21 @@ struct FloatingNotchView: View {
             let bodyW = max(baseWidth, FileShelfMetrics.dropSize.width)
             return CGSize(width: bodyW + extra, height: FileShelfMetrics.dropSize.height)
         }
+        if isSceneDropBranch(key) {
+            let bodyW = max(baseWidth, WallpaperSceneNotchMetrics.dropSize.width)
+            return CGSize(width: bodyW + extra, height: WallpaperSceneNotchMetrics.dropSize.height)
+        }
         if key == "activity" {
             let activitySize = LiveActivityChipMetrics.size(for: effectiveCompactNotchSize)
             let bodyW = max(baseWidth, activitySize.width)
             return CGSize(width: bodyW + extra, height: max(baseHeight, activitySize.height))
+        }
+        if key == "scene" {
+            let sceneSize = WallpaperSceneNotchMetrics.size(for: effectiveCompactNotchSize)
+            return CGSize(
+                width: max(baseWidth, sceneSize.width) + extra,
+                height: max(baseHeight, sceneSize.height)
+            )
         }
         if key == Self.hardwareNotchBranchKey {
             return CGSize(width: baseWidth + extra, height: baseHeight)
