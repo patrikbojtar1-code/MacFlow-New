@@ -30,7 +30,7 @@ enum OnboardingMetrics {
 
     /// Card size for the features/permissions wizard steps — bigger than
     /// the welcome step to fit icons, copy, and navigation chrome.
-    static let expandedStepSize = CGSize(width: 540, height: 360)
+    static let expandedStepSize = CGSize(width: 560, height: 390)
     static let readyStepSize = CGSize(width: 430, height: 286)
 
     static func size(for step: OnboardingWizardStep) -> CGSize {
@@ -116,7 +116,7 @@ struct OnboardingView: View {
         // Features/Permissions steps need enough top clearance that their
         // heading text doesn't render under the physical camera notch
         // (~32pt tall, matching NotchSettings.Defaults.collapsedHeight).
-        .padding(.top, wizardStep == .welcome ? 20 : 44)
+        .padding(.top, 44)
         .padding(.bottom, 12)
         .task {
             guard animateIntro else {
@@ -195,7 +195,7 @@ struct OnboardingView: View {
                         .foregroundStyle(Color.black)
                         .padding(.horizontal, 16)
                         .frame(height: 28)
-                        .background(Capsule(style: .continuous).fill(Color(red: 0.36, green: 0.86, blue: 0.45)))
+                        .background(Capsule(style: .continuous).fill(Color.white))
                 }
                 .buttonStyle(.plain)
                 .opacity(wizardStep == .welcome && !showNext ? 0 : 1)

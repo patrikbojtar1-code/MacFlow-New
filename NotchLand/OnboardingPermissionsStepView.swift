@@ -46,6 +46,24 @@ struct OnboardingPermissionsStepView: View {
                 )
 
                 HStack(spacing: 10) {
+                    Image(systemName: "touchid")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Touch ID Privacy Shield")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Requested only when you unlock a private widget.")
+                            .font(.system(size: 10.5, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.56))
+                    }
+                    Spacer()
+                    Text("ON DEMAND")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.44))
+                }
+
+                HStack(spacing: 10) {
                     Image(systemName: "video.slash.fill")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.purple)
@@ -63,6 +81,13 @@ struct OnboardingPermissionsStepView: View {
                         .foregroundStyle(.purple)
                 }
             }
+
+            Label(
+                "Permission status is checked live; already granted access is never requested again.",
+                systemImage: "checkmark.shield.fill"
+            )
+            .font(.system(size: 9.5, weight: .medium))
+            .foregroundStyle(.white.opacity(0.46))
 
             Spacer(minLength: 0)
         }

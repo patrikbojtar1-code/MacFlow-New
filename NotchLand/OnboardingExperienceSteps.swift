@@ -82,7 +82,7 @@ enum OnboardingProfile: String, CaseIterable, Identifiable {
 
 struct OnboardingWelcomeStepView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isGlowing = false
+    @State private var waveformPhase = false
 
     private var firstName: String {
         let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,32 +90,66 @@ struct OnboardingWelcomeStepView: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                Capsule(style: .continuous)
-                    .fill(Color.green.opacity(isGlowing ? 0.18 : 0.07))
-                    .frame(width: 106, height: 38)
-                    .blur(radius: isGlowing ? 12 : 5)
-                Image(systemName: "sparkles")
-                    .font(.system(size: 27, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.green)
-                    .symbolEffect(.breathe, options: .repeat(.continuous))
+        VStack(spacing: 9) {
+            VStack(spacing: 2) {
+                Text("Hello, \(firstName)")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
+                Text("Meet the space around your notch.")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(NotchTheme.secondaryText)
             }
 
-            VStack(spacing: 4) {
-                Text("Hello, \(firstName)")
-                    .font(.system(size: 21, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("Your notch is about to become useful.")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.52))
+            HStack(spacing: 0) {
+                HStack(spacing: 7) {
+                    Image(systemName: "music.note")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Now Playing")
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Color.black
+                    .frame(width: 92)
+                    .accessibilityHidden(true)
+
+                HStack(spacing: 3) {
+                    ForEach(0..<5, id: \.self) { index in
+                        Capsule()
+                            .fill(Color.white.opacity(0.78))
+                            .frame(
+                                width: 2,
+                                height: waveformPhase
+                                    ? CGFloat([7, 13, 10, 15, 8][index])
+                                    : CGFloat([11, 7, 14, 9, 12][index])
+                            )
+                    }
+                    Image(systemName: "pause.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.leading, 7)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 12)
+            .frame(height: 42)
+            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .stroke(NotchTheme.subtleStroke, lineWidth: 1)
+            }
+
+            Text("Media, calls, devices and reminders stay outside the camera cutout.")
+                .font(.system(size: 9.5, weight: .regular))
+                .foregroundStyle(.white.opacity(0.42))
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(NotchAmbientMotion.showcase()) {
-                isGlowing = true
+            withAnimation(.easeInOut(duration: 0.72).repeatForever(autoreverses: true)) {
+                waveformPhase = true
             }
         }
     }
