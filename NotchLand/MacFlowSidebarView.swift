@@ -15,6 +15,8 @@ struct MacFlowSidebarView: View {
     @EnvironmentObject private var scenes: WallpaperSceneController
     @EnvironmentObject private var mouseFree: MouseFreeController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Namespace private var selectionNamespace
     @State private var hoveredSection: MacFlowSection?
 
@@ -38,7 +40,7 @@ struct MacFlowSidebarView: View {
             runtimeSummary
                 .padding(MacFlowSpacing.space12)
         }
-        .background(MacFlowColor.sidebar)
+        .background(reduceTransparency ? MacFlowColor.appBackground : MacFlowColor.sidebar)
     }
 
     private var brand: some View {
@@ -113,7 +115,7 @@ struct MacFlowSidebarView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MacFlowInteractiveButtonStyle())
         .onHover { hovering in
             withAnimation(MacFlowMotion.hover(reduceMotion: reduceMotion)) {
                 hoveredSection = hovering ? section : nil
@@ -154,13 +156,21 @@ struct MacFlowSidebarView: View {
                 .accessibilityHidden(true)
         }
         .padding(MacFlowSpacing.space12)
-        .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.panel, style: .continuous))
+        .background(
+            reduceTransparency ? MacFlowColor.opaqueSurface1 : MacFlowColor.surface1,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.panel, style: .continuous)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: MacFlowRadius.panel, style: .continuous)
-                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+                .stroke(
+                    hasIncreasedContrast ? MacFlowColor.borderStrong : MacFlowColor.borderSubtle,
+                    lineWidth: hasIncreasedContrast ? 1.25 : 1
+                )
         }
         .accessibilityElement(children: .combine)
     }
+
+    private var hasIncreasedContrast: Bool { colorSchemeContrast == .increased }
 }
 
 private struct RuntimeSparkline: View {

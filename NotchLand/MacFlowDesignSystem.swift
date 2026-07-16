@@ -145,6 +145,9 @@ enum MacFlowColor {
     static let surface1 = Color.white.opacity(0.035)
     static let surface2 = Color.white.opacity(0.055)
     static let surface3 = Color.white.opacity(0.075)
+    static let opaqueSurface1 = Color(red: 0.078, green: 0.086, blue: 0.103)
+    static let opaqueSurface2 = Color(red: 0.094, green: 0.102, blue: 0.120)
+    static let opaqueSurface3 = Color(red: 0.112, green: 0.120, blue: 0.139)
     static let borderSubtle = Color.white.opacity(0.070)
     static let borderStrong = Color.white.opacity(0.120)
     static let textSecondary = Color.white.opacity(0.62)
@@ -192,16 +195,45 @@ struct MacFlowSurfaceModifier: ViewModifier {
     var elevated = false
     var accent: Color? = nil
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
     func body(content: Content) -> some View {
         content
             .background(
-                elevated ? MacFlowColor.surface2 : MacFlowColor.surface1,
+                surfaceColor,
                 in: RoundedRectangle(cornerRadius: radius, style: .continuous)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(accent?.opacity(0.20) ?? MacFlowColor.borderSubtle, lineWidth: 1)
+                    .stroke(strokeColor, lineWidth: hasIncreasedContrast ? 1.25 : 1)
             }
+    }
+
+    private var surfaceColor: Color {
+        if reduceTransparency {
+            return elevated ? MacFlowColor.opaqueSurface2 : MacFlowColor.opaqueSurface1
+        }
+        return elevated ? MacFlowColor.surface2 : MacFlowColor.surface1
+    }
+
+    private var strokeColor: Color {
+        accent?.opacity(hasIncreasedContrast ? 0.42 : 0.20)
+            ?? (hasIncreasedContrast ? MacFlowColor.borderStrong : MacFlowColor.borderSubtle)
+    }
+
+    private var hasIncreasedContrast: Bool { colorSchemeContrast == .increased }
+}
+
+struct MacFlowInteractiveButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.84 : 1) : 0.46)
+            .animation(MacFlowMotion.hover(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 

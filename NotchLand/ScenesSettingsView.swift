@@ -360,7 +360,7 @@ struct ScenesSettingsView: View {
         return Button(scope.title) {
             browser.scope = scope
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MacFlowInteractiveButtonStyle())
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(isSelected ? .primary : MacFlowColor.textSecondary)
         .padding(.horizontal, MacFlowSpacing.space10)
@@ -840,7 +840,7 @@ private struct WallpaperSceneTile: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MacFlowInteractiveButtonStyle())
         .onHover { isHovered = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -884,7 +884,7 @@ private struct WallpaperSceneListRow: View {
                     .stroke(isSelected ? MacFlowColor.wallpaper.opacity(0.55) : MacFlowColor.borderSubtle, lineWidth: 1)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MacFlowInteractiveButtonStyle())
     }
 }
 

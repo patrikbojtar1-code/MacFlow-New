@@ -18,6 +18,9 @@ struct MacFlowPanel<Content: View>: View {
     let kind: MacFlowPanelKind
     let content: Content
 
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
     init(
         _ kind: MacFlowPanelKind = .grouped,
         @ViewBuilder content: () -> Content
@@ -33,7 +36,10 @@ struct MacFlowPanel<Content: View>: View {
             .overlay {
                 if kind != .plain {
                     RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+                        .stroke(
+                            hasIncreasedContrast ? MacFlowColor.borderStrong : MacFlowColor.borderSubtle,
+                            lineWidth: hasIncreasedContrast ? 1.25 : 1
+                        )
                 }
             }
     }
@@ -41,8 +47,10 @@ struct MacFlowPanel<Content: View>: View {
     private var background: Color {
         switch kind {
         case .plain: .clear
-        case .grouped, .inspector: MacFlowColor.surface1
-        case .elevated: MacFlowColor.surface2
+        case .grouped, .inspector:
+            reduceTransparency ? MacFlowColor.opaqueSurface1 : MacFlowColor.surface1
+        case .elevated:
+            reduceTransparency ? MacFlowColor.opaqueSurface2 : MacFlowColor.surface2
         }
     }
 
@@ -53,6 +61,8 @@ struct MacFlowPanel<Content: View>: View {
         case .elevated: MacFlowRadius.preview
         }
     }
+
+    private var hasIncreasedContrast: Bool { colorSchemeContrast == .increased }
 }
 
 struct MacFlowPageHeader<Actions: View>: View {
@@ -237,6 +247,8 @@ struct MacFlowStatusPill: View {
         .padding(.horizontal, MacFlowSpacing.space10)
         .padding(.vertical, MacFlowSpacing.space6)
         .background(color.opacity(0.10), in: Capsule())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
     }
 }
 
