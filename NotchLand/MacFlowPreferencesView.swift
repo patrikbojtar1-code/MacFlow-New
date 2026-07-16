@@ -36,8 +36,7 @@ struct MacFlowPreferencesView: View {
         VStack(spacing: 0) {
             MacFlowPageHeader(
                 eyebrow: "Application",
-                title: "Preferences",
-                subtitle: "Defaults shared by every MacFlow workspace."
+                title: "Preferences"
             )
             Divider().overlay(MacFlowColor.borderSubtle)
 
@@ -46,9 +45,8 @@ struct MacFlowPreferencesView: View {
                 Divider().overlay(MacFlowColor.borderSubtle)
                 ScrollView {
                     preferenceContent
-                        .frame(maxWidth: 720)
-                        .padding(.horizontal, MacFlowSpacing.space32)
-                        .padding(.vertical, MacFlowSpacing.space24)
+                        .frame(maxWidth: 640)
+                        .padding(MacFlowSpacing.space20)
                         .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .scrollIndicators(.never)
@@ -91,8 +89,8 @@ struct MacFlowPreferencesView: View {
             }
             Spacer()
         }
-        .padding(MacFlowSpacing.space16)
-        .frame(width: 176)
+        .padding(MacFlowSpacing.space12)
+        .frame(width: 148)
         .background(MacFlowColor.sidebar.opacity(0.45))
     }
 
@@ -117,22 +115,8 @@ struct MacFlowPreferencesView: View {
     }
 
     private var preferenceTitle: some View {
-        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-            Text(section.title)
-                .font(.system(size: 18, weight: .semibold))
-            Text(sectionDescription)
-                .font(.system(size: 11.5))
-                .foregroundStyle(MacFlowColor.textSecondary)
-        }
-    }
-
-    private var sectionDescription: String {
-        switch section {
-        case .general: "Choose how MacFlow starts and remains available."
-        case .appearance: "Set the application appearance without changing module-specific visuals."
-        case .updates: "Keep MacFlow current in the background or check manually."
-        case .setup: "Review system integration and replay the guided setup."
-        }
+        Text(section.title)
+            .font(.system(size: 17, weight: .semibold))
     }
 
     private var generalPreferences: some View {
@@ -141,20 +125,17 @@ struct MacFlowPreferencesView: View {
             MacFlowSettingsGroup {
                 MacFlowSettingsRow(
                     icon: "power",
-                    title: "Launch at Login",
-                    subtitle: "Start MacFlow automatically after signing in."
+                    title: "Launch at Login"
                 ) { Toggle("", isOn: $settings.launchAtLogin).labelsHidden() }
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "menubar.rectangle",
-                    title: "Menu Bar Item",
-                    subtitle: "Keep runtime actions available from the menu bar."
+                    title: "Menu Bar Item"
                 ) { Toggle("", isOn: $settings.showMenuBarItem).labelsHidden() }
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "macbook",
-                    title: "Notch Workspace",
-                    subtitle: "Show live activities around the hardware notch."
+                    title: "Notch Workspace"
                 ) { Toggle("", isOn: $settings.showNotch).labelsHidden() }
             }
         }
@@ -166,8 +147,7 @@ struct MacFlowPreferencesView: View {
             MacFlowSettingsGroup {
                 MacFlowSettingsRow(
                     icon: "circle.lefthalf.filled",
-                    title: "Color Scheme",
-                    subtitle: "Follow macOS or choose a fixed appearance."
+                    title: "Color Scheme"
                 ) {
                     Picker("Color scheme", selection: $settings.theme) {
                         ForEach(NotchSettings.Theme.allCases) { theme in
@@ -181,15 +161,10 @@ struct MacFlowPreferencesView: View {
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "drop.halffull",
-                    title: "Translucent Notch Material",
-                    subtitle: "Use the macOS material treatment in the notch surface."
+                    title: "Notch Material"
                 ) { Toggle("", isOn: $settings.useBlurMaterial).labelsHidden() }
             }
 
-            Text("Notch dimensions, content size and external-display behavior remain in Notch → Appearance.")
-                .font(.system(size: 10.5))
-                .foregroundStyle(MacFlowColor.textTertiary)
-                .padding(.horizontal, MacFlowSpacing.space4)
         }
     }
 
@@ -199,8 +174,7 @@ struct MacFlowPreferencesView: View {
             MacFlowSettingsGroup {
                 MacFlowSettingsRow(
                     icon: "clock.arrow.circlepath",
-                    title: "Automatic Checks",
-                    subtitle: "Periodically check for signed MacFlow releases."
+                    title: "Automatic Checks"
                 ) {
                     Toggle(
                         "",
@@ -214,10 +188,7 @@ struct MacFlowPreferencesView: View {
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "arrow.down.circle",
-                    title: "Check Now",
-                    subtitle: updater.canCheckForUpdates
-                        ? "Ask Sparkle for the latest available release."
-                        : "The update service is preparing."
+                    title: "Check Now"
                 ) {
                     Button("Check for Updates…") { updater.checkForUpdates() }
                         .buttonStyle(.borderedProminent)
@@ -234,8 +205,7 @@ struct MacFlowPreferencesView: View {
             MacFlowSettingsGroup {
                 MacFlowSettingsRow(
                     icon: "scope",
-                    title: "Focus Monitor",
-                    subtitle: "Adapts MacFlow to the current macOS Focus state."
+                    title: "Focus Monitor"
                 ) {
                     HStack(spacing: MacFlowSpacing.space8) {
                         MacFlowStatusPill(
@@ -258,8 +228,7 @@ struct MacFlowPreferencesView: View {
             MacFlowSettingsGroup {
                 MacFlowSettingsRow(
                     icon: "play.rectangle.on.rectangle",
-                    title: "Replay Onboarding",
-                    subtitle: "Review modules and permissions without deleting your data."
+                    title: "Replay Onboarding"
                 ) {
                     Button("Replay") { settings.hasCompletedOnboarding = false }
                         .buttonStyle(.bordered)

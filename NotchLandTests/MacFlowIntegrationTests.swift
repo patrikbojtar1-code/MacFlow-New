@@ -14,6 +14,21 @@ struct MacFlowIntegrationTests {
         acceleration: 0.35
     )
 
+    @Test func compactShellFitsAThirteenInchMacBookWorkspace() {
+        #expect(MacFlowMetrics.idealWindowWidth <= 1_040)
+        #expect(MacFlowMetrics.idealWindowHeight <= 680)
+        #expect(MacFlowMetrics.minimumWindowWidth <= 900)
+        #expect(MacFlowMetrics.minimumWindowHeight <= 620)
+    }
+
+    @Test func minimumWallpaperCanvasRemainsUsableBesideInspector() {
+        let canvasWidth = MacFlowMetrics.minimumWindowWidth
+            - MacFlowMetrics.sidebarWidth
+            - MacFlowMetrics.inspectorWidth
+            - 2
+        #expect(canvasWidth >= 450)
+    }
+
     @Test func wheelImpulseCreatesGlideAndSettles() {
         let engine = MouseFreeScrollEngine()
         engine.addInput(x: 0, y: 1, timestamp: 1, configuration: balanced)

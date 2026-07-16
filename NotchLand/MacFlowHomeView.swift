@@ -19,41 +19,17 @@ struct MacFlowHomeView: View {
         VStack(spacing: 0) {
             MacFlowPageHeader(
                 eyebrow: "Command center",
-                title: "Home",
-                subtitle: "Monitor and open every MacFlow workspace."
-            ) {
-                HStack(spacing: MacFlowSpacing.space8) {
-                    Button {
-                        navigate(to: .mouseFree)
-                    } label: {
-                        Label("Tune MouseFree", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        navigate(to: .wallpaperEngine)
-                    } label: {
-                        Label("Open Wallpapers", systemImage: "photo.on.rectangle.angled")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(MacFlowColor.accent)
-                }
-            }
+                title: "Home"
+            )
 
             Divider().overlay(MacFlowColor.borderSubtle)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
                     commandStrip
-
-                    HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
-                        runtimeOverview
-                            .frame(maxWidth: .infinity)
-                        quickControls
-                            .frame(width: 300)
-                    }
+                    runtimeOverview
                 }
-                .padding(MacFlowSpacing.space24)
+                .padding(MacFlowSpacing.space20)
             }
             .scrollIndicators(.hidden)
         }
@@ -61,7 +37,7 @@ struct MacFlowHomeView: View {
 
     private var commandStrip: some View {
         VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
-            MacFlowSectionHeader("Workspaces", detail: "Open a module or inspect its live state")
+            MacFlowSectionHeader("Workspaces")
 
             HStack(spacing: MacFlowSpacing.space12) {
                 moduleButton(
@@ -95,13 +71,15 @@ struct MacFlowHomeView: View {
         Button {
             navigate(to: section)
         } label: {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space16) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
                 HStack {
                     Image(systemName: section.systemImage)
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(section.accent)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 30, height: 30)
                         .background(section.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    Text(section.title)
+                        .font(.system(size: 14, weight: .semibold))
                     Spacer()
                     HStack(spacing: MacFlowSpacing.space6) {
                         Circle()
@@ -113,28 +91,13 @@ struct MacFlowHomeView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                    Text(section.title)
-                        .font(.system(size: 15, weight: .semibold))
-                    Text(detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                        .lineLimit(1)
-                }
-
-                HStack {
-                    Text(section.detail)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(MacFlowColor.textTertiary)
-                        .lineLimit(2)
-                    Spacer(minLength: MacFlowSpacing.space8)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                }
+                Text(detail)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+                    .lineLimit(1)
             }
-            .padding(MacFlowSpacing.space16)
-            .frame(maxWidth: .infinity, minHeight: 162, alignment: .topLeading)
+            .padding(MacFlowSpacing.space12)
+            .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
             .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.panel, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: MacFlowRadius.panel, style: .continuous)
@@ -148,13 +111,12 @@ struct MacFlowHomeView: View {
 
     private var runtimeOverview: some View {
         VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
-            MacFlowSectionHeader("Live overview", detail: "Current state from the shared runtime")
+            MacFlowSectionHeader("Status")
             MacFlowSettingsGroup {
                 runtimeRow(
                     icon: "macbook",
                     tint: MacFlowColor.notch,
                     title: "Notch runtime",
-                    detail: settings.showNotch ? "Listening for media, calls and activities" : "Notch workspace is paused",
                     value: settings.showNotch ? "Live" : "Off",
                     isActive: settings.showNotch
                 )
@@ -163,7 +125,6 @@ struct MacFlowHomeView: View {
                     icon: "computermouse.fill",
                     tint: MacFlowColor.mouseFree,
                     title: "Scroll profile",
-                    detail: mouseFree.isAccessibilityTrusted ? "External wheel interception available" : "Accessibility permission required",
                     value: mouseFree.selectedPreset?.title ?? "Custom",
                     isActive: mouseFree.status == .active
                 )
@@ -172,8 +133,7 @@ struct MacFlowHomeView: View {
                     icon: "photo.on.rectangle.angled",
                     tint: MacFlowColor.wallpaper,
                     title: "Wallpaper engine",
-                    detail: scenes.activeScene?.title ?? "No scene is currently applied",
-                    value: scenes.isRunning ? "Live" : "Ready",
+                    value: scenes.activeScene?.title ?? "Ready",
                     isActive: scenes.isRunning
                 )
             }
@@ -184,11 +144,10 @@ struct MacFlowHomeView: View {
         icon: String,
         tint: Color,
         title: String,
-        detail: String,
         value: String,
         isActive: Bool
     ) -> some View {
-        MacFlowSettingsRow(icon: icon, tint: tint, title: title, subtitle: detail) {
+        MacFlowSettingsRow(icon: icon, tint: tint, title: title) {
             HStack(spacing: MacFlowSpacing.space8) {
                 Text(value)
                     .font(.system(size: 11, weight: .medium))
@@ -200,62 +159,11 @@ struct MacFlowHomeView: View {
         }
     }
 
-    private var quickControls: some View {
-        VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
-            MacFlowSectionHeader("Quick controls")
-            MacFlowSettingsGroup {
-                quickToggle(
-                    icon: "macbook",
-                    title: "Notch",
-                    tint: MacFlowColor.notch,
-                    binding: $settings.showNotch
-                )
-                MacFlowInsetDivider()
-                quickToggle(
-                    icon: "computermouse.fill",
-                    title: "MouseFree",
-                    tint: MacFlowColor.mouseFree,
-                    binding: $mouseFree.isEnabled
-                )
-                MacFlowInsetDivider()
-                MacFlowSettingsRow(
-                    icon: "photo.stack.fill",
-                    tint: MacFlowColor.wallpaper,
-                    title: scenes.activeScene == nil ? "Choose a scene" : "Open current scene",
-                    subtitle: scenes.activeScene?.title ?? "Browse your local wallpaper library"
-                ) {
-                    Button {
-                        navigate(to: .wallpaperEngine)
-                    } label: {
-                        Image(systemName: "chevron.right")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(MacFlowColor.textSecondary)
-                    .accessibilityLabel("Open Wallpapers")
-                }
-            }
-        }
-    }
-
-    private func quickToggle(
-        icon: String,
-        title: String,
-        tint: Color,
-        binding: Binding<Bool>
-    ) -> some View {
-        MacFlowSettingsRow(icon: icon, tint: tint, title: title) {
-            Toggle(title, isOn: binding)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        }
-    }
-
     private var notchDetail: String {
         let enabledFeatures = [settings.fileShelfEnabled, settings.airDropEnabled, settings.liveActivitiesEnabled]
             .filter { $0 }
             .count
-        return "\(enabledFeatures) core features enabled"
+        return "\(enabledFeatures) features"
     }
 
     private func navigate(to section: MacFlowSection) {

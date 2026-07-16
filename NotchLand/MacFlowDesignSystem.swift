@@ -111,15 +111,16 @@ nonisolated enum MacFlowRadius {
 }
 
 nonisolated enum MacFlowMetrics {
-    static let sidebarWidth: CGFloat = 224
-    static let inspectorWidth: CGFloat = 304
-    static let minimumWindowWidth: CGFloat = 1_080
-    static let idealWindowWidth: CGFloat = 1_240
-    static let minimumWindowHeight: CGFloat = 700
-    static let idealWindowHeight: CGFloat = 780
-    static let pageHeaderHeight: CGFloat = 76
-    static let compactHeaderHeight: CGFloat = 68
-    static let settingsRowHeight: CGFloat = 58
+    // Tuned for a 13-inch MacBook Air while still allowing a dense pro layout.
+    static let sidebarWidth: CGFloat = 188
+    static let inspectorWidth: CGFloat = 252
+    static let minimumWindowWidth: CGFloat = 900
+    static let idealWindowWidth: CGFloat = 1_040
+    static let minimumWindowHeight: CGFloat = 620
+    static let idealWindowHeight: CGFloat = 680
+    static let pageHeaderHeight: CGFloat = 64
+    static let compactHeaderHeight: CGFloat = 58
+    static let settingsRowHeight: CGFloat = 50
 
     // Compatibility aliases while module views migrate to semantic tokens.
     static let shellInset: CGFloat = 0

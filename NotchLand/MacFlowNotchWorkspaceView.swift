@@ -29,8 +29,7 @@ struct MacFlowNotchWorkspaceView: View {
         VStack(spacing: 0) {
             MacFlowPageHeader(
                 eyebrow: "Notch workspace",
-                title: "Notch",
-                subtitle: "Configure what appears around the physical MacBook notch."
+                title: "Notch"
             ) {
                 HStack(spacing: MacFlowSpacing.space10) {
                     Text(settings.showNotch ? "Enabled" : "Paused")
@@ -76,10 +75,10 @@ struct MacFlowNotchWorkspaceView: View {
                     tab = item
                 } label: {
                     Text(item.title)
-                        .font(.system(size: 11.5, weight: tab == item ? .medium : .regular))
+                        .font(.system(size: 10.5, weight: tab == item ? .medium : .regular))
                         .foregroundStyle(tab == item ? .primary : MacFlowColor.textSecondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, MacFlowSpacing.space10)
+                        .padding(.vertical, MacFlowSpacing.space8)
                         .background(
                             tab == item ? MacFlowColor.surface2 : .clear,
                             in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
@@ -102,65 +101,94 @@ struct MacFlowNotchWorkspaceView: View {
             RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
                 .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
         }
-        .padding(.horizontal, MacFlowSpacing.space24)
-        .padding(.bottom, MacFlowSpacing.space16)
+        .padding(.horizontal, MacFlowSpacing.space20)
+        .padding(.bottom, MacFlowSpacing.space12)
     }
 
     private var overview: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
-                HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
-                    hardwarePreview
-                        .frame(maxWidth: .infinity)
-                    runtimePanel
-                        .frame(width: 300)
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space16) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
+                        hardwarePreview.frame(maxWidth: .infinity)
+                        runtimePanel.frame(width: 242)
+                    }
+                    VStack(spacing: MacFlowSpacing.space12) {
+                        hardwarePreview
+                        runtimePanel
+                    }
                 }
 
-                HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
-                    coreControls.frame(maxWidth: .infinity)
-                    integrations.frame(maxWidth: .infinity)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
+                        coreControls.frame(maxWidth: .infinity)
+                        integrations.frame(maxWidth: .infinity)
+                    }
+                    VStack(spacing: MacFlowSpacing.space12) {
+                        coreControls
+                        integrations
+                    }
                 }
             }
-            .padding(MacFlowSpacing.space24)
+            .padding(MacFlowSpacing.space20)
         }
         .scrollIndicators(.hidden)
     }
 
     private var hardwarePreview: some View {
         MacFlowPanel(.elevated) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space16) {
-                MacFlowSectionHeader("Hardware preview", detail: settings.notchContentSize.title)
-                ZStack(alignment: .top) {
-                    RoundedRectangle(cornerRadius: MacFlowRadius.preview, style: .continuous)
-                        .fill(Color.black.opacity(0.92))
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.black)
-                        .frame(width: previewNotchWidth, height: 27)
-                    HStack {
-                        HStack(spacing: MacFlowSpacing.space8) {
-                            Circle().fill(MacFlowColor.notch).frame(width: 8, height: 8)
-                            Text(settings.liveActivitiesEnabled ? "Live activities" : "Notch ready")
-                                .font(.system(size: 10.5, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.78))
-                        }
-                        Spacer()
-                        Image(systemName: "waveform")
-                            .foregroundStyle(MacFlowColor.notch)
-                    }
-                    .padding(.horizontal, MacFlowSpacing.space20)
-                    .padding(.top, 43)
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
+                MacFlowSectionHeader("Preview") {
+                    Text(settings.notchContentSize.title)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(MacFlowColor.textSecondary)
                 }
-                .frame(height: 112)
+                GeometryReader { proxy in
+                    let shellWidth = min(max(330, proxy.size.width - 28), 460)
+                    ZStack(alignment: .top) {
+                        RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
+                            .fill(Color.white.opacity(0.025))
 
-                HStack(spacing: MacFlowSpacing.space16) {
-                    Label("Top anchored", systemImage: "pin.fill")
-                    Label("\(settings.notchContentSize.title) content", systemImage: "rectangle.expand.vertical")
-                    Label(settings.hoverToExpand ? "Hover enabled" : "Click only", systemImage: "cursorarrow.motionlines")
+                        NotchShape(
+                            topWidth: min(previewNotchWidth, shellWidth * 0.42),
+                            bottomCornerRadius: 17,
+                            shoulderRadius: 13
+                        )
+                        .fill(.black)
+                        .frame(width: shellWidth, height: 58)
+                        .overlay {
+                            HStack(spacing: 0) {
+                                HStack(spacing: MacFlowSpacing.space8) {
+                                    Circle()
+                                        .fill(settings.liveActivitiesEnabled ? MacFlowColor.notch : MacFlowColor.textTertiary)
+                                        .frame(width: 7, height: 7)
+                                    Text(settings.liveActivitiesEnabled ? "Activity" : "Ready")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Color.clear
+                                    .frame(width: min(previewNotchWidth, shellWidth * 0.42))
+                                    .accessibilityHidden(true)
+
+                                HStack(spacing: MacFlowSpacing.space8) {
+                                    Image(systemName: "waveform")
+                                    Image(systemName: "pause.fill")
+                                }
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(MacFlowColor.notch)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                            .padding(.horizontal, MacFlowSpacing.space16)
+                            .padding(.top, 29)
+                            .padding(.bottom, MacFlowSpacing.space8)
+                        }
+                    }
                 }
-                .font(.system(size: 10.5))
-                .foregroundStyle(MacFlowColor.textSecondary)
+                .frame(height: 82)
             }
-            .padding(MacFlowSpacing.space16)
+            .padding(MacFlowSpacing.space12)
         }
     }
 
@@ -190,7 +218,7 @@ struct MacFlowNotchWorkspaceView: View {
                 .frame(width: 6, height: 6)
         }
         .padding(.horizontal, MacFlowSpacing.space16)
-        .frame(height: 48)
+        .frame(height: 42)
     }
 
     private var coreControls: some View {
@@ -200,7 +228,6 @@ struct MacFlowNotchWorkspaceView: View {
                 settingToggle(
                     icon: "cursorarrow.motionlines",
                     title: "Hover to expand",
-                    detail: "Preview content when the pointer reaches the notch.",
                     binding: $settings.hoverToExpand
                 )
                 MacFlowInsetDivider()
@@ -208,7 +235,7 @@ struct MacFlowNotchWorkspaceView: View {
                     icon: "rectangle.3.group",
                     tint: MacFlowColor.notch,
                     title: "Content size",
-                    subtitle: "Shared compact density for notch activities."
+                    subtitle: nil
                 ) {
                     Picker("Content size", selection: $settings.notchContentSize) {
                         ForEach(NotchSize.allCases) { size in
@@ -222,7 +249,6 @@ struct MacFlowNotchWorkspaceView: View {
                 settingToggle(
                     icon: "bolt.horizontal.fill",
                     title: "Live activities",
-                    detail: "Show contextual status updates around the notch.",
                     binding: $settings.liveActivitiesEnabled
                 )
             }
@@ -236,21 +262,18 @@ struct MacFlowNotchWorkspaceView: View {
                 settingToggle(
                     icon: "folder.fill",
                     title: "File Shelf",
-                    detail: "Keep dropped files available between apps.",
                     binding: $settings.fileShelfEnabled
                 )
                 MacFlowInsetDivider()
                 settingToggle(
                     icon: "airplayaudio",
                     title: "AirDrop",
-                    detail: "Send shelf files through the native share flow.",
                     binding: $settings.airDropEnabled
                 )
                 MacFlowInsetDivider()
                 settingToggle(
                     icon: "phone.fill",
                     title: "Call detection",
-                    detail: "Present supported incoming and active calls.",
                     binding: $settings.systemCallDetectionEnabled
                 )
             }
@@ -260,10 +283,9 @@ struct MacFlowNotchWorkspaceView: View {
     private func settingToggle(
         icon: String,
         title: String,
-        detail: String,
         binding: Binding<Bool>
     ) -> some View {
-        MacFlowSettingsRow(icon: icon, tint: MacFlowColor.notch, title: title, subtitle: detail) {
+        MacFlowSettingsRow(icon: icon, tint: MacFlowColor.notch, title: title) {
             Toggle(title, isOn: binding)
                 .labelsHidden()
                 .toggleStyle(.switch)
@@ -273,9 +295,9 @@ struct MacFlowNotchWorkspaceView: View {
 
     private var previewNotchWidth: CGFloat {
         switch settings.notchContentSize {
-        case .small: 78
-        case .medium: 104
-        case .large: 132
+        case .small: 136
+        case .medium: 154
+        case .large: 174
         }
     }
 }

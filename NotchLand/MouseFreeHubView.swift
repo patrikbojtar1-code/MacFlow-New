@@ -15,8 +15,7 @@ struct MouseFreeHubView: View {
         VStack(spacing: 0) {
             MacFlowPageHeader(
                 eyebrow: "Scroll tuning",
-                title: "MouseFree",
-                subtitle: "Shape external wheel input into precise, display-synchronised movement."
+                title: "MouseFree"
             ) {
                 HStack(spacing: MacFlowSpacing.space12) {
                     MacFlowStatusPill(
@@ -33,7 +32,7 @@ struct MouseFreeHubView: View {
             Divider().overlay(MacFlowColor.borderSubtle)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space16) {
                     if controller.isEnabled, !controller.isAccessibilityTrusted {
                         permissionRow
                     }
@@ -43,10 +42,10 @@ struct MouseFreeHubView: View {
 
                     HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
                         fineTuning.frame(maxWidth: .infinity)
-                        behavior.frame(width: 310)
+                        behavior.frame(width: 260)
                     }
                 }
-                .padding(MacFlowSpacing.space24)
+                .padding(MacFlowSpacing.space20)
             }
             .scrollIndicators(.hidden)
         }
@@ -65,16 +64,12 @@ struct MouseFreeHubView: View {
                 VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
                     Text(permissionTitle)
                         .font(.system(size: 13, weight: .medium))
-                    Text(permissionExplanation)
-                        .font(.system(size: 11))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                        .lineLimit(2)
                 }
 
                 Spacer(minLength: MacFlowSpacing.space16)
 
                 if controller.isStableApplicationLocation {
-                    Button("Allow MacFlow") { controller.requestAccessibilityPermission() }
+                    Button("Allow") { controller.requestAccessibilityPermission() }
                         .buttonStyle(.borderedProminent)
                         .tint(MacFlowColor.accent)
                 } else {
@@ -82,8 +77,12 @@ struct MouseFreeHubView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(MacFlowColor.accent)
                 }
-                Button("Open Settings") { openAccessibilitySettings() }
-                    .buttonStyle(.bordered)
+                Button { openAccessibilitySettings() } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.bordered)
+                .help("Open Accessibility Settings")
+                .accessibilityLabel("Open Accessibility Settings")
             }
             .padding(MacFlowSpacing.space12)
         }
@@ -91,15 +90,10 @@ struct MouseFreeHubView: View {
 
     private var responsePanel: some View {
         MacFlowPanel(.elevated) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space16) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
                 HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                        Text("Scroll response")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("A preview of momentum from the first wheel step to rest.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(MacFlowColor.textSecondary)
-                    }
+                    Text("Scroll response")
+                        .font(.system(size: 13, weight: .semibold))
                     Spacer()
                     Text(controller.selectedPreset?.title ?? "Custom")
                         .font(.system(size: 10.5, weight: .medium))
@@ -114,18 +108,18 @@ struct MouseFreeHubView: View {
                     smoothness: controller.smoothness,
                     acceleration: controller.acceleration
                 )
-                .frame(height: 188)
+                .frame(height: 132)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("MouseFree response curve")
                 .accessibilityValue(controller.selectedPreset?.title ?? "Custom response")
             }
-            .padding(MacFlowSpacing.space16)
+            .padding(MacFlowSpacing.space12)
         }
     }
 
     private var presetStrip: some View {
         VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
-            MacFlowSectionHeader("Feel presets", detail: "Choose a baseline, then fine-tune")
+            MacFlowSectionHeader("Presets")
             HStack(spacing: MacFlowSpacing.space8) {
                 ForEach(MouseScrollPreset.allCases) { preset in
                     presetButton(preset)
@@ -149,18 +143,12 @@ struct MouseFreeHubView: View {
                         isSelected ? MacFlowColor.mouseFree.opacity(0.11) : MacFlowColor.surface1,
                         in: Circle()
                     )
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
-                    Text(preset.title)
-                        .font(.system(size: 12, weight: .medium))
-                    Text(preset.detail)
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                        .lineLimit(1)
-                }
+                Text(preset.title)
+                    .font(.system(size: 11, weight: .medium))
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, MacFlowSpacing.space12)
-            .frame(maxWidth: .infinity, minHeight: 54)
+            .frame(maxWidth: .infinity, minHeight: 44)
             .background(
                 isSelected ? MacFlowColor.surface2 : MacFlowColor.surface1,
                 in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
@@ -216,13 +204,9 @@ struct MouseFreeHubView: View {
         valueText: String
     ) -> some View {
         HStack(spacing: MacFlowSpacing.space16) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
-                Text(title).font(.system(size: 12.5, weight: .medium))
-                Text(detail)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(MacFlowColor.textSecondary)
-            }
-            .frame(width: 138, alignment: .leading)
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .frame(width: 86, alignment: .leading)
 
             Slider(value: value, in: range)
                 .tint(MacFlowColor.mouseFree)
@@ -232,8 +216,8 @@ struct MouseFreeHubView: View {
                 .foregroundStyle(MacFlowColor.textSecondary)
                 .frame(width: 54, alignment: .trailing)
         }
-        .padding(.horizontal, MacFlowSpacing.space16)
-        .frame(minHeight: 63)
+        .padding(.horizontal, MacFlowSpacing.space12)
+        .frame(minHeight: 50)
     }
 
     private var behavior: some View {
@@ -242,44 +226,33 @@ struct MouseFreeHubView: View {
             MacFlowSettingsGroup {
                 compactToggle(
                     title: "Reverse direction",
-                    detail: "Match natural trackpad scrolling.",
                     binding: $controller.reverseScroll
                 )
                 MacFlowInsetDivider(leading: MacFlowSpacing.space16)
                 compactToggle(
                     title: "Option bypass",
-                    detail: "Hold Option for native wheel input.",
                     binding: $controller.optionBypassEnabled
                 )
                 MacFlowInsetDivider(leading: MacFlowSpacing.space16)
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space6) {
-                    Label("Native devices stay native", systemImage: "hand.point.up.left.fill")
-                        .font(.system(size: 11.5, weight: .medium))
-                    Text("Trackpads and Magic Mouse keep their macOS momentum.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                }
-                .padding(MacFlowSpacing.space16)
+                Label("Trackpads stay native", systemImage: "hand.point.up.left.fill")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+                    .padding(MacFlowSpacing.space12)
             }
         }
     }
 
-    private func compactToggle(title: String, detail: String, binding: Binding<Bool>) -> some View {
+    private func compactToggle(title: String, binding: Binding<Bool>) -> some View {
         HStack(spacing: MacFlowSpacing.space12) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
-                Text(title).font(.system(size: 12, weight: .medium))
-                Text(detail)
-                    .font(.system(size: 10))
-                    .foregroundStyle(MacFlowColor.textSecondary)
-            }
+            Text(title).font(.system(size: 11.5, weight: .medium))
             Spacer()
             Toggle(title, isOn: binding)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
         }
-        .padding(.horizontal, MacFlowSpacing.space16)
-        .frame(minHeight: 58)
+        .padding(.horizontal, MacFlowSpacing.space12)
+        .frame(minHeight: 50)
     }
 
     private var statusColor: Color {
@@ -295,13 +268,6 @@ struct MouseFreeHubView: View {
         controller.isStableApplicationLocation
             ? "Accessibility permission required"
             : "Install this MacFlow build first"
-    }
-
-    private var permissionExplanation: String {
-        if controller.isStableApplicationLocation {
-            return "Required only to replace stepped wheel events with smooth pixel movement."
-        }
-        return "Temporary builds receive a different macOS identity after every compile."
     }
 
     private func revealCurrentApplication() {

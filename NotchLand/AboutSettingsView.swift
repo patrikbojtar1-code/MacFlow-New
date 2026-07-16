@@ -34,18 +34,23 @@ struct AboutSettingsView: View {
         VStack(spacing: 0) {
             MacFlowPageHeader(
                 eyebrow: "Product",
-                title: "About MacFlow",
-                subtitle: "One native workspace for the Mac you use every day."
+                title: "About MacFlow"
             )
             Divider().overlay(MacFlowColor.borderSubtle)
 
             ScrollView {
-                HStack(alignment: .top, spacing: MacFlowSpacing.space20) {
-                    identityPanel
-                    informationColumn
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: MacFlowSpacing.space16) {
+                        identityPanel
+                        informationColumn
+                    }
+                    VStack(spacing: MacFlowSpacing.space16) {
+                        identityPanel
+                        informationColumn
+                    }
                 }
-                .frame(maxWidth: 900)
-                .padding(MacFlowSpacing.space32)
+                .frame(maxWidth: 800)
+                .padding(MacFlowSpacing.space20)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .scrollIndicators(.never)
@@ -55,22 +60,17 @@ struct AboutSettingsView: View {
     private var identityPanel: some View {
         MacFlowPanel(.elevated) {
             VStack(alignment: .leading, spacing: MacFlowSpacing.space20) {
-                MacFlowLogoTile(size: 92)
+                MacFlowLogoTile(size: 72)
                     .onTapGesture(perform: onIconClick)
                     .accessibilityLabel("MacFlow application icon")
 
                 VStack(alignment: .leading, spacing: MacFlowSpacing.space6) {
                     Text("MacFlow")
-                        .font(.system(size: 28, weight: .semibold))
+                        .font(.system(size: 24, weight: .semibold))
                         .tracking(-0.5)
                     Text("Everything in rhythm.")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(MacFlowColor.textSecondary)
-                    Text("Notch activities, precise scrolling and living wallpapers—coordinated from a single macOS app.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(MacFlowColor.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, MacFlowSpacing.space4)
                 }
 
                 HStack(spacing: MacFlowSpacing.space8) {
@@ -79,9 +79,9 @@ struct AboutSettingsView: View {
                     productChip("Wallpapers", icon: "photo.fill", color: MacFlowColor.wallpaper)
                 }
             }
-            .padding(MacFlowSpacing.space24)
+            .padding(MacFlowSpacing.space20)
         }
-        .frame(width: 360)
+        .frame(width: 300)
     }
 
     private var informationColumn: some View {
@@ -108,7 +108,7 @@ struct AboutSettingsView: View {
                     Label("Local by design", systemImage: "lock.shield.fill")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(MacFlowColor.accent)
-                    Text("MacFlow keeps module preferences and local workspace data on this Mac. System permissions remain under your control in macOS Settings.")
+                    Text("Preferences and workspace data stay on this Mac.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(MacFlowColor.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

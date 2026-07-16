@@ -84,18 +84,18 @@ struct MacFlowPageHeader<Actions: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: MacFlowSpacing.space20) {
+        HStack(alignment: .center, spacing: MacFlowSpacing.space16) {
             VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                 Text(eyebrow.uppercased())
                     .font(.system(size: 9.5, weight: .bold))
                     .foregroundStyle(MacFlowColor.textTertiary)
                     .tracking(1.05)
                 Text(title)
-                    .font(.system(size: 25, weight: .semibold))
+                    .font(.system(size: 21, weight: .semibold))
                     .tracking(-0.35)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .foregroundStyle(MacFlowColor.textSecondary)
                         .lineLimit(1)
                 }
@@ -103,7 +103,7 @@ struct MacFlowPageHeader<Actions: View>: View {
             Spacer(minLength: MacFlowSpacing.space16)
             actions
         }
-        .padding(.horizontal, MacFlowSpacing.space24)
+        .padding(.horizontal, MacFlowSpacing.space20)
         .frame(minHeight: MacFlowMetrics.pageHeaderHeight)
     }
 }
@@ -191,15 +191,15 @@ struct MacFlowSettingsRow<Trailing: View>: View {
         HStack(spacing: MacFlowSpacing.space12) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(tint)
-                    .frame(width: 31, height: 31)
+                    .frame(width: 28, height: 28)
                     .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             VStack(alignment: .leading, spacing: MacFlowSpacing.space2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                 if let subtitle {
                     Text(subtitle)
                         .font(.system(size: 11))
@@ -211,13 +211,13 @@ struct MacFlowSettingsRow<Trailing: View>: View {
             Spacer(minLength: MacFlowSpacing.space12)
             trailing
         }
-        .padding(.horizontal, MacFlowSpacing.space16)
+        .padding(.horizontal, MacFlowSpacing.space12)
         .frame(minHeight: MacFlowMetrics.settingsRowHeight)
     }
 }
 
 struct MacFlowInsetDivider: View {
-    var leading: CGFloat = 59
+    var leading: CGFloat = 52
 
     var body: some View {
         Rectangle()

@@ -87,15 +87,10 @@ struct ScenesSettingsView: View {
     }
 
     private var browserToolbar: some View {
-        HStack(spacing: MacFlowSpacing.space12) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                Text("Wallpaper Scenes")
-                    .font(.system(size: 24, weight: .semibold))
-                    .tracking(-0.35)
-                Text("Browse, apply, and tune your local collection.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(MacFlowColor.textSecondary)
-            }
+        HStack(spacing: MacFlowSpacing.space8) {
+            Text("Wallpapers")
+                .font(.system(size: 20, weight: .semibold))
+                .tracking(-0.25)
 
             Spacer(minLength: MacFlowSpacing.space16)
 
@@ -116,7 +111,7 @@ struct ScenesSettingsView: View {
                 }
             }
             .padding(.horizontal, MacFlowSpacing.space10)
-            .frame(width: 210, height: 32)
+            .frame(width: 168, height: 30)
             .background(MacFlowColor.surface2, in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
@@ -129,11 +124,11 @@ struct ScenesSettingsView: View {
                         Text(sort.title).tag(sort)
                     }
                 }
-            } label: {
-                Label(browser.sort.title, systemImage: "arrow.up.arrow.down")
-            }
+            } label: { Image(systemName: "arrow.up.arrow.down") }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .help("Sort: \(browser.sort.title)")
+            .accessibilityLabel("Sort scenes")
 
             Menu {
                 Button {
@@ -178,8 +173,8 @@ struct ScenesSettingsView: View {
             .tint(MacFlowColor.accent)
             .disabled(isImporting)
         }
-        .padding(.horizontal, MacFlowSpacing.space24)
-        .frame(minHeight: 78)
+        .padding(.horizontal, MacFlowSpacing.space16)
+        .frame(minHeight: 62)
     }
 
     private var browserContent: some View {
@@ -218,7 +213,7 @@ struct ScenesSettingsView: View {
             if let scene = selectedScene {
                 MacFlowPanel(.elevated) {
                     HStack(spacing: 0) {
-                        VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
+                        VStack(alignment: .leading, spacing: MacFlowSpacing.space10) {
                             HStack(spacing: MacFlowSpacing.space8) {
                                 Circle()
                                     .fill(scene.id == controller.activeSceneID ? Color.green : MacFlowColor.textTertiary)
@@ -231,17 +226,11 @@ struct ScenesSettingsView: View {
 
                             VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
                                 Text(scene.title)
-                                    .font(.system(size: 20, weight: .semibold))
+                                    .font(.system(size: 17, weight: .semibold))
                                     .lineLimit(2)
-                                Text("by \(scene.author)")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(MacFlowColor.textSecondary)
                             }
 
-                            HStack(spacing: MacFlowSpacing.space12) {
-                                Label(scene.kind.displayName, systemImage: scene.kind.systemImage)
-                                Label(scene.rendering.scalingMode.title, systemImage: scene.rendering.scalingMode.systemImage)
-                            }
+                            Label(scene.kind.displayName, systemImage: scene.kind.systemImage)
                             .font(.system(size: 10.5))
                             .foregroundStyle(MacFlowColor.textSecondary)
 
@@ -249,8 +238,8 @@ struct ScenesSettingsView: View {
 
                             previewActions(for: scene)
                         }
-                        .padding(MacFlowSpacing.space16)
-                        .frame(width: 222, alignment: .leading)
+                        .padding(MacFlowSpacing.space12)
+                        .frame(width: 180, alignment: .leading)
 
                         WallpaperThumbnailView(
                             scene: scene,
@@ -272,7 +261,7 @@ struct ScenesSettingsView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipped()
                     }
-                    .frame(height: 206)
+                    .frame(height: 162)
                 }
             } else {
                 MacFlowPanel(.grouped) {
@@ -281,7 +270,7 @@ struct ScenesSettingsView: View {
                         title: "No scene matches",
                         detail: "Clear the search or choose another filter."
                     )
-                    .frame(height: 206)
+                    .frame(height: 162)
                 }
             }
         }
@@ -393,7 +382,7 @@ struct ScenesSettingsView: View {
             ScrollView {
                 if browser.layout == .grid {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: MacFlowSpacing.space10)],
+                        columns: [GridItem(.adaptive(minimum: 145, maximum: 230), spacing: MacFlowSpacing.space8)],
                         spacing: MacFlowSpacing.space10
                     ) {
                         ForEach(visibleScenes) { scene in
