@@ -2,137 +2,189 @@
 //  LiveActivityChipView.swift
 //  NotchLand
 //
-//  Developed by Rudra Shah — Author & Creator of NotchLand.
-//  Copyright © 2026 Rudra Shah. All rights reserved.
-//
-//  Dynamic Island-style live activity: content flanks the physical notch —
-//  icon (and short title) on the left wing, detail/progress on the right —
-//  with a center gap the width of the hardware notch. Audio-device connects
-//  get a short "connecting → done" flourish: the glyph bounces in with a
-//  pulsing ring, then settles with a checkmark once paired.
-//
 
 import SwiftUI
 
 enum LiveActivityChipMetrics {
-    /// Total body width: a left wing + notch gap + right wing. Wide enough to
-    /// flank the hardware notch without the content sliding under it.
-    nonisolated static let flankWidth: CGFloat = 332
+    nonisolated static let flankWidth: CGFloat = 520
+    nonisolated static let compactSize = CGSize(width: 520, height: 50)
+    nonisolated static let mediumSize = CGSize(width: 700, height: 78)
+
+    nonisolated static func size(for notchSize: NotchSize) -> CGSize {
+        notchSize == .small ? compactSize : mediumSize
+    }
 }
 
+/// Shared compact activity surface. AirPods, messages, timers and downloads
+/// use the same left/exclusion/right grid instead of independent pills.
 struct LiveActivityChipView: View {
     let activity: LiveActivity
 
     @EnvironmentObject private var settings: NotchSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var didBounce = false
-    @State private var isConnecting: Bool
+    @State private var animatesStatus = false
 
-    init(activity: LiveActivity) {
-        self.activity = activity
-        _isConnecting = State(initialValue: Self.isAudioDeviceConnect(activity))
+    private var notchSize: NotchSize {
+        settings.notchContentSize == .large ? .medium : settings.notchContentSize
     }
 
-    private var notchGap: CGFloat { CGFloat(settings.collapsedWidth) }
+    private var exclusionWidth: CGFloat {
+        NotchLayoutMetrics.exclusionWidth(
+            hardwareWidth: CGFloat(settings.collapsedWidth),
+            usesVirtualNotch: settings.virtualNotchEnabled
+        )
+    }
 
     var body: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 6) {
-                iconGlyph
+        NotchHardwareLayout(exclusionWidth: exclusionWidth, size: notchSize) {
+            identityWing
+        } right: {
+            statusWing
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(NotchAmbientMotion.pulse(reduceMotion: reduceMotion)) {
+                animatesStatus = true
+            }
+        }
+        .animation(
+            NotchAnimationProfile.animation(for: .compact, reduceMotion: reduceMotion),
+            value: activity
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(activity.title)
+        .accessibilityValue(activity.detail ?? "")
+    }
+
+    private var identityWing: some View {
+        HStack(spacing: notchSize == .small ? 9 : 12) {
+            accessoryIcon
+                .frame(width: notchSize == .small ? 30 : 42, height: notchSize == .small ? 30 : 42)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(activity.title)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .minimumScaleFactor(0.75)
-            }
-            .padding(.leading, 14)
 
-            Spacer(minLength: notchGap)
-
-            Group {
-                if let progress = activity.progress {
-                    ProgressView(value: progress)
-                        .progressViewStyle(.circular)
-                        .controlSize(.mini)
-                } else if let detail = detailText {
+                if notchSize != .small, let detail = activity.detail {
                     Text(detail)
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
+                        .foregroundStyle(NotchTheme.secondaryText)
                         .lineLimit(1)
-                        .contentTransition(.identity)
+                        .transition(.opacity)
                 }
             }
-            .padding(.trailing, 14)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 6)
-        .onAppear { playConnectSequenceIfNeeded() }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var accessoryIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: notchSize == .small ? 9 : 12, style: .continuous)
+                .fill(Color.white.opacity(0.09))
+
+            Image(systemName: symbol)
+                .font(.system(size: notchSize == .small ? 16 : 22, weight: .medium))
+                .foregroundStyle(tint)
+                .symbolEffect(.bounce, value: activity.presentationID)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: notchSize == .small ? 9 : 12, style: .continuous)
+                .stroke(NotchTheme.subtleStroke, lineWidth: 1)
+        }
     }
 
     @ViewBuilder
-    private var iconGlyph: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                if isConnecting {
-                    connectingRing(delay: 0)
-                    connectingRing(delay: 0.5)
+    private var statusWing: some View {
+        switch activity.kind {
+        case let .audioDevice(_, _, batteryPercent, phase):
+            HStack(spacing: 8) {
+                if notchSize == .small {
+                    compactAccessoryStatus(phase: phase)
+                } else {
+                    Text(phase.displayName)
+                        .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .medium))
+                        .foregroundStyle(statusTint(for: phase))
+                        .contentTransition(.opacity)
+                    compactAccessoryStatus(phase: phase)
                 }
-                Image(systemName: symbol)
-                    .font(.system(size: isAudioDeviceKind ? 17 : 13, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .symbolEffect(.bounce, value: didBounce)
-            }
-            .frame(width: 20, height: 20)
 
-            if isAudioDeviceKind, !isConnecting {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.white, .green)
-                    .background(Circle().fill(.black))
-                    .offset(x: 4, y: 3)
-                    .transition(.notchSuccess)
+                if let batteryPercent {
+                    Label("\(batteryPercent)%", systemImage: "battery.100percent")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.72))
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+        case .message:
+            detailStatus(symbol: "message.fill", tint: .green)
+        case .timer:
+            detailStatus(symbol: "timer", tint: .orange)
+        case .download:
+            if let progress = activity.progress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+                    .tint(.green)
+            } else {
+                detailStatus(symbol: "arrow.down.circle.fill", tint: .green)
             }
         }
     }
 
-    private func connectingRing(delay: Double) -> some View {
-        Circle()
-            .stroke(tint.opacity(0.55), lineWidth: 1.2)
-            .frame(width: 16, height: 16)
-            .scaleEffect(isConnecting ? 1.9 : 1)
-            .opacity(isConnecting ? 0 : 0.7)
-            .animation(
-                NotchAmbientMotion.orbit(delay: delay, reduceMotion: reduceMotion),
-                value: isConnecting
-            )
-    }
-
-    private var detailText: String? {
-        isAudioDeviceKind && isConnecting ? "Connecting…" : activity.detail
-    }
-
-    private var isAudioDeviceKind: Bool { Self.isAudioDeviceConnect(activity) }
-
-    private static func isAudioDeviceConnect(_ activity: LiveActivity) -> Bool {
-        if case .audioDevice = activity.kind { return true }
-        return false
-    }
-
-    private func playConnectSequenceIfNeeded() {
-        didBounce = true
-        guard isAudioDeviceKind else { return }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 650_000_000)
-            withAnimation(NotchMotionGraph.animation(for: .success)) {
-                isConnecting = false
+    @ViewBuilder
+    private func compactAccessoryStatus(phase: AudioAccessoryConnectionPhase) -> some View {
+        switch phase {
+        case .connecting, .disconnecting:
+            ZStack {
+                Circle()
+                    .stroke(tint.opacity(0.22), lineWidth: 2)
+                Circle()
+                    .trim(from: 0.08, to: 0.58)
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(animatesStatus ? 360 : 0))
             }
+            .frame(width: 20, height: 20)
+            .animation(
+                reduceMotion ? nil : .linear(duration: 0.8).repeatForever(autoreverses: false),
+                value: animatesStatus
+            )
+        case .connected:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white, .green)
+                .transition(.notchSuccess)
+        case .disconnected:
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.76), .gray)
+        case .lowBattery:
+            Image(systemName: "battery.25percent")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(.orange)
+        }
+    }
+
+    private func detailStatus(symbol: String, tint: Color) -> some View {
+        HStack(spacing: 7) {
+            if let detail = activity.detail {
+                Text(detail)
+                    .font(.system(size: 11, weight: .medium).monospacedDigit())
+                    .foregroundStyle(NotchTheme.secondaryText)
+                    .lineLimit(1)
+            }
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
         }
     }
 
     private var symbol: String {
         switch activity.kind {
-        case let .audioDevice(_, model, _): model.symbolName
+        case let .audioDevice(_, model, _, _): model.symbolName
         case .message: "message.fill"
         case .timer: "timer"
         case .download: "arrow.down.circle.fill"
@@ -141,35 +193,37 @@ struct LiveActivityChipView: View {
 
     private var tint: Color {
         switch activity.kind {
-        case .audioDevice: .blue
+        case .audioDevice: .white
         case .message: .green
         case .timer: .orange
         case .download: .green
         }
     }
+
+    private func statusTint(for phase: AudioAccessoryConnectionPhase) -> Color {
+        switch phase {
+        case .connected: .green
+        case .lowBattery: .orange
+        case .connecting, .disconnecting, .disconnected: NotchTheme.secondaryText
+        }
+    }
 }
 
 #if DEBUG
-#Preview("Live Activity") {
-    NotchPreviewContainer {
-        LiveActivityChipView(activity: PreviewSamples.timerActivity)
-            .notchPreviewSurface(width: LiveActivityChipMetrics.flankWidth, height: 40)
-    }
-}
-
-#Preview("Live Activity - AirPods Connect") {
+#Preview("Live Activity - AirPods") {
     NotchPreviewContainer {
         LiveActivityChipView(activity: LiveActivity(
-            kind: .audioDevice(name: "Rudra's AirPods Pro", model: .airPodsPro, batteryPercent: 80),
-            title: "Rudra's AirPods Pro",
+            kind: .audioDevice(
+                name: "AirPods Max",
+                model: .airPodsMax,
+                batteryPercent: 84,
+                phase: .connected
+            ),
+            title: "AirPods Max",
             detail: "Connected",
             progress: nil
         ))
-        .notchPreviewSurface(width: LiveActivityChipMetrics.flankWidth, height: 40)
+        .notchPreviewSurface(width: LiveActivityChipMetrics.compactSize.width, height: 50)
     }
 }
 #endif
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Developed by Rudra Shah — Author & Creator of NotchLand.
-// ─────────────────────────────────────────────────────────────────────────────

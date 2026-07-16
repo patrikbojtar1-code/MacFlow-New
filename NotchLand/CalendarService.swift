@@ -312,6 +312,20 @@ extension CalendarService.Event {
         !isAllDay && !isFromHolidayCalendar
     }
 
+    /// EventKit does not expose a portable priority flag. Users can mark an
+    /// event explicitly with a leading `!` or a clear keyword in its notes.
+    var isImportant: Bool {
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("!") {
+            return true
+        }
+        let searchable = [title, notes ?? ""]
+            .joined(separator: " ")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+        return ["#important", "!important", "dulezite", "urgent", "must not miss"]
+            .contains { searchable.contains($0) }
+    }
+
     /// Apple Maps query URL for the event's location, if present.
     var mapsURL: URL? {
         guard let location, !location.isEmpty,

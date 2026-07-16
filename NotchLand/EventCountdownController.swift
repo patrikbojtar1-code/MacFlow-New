@@ -34,11 +34,14 @@ final class EventCountdownController: ObservableObject {
 
     @Published private(set) var presentation: Presentation?
     @Published private(set) var isDetailPresented = false
+    @Published private(set) var importantReminderEventID: String?
 
     private let calendar: CalendarService
     private let settings: NotchSettings
     private var cancellables: Set<AnyCancellable> = []
     private var ticker: Timer?
+    private static let importantReminderLeadTime: TimeInterval = 90 * 60
+    private static let acknowledgedImportantEventsKey = "calendar.acknowledgedImportantEvents"
 
     init(calendar: CalendarService, settings: NotchSettings) {
         self.calendar = calendar
@@ -71,6 +74,7 @@ final class EventCountdownController: ObservableObject {
         cancellables.removeAll()
         stopTicker()
         presentation = nil
+        importantReminderEventID = nil
         isDetailPresented = false
     }
 
@@ -79,6 +83,21 @@ final class EventCountdownController: ObservableObject {
     var trackedEvent: CalendarService.Event? {
         guard let id = presentation?.eventID else { return nil }
         return calendar.events.first { $0.id == id }
+    }
+
+    var importantReminderEvent: CalendarService.Event? {
+        guard let importantReminderEventID else { return nil }
+        return calendar.events.first { $0.id == importantReminderEventID }
+    }
+
+    func acknowledgeImportantReminder() {
+        guard let event = importantReminderEvent else { return }
+        var acknowledged = acknowledgedImportantEvents
+        acknowledged[event.id] = event.endDate.timeIntervalSinceReferenceDate
+        UserDefaults.standard.set(acknowledged, forKey: Self.acknowledgedImportantEventsKey)
+        importantReminderEventID = nil
+        NotchHaptics.perform(.confirmation)
+        recompute()
     }
 
     func showDetail() {
@@ -91,6 +110,8 @@ final class EventCountdownController: ObservableObject {
     }
 
     private func recompute() {
+        recomputeImportantReminder()
+
         guard settings.eventCountdownEnabled else {
             updatePresentation(nil)
             isDetailPresented = false
@@ -132,10 +153,44 @@ final class EventCountdownController: ObservableObject {
         }
         if new == nil {
             isDetailPresented = false
-            stopTicker()
+            if importantReminderEventID == nil { stopTicker() }
         } else {
             ensureTicker()
         }
+    }
+
+    private func recomputeImportantReminder() {
+        let now = Date()
+        var acknowledged = acknowledgedImportantEvents
+        acknowledged = acknowledged.filter { $0.value > now.timeIntervalSinceReferenceDate }
+        UserDefaults.standard.set(acknowledged, forKey: Self.acknowledgedImportantEventsKey)
+
+        let configuredLead = TimeInterval(settings.eventCountdownThresholdMinutes * 60)
+        let leadTime = max(Self.importantReminderLeadTime, configuredLead)
+        let candidate = calendar.events
+            .filter { event in
+                event.isImportant
+                    && event.endDate > now
+                    && event.startDate.timeIntervalSince(now) <= leadTime
+                    && acknowledged[event.id] == nil
+            }
+            .sorted { $0.startDate < $1.startDate }
+            .first
+
+        let nextID = candidate?.id
+        if nextID != importantReminderEventID {
+            importantReminderEventID = nextID
+        }
+        if nextID != nil { ensureTicker() }
+    }
+
+    private var acknowledgedImportantEvents: [String: TimeInterval] {
+        UserDefaults.standard.dictionary(forKey: Self.acknowledgedImportantEventsKey)?
+            .compactMapValues { value in
+                if let value = value as? TimeInterval { return value }
+                if let value = value as? NSNumber { return value.doubleValue }
+                return nil
+            } ?? [:]
     }
 
     private func ensureTicker() {

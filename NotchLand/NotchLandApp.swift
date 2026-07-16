@@ -26,7 +26,6 @@ struct NotchLandApp: App {
                     .environmentObject(appDelegate.focusMode)
                     .environmentObject(appDelegate.screenLock)
                     .environmentObject(appDelegate.biometrics)
-                    .environmentObject(appDelegate.faceUnlock)
                     .environmentObject(appDelegate.calendar)
                     .environmentObject(appDelegate.eventCountdown)
                     .environmentObject(appDelegate.airDrop)

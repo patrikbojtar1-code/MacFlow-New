@@ -38,6 +38,13 @@ struct CallPresentation: Identifiable, Equatable {
     }
 }
 
+extension CallPresentation: NotchActivityPresenting {
+    var activityType: NotchActivityType { .call }
+    var presentationID: String { id.uuidString }
+    var primaryTitle: String { callerName }
+    var secondaryTitle: String { serviceName }
+}
+
 @MainActor
 final class CallActivityController: ObservableObject {
     typealias Action = @MainActor () -> Void
@@ -148,7 +155,7 @@ final class CallActivityController: ObservableObject {
 
     func systemCallBannerDidDisappear(id: UUID) {
         guard let call = current, call.id == id, call.phase == .incoming else { return }
-        dismiss()
+        finish(reason: "Call Dismissed")
     }
 
     func showDesignPreview() {

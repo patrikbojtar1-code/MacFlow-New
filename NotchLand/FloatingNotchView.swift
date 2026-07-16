@@ -285,8 +285,8 @@ struct FloatingNotchView: View {
         if key == "expanded-onboarding" {
             return Self.collapsedCornerRadius
         }
-        if key == "collapsed-music" {
-            return NowPlayingMetrics.compactBottomCornerRadius
+        if key == "collapsed-music" || isCallBranch(key) || key == "activity" || key == "important-event" {
+            return NotchLayoutMetrics.bottomRadius(for: effectiveCompactNotchSize)
         }
         return isExpandedBranch(key) ? CGFloat(settings.cornerRadius) : Self.collapsedCornerRadius
     }
@@ -969,6 +969,14 @@ struct FloatingNotchView: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
+        case "important-event":
+            if let event = countdown.importantReminderEvent {
+                ImportantEventReminderView(event: event)
+            } else {
+                CollapsedNotchContent(isHovering: appState.isHovering)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 6)
+            }
         case "wallet-contribution":
             if let contribution = wallet.currentContribution ?? renderedWalletContribution {
                 WalletContributionChipView(contribution: contribution)
@@ -1110,6 +1118,9 @@ struct FloatingNotchView: View {
            wallet.currentContribution != nil {
             return "wallet-contribution"
         }
+        if countdown.importantReminderEvent != nil {
+            return "important-event"
+        }
         if appState.isExpanded {
             if countdown.isDetailPresented, countdown.trackedEvent != nil {
                 return "expanded-event-detail"
@@ -1190,7 +1201,7 @@ struct FloatingNotchView: View {
     private func isCompactAlertBranch(_ key: String) -> Bool {
         isBatteryAlertBranch(key) || isFocusModeBranch(key) || isScreenLockBranch(key)
             || isFileShelfDropBranch(key) || isCallBranch(key)
-            || isWalletContributionBranch(key) || key == "activity"
+            || isWalletContributionBranch(key) || key == "activity" || key == "important-event"
     }
 
     private func isCollapsedMusicMarqueeBranch(_ key: String) -> Bool {
@@ -1207,6 +1218,10 @@ struct FloatingNotchView: View {
 
     private func currentCornerRadius(size: CGSize) -> CGFloat {
         isExpandedBranch(visualBranchKey) ? settings.cornerRadius : size.height / 2
+    }
+
+    private var effectiveCompactNotchSize: NotchSize {
+        settings.notchContentSize == .large ? .medium : settings.notchContentSize
     }
 
     private func currentVisibleSize(for key: String) -> CGSize {
@@ -1271,9 +1286,20 @@ struct FloatingNotchView: View {
         }
         if isCallBranch(key) {
             let presentation = calls.current ?? renderedCallPresentation
-            let callSize = presentation.map(CallOverlayMetrics.size(for:)) ?? CallOverlayMetrics.incomingSize
+            let callSize = presentation.map {
+                CallOverlayMetrics.size(for: $0, notchSize: effectiveCompactNotchSize)
+            } ?? (effectiveCompactNotchSize == .small
+                ? CallOverlayMetrics.incomingSize
+                : CallOverlayMetrics.mediumSize)
             let bodyW = max(baseWidth, callSize.width)
             return CGSize(width: bodyW + extra, height: callSize.height)
+        }
+        if key == "important-event" {
+            let reminderSize = ImportantEventReminderMetrics.size(for: effectiveCompactNotchSize)
+            return CGSize(
+                width: max(baseWidth, reminderSize.width) + extra,
+                height: max(baseHeight, reminderSize.height)
+            )
         }
         if isWalletContributionBranch(key) {
             let bodyW = max(baseWidth, WalletContributionChipMetrics.width)
@@ -1284,8 +1310,9 @@ struct FloatingNotchView: View {
             return CGSize(width: bodyW + extra, height: FileShelfMetrics.dropSize.height)
         }
         if key == "activity" {
-            let bodyW = max(baseWidth, LiveActivityChipMetrics.flankWidth)
-            return CGSize(width: bodyW + extra, height: max(baseHeight, 40))
+            let activitySize = LiveActivityChipMetrics.size(for: effectiveCompactNotchSize)
+            let bodyW = max(baseWidth, activitySize.width)
+            return CGSize(width: bodyW + extra, height: max(baseHeight, activitySize.height))
         }
         if key == Self.hardwareNotchBranchKey {
             return CGSize(width: baseWidth + extra, height: baseHeight)
@@ -1300,13 +1327,15 @@ struct FloatingNotchView: View {
         if hasMusic {
             let presentation = nowPlaying.track?.compactPresentation
             let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
-            let hoverExpansion = appState.isHovering
-                ? NowPlayingMetrics.compactHoverWidthExpansion
-                : 0
-            let bodyW = max(baseWidth, preferredWidth + hoverExpansion)
+            let selectedSize = NotchLayoutMetrics.bodySize(for: effectiveCompactNotchSize)
+            let hoverExpansion = appState.isHovering ? NotchLayoutMetrics.hoverWidthExpansion : 0
+            let bodyW = max(baseWidth, preferredWidth, selectedSize.width) + hoverExpansion
             return CGSize(
                 width: bodyW + extra,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight)
+                height: max(
+                    baseHeight,
+                    selectedSize.height + (appState.isHovering ? NotchLayoutMetrics.hoverHeightExpansion : 0)
+                )
             )
         }
         if key == "event-collapsed" {

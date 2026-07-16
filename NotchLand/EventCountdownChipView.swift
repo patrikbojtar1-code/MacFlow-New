@@ -11,6 +11,79 @@
 
 import SwiftUI
 
+enum ImportantEventReminderMetrics {
+    nonisolated static func size(for notchSize: NotchSize) -> CGSize {
+        notchSize == .small
+            ? CGSize(width: 620, height: 58)
+            : CGSize(width: 720, height: 78)
+    }
+}
+
+struct ImportantEventReminderView: View {
+    let event: CalendarService.Event
+
+    @EnvironmentObject private var countdown: EventCountdownController
+    @EnvironmentObject private var settings: NotchSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var notchSize: NotchSize {
+        settings.notchContentSize == .large ? .medium : settings.notchContentSize
+    }
+
+    var body: some View {
+        NotchHardwareLayout(
+            exclusionWidth: NotchLayoutMetrics.exclusionWidth(
+                hardwareWidth: CGFloat(settings.collapsedWidth),
+                usesVirtualNotch: settings.virtualNotchEnabled
+            ),
+            size: notchSize
+        ) {
+            HStack(spacing: 10) {
+                Image(systemName: "calendar.badge.exclamationmark")
+                    .font(.system(size: notchSize == .small ? 17 : 21, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: notchSize == .small ? 30 : 40, height: notchSize == .small ? 30 : 40)
+                    .background(.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(event.title.trimmingCharacters(in: CharacterSet(charactersIn: "! ")))
+                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                        .foregroundStyle(NotchTheme.primaryText)
+                        .lineLimit(1)
+                    Text(eventTime)
+                        .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
+                        .foregroundStyle(NotchTheme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+        } right: {
+            Button {
+                withAnimation(
+                    NotchAnimationProfile.animation(for: .compact, reduceMotion: reduceMotion)
+                ) {
+                    countdown.acknowledgeImportantReminder()
+                }
+            } label: {
+                Label("Seen", systemImage: "checkmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 12)
+                    .frame(height: 29)
+                    .background(.white, in: Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Acknowledge important event \(event.title)")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var eventTime: String {
+        if event.isAllDay { return "Important · All day" }
+        if event.startDate <= .now { return "Important · Happening now" }
+        return "Important · \(event.startDate.formatted(.dateTime.hour().minute()))"
+    }
+}
+
 enum EventCountdownChipMetrics {
     /// Width bounds for the collapsed countdown body. The max fits values like
     /// `1h 05m` without letting the text bleed toward the hardware notch.

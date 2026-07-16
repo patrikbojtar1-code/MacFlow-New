@@ -63,7 +63,6 @@ final class WindowManager: NSObject {
     private let focusMode: FocusModeController
     private let screenLock: ScreenLockController
     private let biometrics: BiometricAuthenticationController
-    private let faceUnlock: FaceUnlockController
     private let calendar: CalendarService
     private let eventCountdown: EventCountdownController
     private let airDrop: AirDropController
@@ -114,7 +113,6 @@ final class WindowManager: NSObject {
         focusMode: FocusModeController,
         screenLock: ScreenLockController,
         biometrics: BiometricAuthenticationController,
-        faceUnlock: FaceUnlockController,
         calendar: CalendarService,
         eventCountdown: EventCountdownController,
         airDrop: AirDropController,
@@ -143,7 +141,6 @@ final class WindowManager: NSObject {
         self.focusMode = focusMode
         self.screenLock = screenLock
         self.biometrics = biometrics
-        self.faceUnlock = faceUnlock
         self.calendar = calendar
         self.eventCountdown = eventCountdown
         self.airDrop = airDrop
@@ -241,10 +238,12 @@ final class WindowManager: NSObject {
         // Panel envelope only changes with user-configured sizes; state transitions
         // animate purely inside SwiftUI, leaving the panel frame untouched.
         Publishers.MergeMany(
-            settings.$collapsedWidth.dropFirst().map { _ in () },
-            settings.$collapsedHeight.dropFirst().map { _ in () },
-            settings.$expandedWidth.dropFirst().map { _ in () },
-            settings.$expandedHeight.dropFirst().map { _ in () }
+            settings.$collapsedWidth.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$collapsedHeight.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$expandedWidth.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$expandedHeight.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$notchContentSize.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$virtualNotchEnabled.dropFirst().map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self] _ in
             MainActor.assumeIsolated { self?.updateNotchFrame(animated: false) }
@@ -299,7 +298,6 @@ final class WindowManager: NSObject {
                         self?.eventCountdown.clearDetail()
                         self?.appState.resetToCollapsed()
                         self?.biometrics.lock()
-                        self?.faceUnlock.cancel()
                     }
                     self?.applyVisibility()
                     self?.applyPanelLockMode(presentation != nil)
@@ -797,7 +795,6 @@ final class WindowManager: NSObject {
                 .environmentObject(focusMode)
                 .environmentObject(screenLock)
                 .environmentObject(biometrics)
-                .environmentObject(faceUnlock)
                 .environmentObject(calendar)
                 .environmentObject(eventCountdown)
                 .environmentObject(airDrop)
@@ -877,7 +874,6 @@ final class WindowManager: NSObject {
                 .environmentObject(focusMode)
                 .environmentObject(screenLock)
                 .environmentObject(biometrics)
-                .environmentObject(faceUnlock)
                 .environmentObject(calendar)
                 .environmentObject(eventCountdown)
                 .environmentObject(airDrop)
@@ -994,6 +990,7 @@ final class WindowManager: NSObject {
             EventDetailMetrics.eventOnlySize.width,
             FileShelfMetrics.expandedSize.width,
             NotchWidgetMetrics.expandedSize.width,
+            NotchLayoutMetrics.bodySize(for: .large).width,
             onboardingWidth
         )
         let expandedHeight = max(
@@ -1003,6 +1000,7 @@ final class WindowManager: NSObject {
             EventDetailMetrics.eventOnlySize.height,
             FileShelfMetrics.expandedSize.height,
             NotchWidgetMetrics.expandedSize.height,
+            NotchLayoutMetrics.bodySize(for: .large).height,
             onboardingHeight
         )
 
@@ -1015,7 +1013,9 @@ final class WindowManager: NSObject {
             BatteryAlertMetrics.maxWidth,
             FocusModeAlertMetrics.maxWidth,
             LockScreenAlertMetrics.maxWidth,
-            CallOverlayMetrics.incomingSize.width
+            CallOverlayMetrics.mediumSize.width,
+            LiveActivityChipMetrics.mediumSize.width,
+            ImportantEventReminderMetrics.size(for: .medium).width
         )
         let collapsedFamilyHeight = max(
             baseHeight + max(
@@ -1027,7 +1027,9 @@ final class WindowManager: NSObject {
             BatteryAlertMetrics.maxHeight,
             FocusModeAlertMetrics.maxHeight,
             LockScreenAlertMetrics.maxHeight,
-            CallOverlayMetrics.incomingSize.height
+            CallOverlayMetrics.mediumSize.height,
+            LiveActivityChipMetrics.mediumSize.height,
+            ImportantEventReminderMetrics.size(for: .medium).height
         )
 
         return CGSize(
@@ -1077,10 +1079,14 @@ final class WindowManager: NSObject {
         let focusPresentation = focusMode.currentPresentation
         let screenLockPresentation = screenLock.currentPresentation
         let callPresentation = calls.current
+        let compactNotchSize: NotchSize = settings.notchContentSize == .large
+            ? .medium
+            : settings.notchContentSize
 
         let invertedR: CGFloat
         if batteryPresentation != nil || focusPresentation != nil || screenLockPresentation != nil
             || callPresentation != nil
+            || eventCountdown.importantReminderEvent != nil
             || (liveActivities.current != nil && !appState.isExpanded)
             || fileShelf.isDropTargetVisible {
             invertedR = FloatingNotchView.musicInvertedRadius
@@ -1120,9 +1126,16 @@ final class WindowManager: NSObject {
             return CGSize(width: bodyW + extra, height: LockScreenAlertMetrics.fallbackHeight)
         }
         if let callPresentation {
-            let size = CallOverlayMetrics.size(for: callPresentation)
+            let size = CallOverlayMetrics.size(for: callPresentation, notchSize: compactNotchSize)
             let bodyW = max(baseWidth, size.width)
             return CGSize(width: bodyW + extra, height: size.height)
+        }
+        if eventCountdown.importantReminderEvent != nil {
+            let reminderSize = ImportantEventReminderMetrics.size(for: compactNotchSize)
+            return CGSize(
+                width: max(baseWidth, reminderSize.width) + extra,
+                height: max(baseHeight, reminderSize.height)
+            )
         }
         if fileShelf.isDropTargetVisible {
             let bodyW = max(baseWidth, FileShelfMetrics.dropSize.width)
@@ -1140,8 +1153,9 @@ final class WindowManager: NSObject {
             return CGSize(width: bodyW + extra, height: baseHeight)
         }
         if liveActivities.current != nil, !appState.isExpanded {
-            let bodyW = max(baseWidth, LiveActivityChipMetrics.flankWidth)
-            return CGSize(width: bodyW + extra, height: max(baseHeight, 40))
+            let activitySize = LiveActivityChipMetrics.size(for: compactNotchSize)
+            let bodyW = max(baseWidth, activitySize.width)
+            return CGSize(width: bodyW + extra, height: max(baseHeight, activitySize.height))
         }
         if appState.isExpanded {
             if eventCountdown.isDetailPresented, eventCountdown.trackedEvent != nil {
@@ -1169,13 +1183,15 @@ final class WindowManager: NSObject {
         if hasMusic {
             let presentation = nowPlaying.track?.compactPresentation
             let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
-            let hoverExpansion = appState.isHovering
-                ? NowPlayingMetrics.compactHoverWidthExpansion
-                : 0
-            let bodyW = max(baseWidth, preferredWidth + hoverExpansion)
+            let selectedSize = NotchLayoutMetrics.bodySize(for: compactNotchSize)
+            let hoverExpansion = appState.isHovering ? NotchLayoutMetrics.hoverWidthExpansion : 0
+            let bodyW = max(baseWidth, preferredWidth, selectedSize.width) + hoverExpansion
             return CGSize(
                 width: bodyW + extra,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight)
+                height: max(
+                    baseHeight,
+                    selectedSize.height + (appState.isHovering ? NotchLayoutMetrics.hoverHeightExpansion : 0)
+                )
             )
         }
         if hasEvent {

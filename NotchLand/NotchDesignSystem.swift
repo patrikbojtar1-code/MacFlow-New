@@ -59,7 +59,7 @@ protocol NotchActivityPresenting {
     var activityType: NotchActivityType { get }
     var presentationID: String { get }
     var primaryTitle: String { get }
-    var secondaryTitle: String? { get }
+    var secondaryTitle: String { get }
 }
 
 nonisolated enum NotchLayoutMetrics {

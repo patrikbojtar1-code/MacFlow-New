@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSFaceIDUsageDescription</key>
-	<string>NotchLand uses system authentication to reveal private widgets.</string>
 	<!-- Sparkle update feed. The public key below pairs with a private key in
 	     the developer's login keychain (generated via Sparkle's generate_keys).
 	     appcast.xml is generated per release with `generate_appcast` and

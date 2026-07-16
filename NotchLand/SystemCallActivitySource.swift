@@ -247,9 +247,9 @@ final class SystemCallActivitySource: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
-        if settings.systemCallDetectionEnabled, !isAccessibilityTrusted {
-            requestAccessibilityPermission()
-        }
+        // Never show the system consent dialog automatically on launch. The
+        // prompt is reserved for an explicit user action in Settings/onboarding.
+        refreshPermissionStatus()
         poll()
         let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }

@@ -20,7 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var focusMode = FocusModeController()
     lazy var screenLock = ScreenLockController(settings: settings)
     lazy var biometrics = BiometricAuthenticationController()
-    lazy var faceUnlock = FaceUnlockController(biometrics: biometrics)
     lazy var calendar = CalendarService()
     lazy var eventCountdown = EventCountdownController(calendar: calendar, settings: settings)
     lazy var airDrop = AirDropController(settings: settings)
@@ -62,7 +61,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         focusMode: focusMode,
         screenLock: screenLock,
         biometrics: biometrics,
-        faceUnlock: faceUnlock,
         calendar: calendar,
         eventCountdown: eventCountdown,
         airDrop: airDrop,
@@ -91,8 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appState: appState,
             timer: notchTimer,
             notes: quickNotes,
-            biometrics: biometrics,
-            faceUnlock: faceUnlock
+            biometrics: biometrics
         )
         windowManager.start()
         hud.start()

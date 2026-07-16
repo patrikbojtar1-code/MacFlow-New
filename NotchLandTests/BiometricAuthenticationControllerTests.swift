@@ -45,18 +45,6 @@ struct BiometricAuthenticationControllerTests {
         #expect(controller.errorMessage != nil)
     }
 
-    @Test func appLocalFaceUnlockCanRevealThenRelockPrivacyShield() {
-        let controller = BiometricAuthenticationController(
-            authenticator: AuthenticationStub(result: false)
-        )
-
-        controller.acceptFaceUnlock()
-        #expect(controller.isAuthenticated)
-
-        controller.lock()
-        #expect(!controller.isAuthenticated)
-    }
-
     @Test func sensitiveWidgetClassificationDoesNotBlockMediaControls() {
         #expect(NotchWidget.wallet.containsPrivateContent)
         #expect(NotchWidget.clipboard.containsPrivateContent)

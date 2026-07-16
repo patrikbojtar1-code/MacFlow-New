@@ -742,6 +742,14 @@ final class NowPlayingService: ObservableObject {
     }
 }
 
+extension NowPlayingService.CompactMediaPresentation: NotchActivityPresenting {
+    var activityType: NotchActivityType { .media }
+    var presentationID: String {
+        [source.id.rawValue, primaryTitle, secondaryTitle, artworkIdentifier ?? "no-artwork"]
+            .joined(separator: "|")
+    }
+}
+
 actor AppleTVArtworkProvider {
     static let shared = AppleTVArtworkProvider()
 

@@ -431,23 +431,15 @@ private struct PrivacyShieldView: View {
     let widget: NotchWidget
 
     @EnvironmentObject private var biometrics: BiometricAuthenticationController
-    @EnvironmentObject private var faceUnlock: FaceUnlockController
-    @EnvironmentObject private var settings: NotchSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            if faceUnlock.state.isCameraActive {
-                FaceCameraPreview(session: faceUnlock.session)
-                    .overlay(.black.opacity(0.42))
-                    .transition(.opacity)
-            } else {
-                LinearGradient(
-                    colors: [Color.indigo.opacity(0.18), Color.black.opacity(0.02)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
+            LinearGradient(
+                colors: [Color.indigo.opacity(0.14), Color.black.opacity(0.02)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
 
             VStack(spacing: 10) {
                 ZStack {
@@ -457,7 +449,7 @@ private struct PrivacyShieldView: View {
                     Circle()
                         .stroke(.white.opacity(0.1), lineWidth: 1)
                         .frame(width: 52, height: 52)
-                    Image(systemName: faceUnlock.state.isCameraActive ? "faceid" : biometrics.capability.symbol)
+                    Image(systemName: biometrics.capability.symbol)
                         .font(.system(size: 23, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.9))
                         .symbolEffect(.pulse, isActive: biometrics.isAuthenticating && !reduceMotion)
@@ -471,47 +463,25 @@ private struct PrivacyShieldView: View {
                         .foregroundStyle(.white.opacity(0.48))
                 }
 
-                HStack(spacing: 8) {
-                    if settings.faceUnlockEnabled, faceUnlock.isEnrolled {
-                        Button {
-                            Task { await faceUnlock.beginUnlock() }
-                        } label: {
-                            Label("FACE UNLOCK", systemImage: "faceid")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .tracking(0.6)
-                                .padding(.horizontal, 14)
-                                .frame(height: 30)
-                                .background(.white, in: Capsule(style: .continuous))
-                                .foregroundStyle(.black)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(faceUnlock.state.isCameraActive || faceUnlock.failedAttempts >= 3)
+                Button {
+                    Task {
+                        let success = await biometrics.authenticate()
+                        NotchHaptics.perform(success ? .confirmation : .rejection)
                     }
-
-                    Button {
-                        Task {
-                            let success = await biometrics.authenticate()
-                            if success { faceUnlock.resetAfterSystemAuthentication() }
-                            NotchHaptics.perform(success ? .confirmation : .rejection)
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: biometrics.isAuthenticating ? "ellipsis" : biometrics.capability.symbol)
-                            Text(biometrics.isAuthenticating ? "AUTHENTICATING" : "SYSTEM")
-                        }
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(0.7)
-                        .foregroundStyle(settings.faceUnlockEnabled ? .white : .black)
-                        .padding(.horizontal, 14)
-                        .frame(height: 30)
-                        .background(
-                            settings.faceUnlockEnabled ? Color.white.opacity(0.1) : Color.white,
-                            in: Capsule(style: .continuous)
-                        )
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: biometrics.isAuthenticating ? "ellipsis" : biometrics.capability.symbol)
+                        Text(biometrics.isAuthenticating ? "AUTHENTICATING" : biometricActionTitle)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(biometrics.isAuthenticating || !biometrics.isAvailable)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(0.7)
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(Color.white, in: Capsule(style: .continuous))
                 }
+                .buttonStyle(.plain)
+                .disabled(biometrics.isAuthenticating || !biometrics.isAvailable)
 
                 if let error = biometrics.errorMessage {
                     Text(error)
@@ -530,12 +500,11 @@ private struct PrivacyShieldView: View {
     }
 
     private var shieldDetail: String {
-        switch faceUnlock.state {
-        case let .scanning(challenge): challenge.instruction
-        case .requestingCamera: "Preparing the camera. Frames stay only in memory."
-        case let .failed(message): message
-        default: "Use Face Unlock or \(biometrics.capability.title) to reveal this module."
-        }
+        "Use \(biometrics.capability.title) to reveal this module. NotchLand never receives biometric data."
+    }
+
+    private var biometricActionTitle: String {
+        biometrics.capability == .touchID ? "TOUCH ID" : "UNLOCK"
     }
 }
 

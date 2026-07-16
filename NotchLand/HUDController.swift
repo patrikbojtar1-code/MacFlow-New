@@ -150,6 +150,11 @@ final class HUDController: ObservableObject {
         }
     }
 
+    func refreshAccessibilityStatus() {
+        refreshAccessibilityTrust()
+        applySystemHUDHidingPreference()
+    }
+
     private func show(_ kind: Kind) {
         current = kind
         scheduleDismiss()

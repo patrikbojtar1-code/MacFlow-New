@@ -16,8 +16,6 @@ struct BehaviorSettingsView: View {
     @EnvironmentObject var calls: CallActivityController
     @EnvironmentObject var systemCalls: SystemCallActivitySource
     @EnvironmentObject var biometrics: BiometricAuthenticationController
-    @EnvironmentObject var faceUnlock: FaceUnlockController
-    @State private var showsFaceEnrollment = false
 
     var body: some View {
         Form {
@@ -50,33 +48,6 @@ struct BehaviorSettingsView: View {
                 }
 
                 Text("Wallet, Timeline, files, calendar, clipboard, notes, tasks and camera stay hidden until macOS authenticates you. NotchLand never receives biometric data.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Face Unlock Beta") {
-                Toggle("Unlock Private Widgets with Camera", isOn: faceUnlockBinding)
-                    .disabled(!faceUnlock.isEnrolled)
-
-                HStack {
-                    Label(
-                        faceUnlock.isEnrolled ? "Face profile enrolled" : "No face profile",
-                        systemImage: faceUnlock.isEnrolled ? "faceid" : "person.crop.circle.badge.questionmark"
-                    )
-                    Spacer()
-                    Button(faceUnlock.isEnrolled ? "Re-enroll" : "Enroll Face") {
-                        showsFaceEnrollment = true
-                        Task { await faceUnlock.beginEnrollment() }
-                    }
-                    if faceUnlock.isEnrolled {
-                        Button("Delete", role: .destructive) {
-                            settings.faceUnlockEnabled = false
-                            faceUnlock.deleteEnrollment()
-                        }
-                    }
-                }
-
-                Text("Convenience-grade local protection for NotchLand only. Enrollment requires system authentication, frames are never stored, and three failed attempts force the system fallback.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -147,10 +118,9 @@ struct BehaviorSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .sheet(isPresented: $showsFaceEnrollment) {
-            FaceEnrollmentView()
-                .environmentObject(faceUnlock)
-                .environmentObject(settings)
+        .onAppear {
+            hud.refreshAccessibilityStatus()
+            systemCalls.refreshPermissionStatus()
         }
     }
 
@@ -176,15 +146,6 @@ struct BehaviorSettingsView: View {
         } set: { enabled in
             settings.biometricPrivacyEnabled = enabled
             biometrics.lock()
-        }
-    }
-
-    private var faceUnlockBinding: Binding<Bool> {
-        Binding {
-            settings.faceUnlockEnabled && faceUnlock.isEnrolled
-        } set: { enabled in
-            settings.faceUnlockEnabled = enabled && faceUnlock.isEnrolled
-            if !enabled { faceUnlock.cancel() }
         }
     }
 

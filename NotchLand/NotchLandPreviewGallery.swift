@@ -19,7 +19,6 @@ struct NotchPreviewContainer<Content: View>: View {
     @StateObject private var focusMode: FocusModeController
     @StateObject private var screenLock: ScreenLockController
     @StateObject private var biometrics: BiometricAuthenticationController
-    @StateObject private var faceUnlock: FaceUnlockController
     @StateObject private var calendar: CalendarService
     @StateObject private var eventCountdown: EventCountdownController
     @StateObject private var airDrop: AirDropController
@@ -55,7 +54,6 @@ struct NotchPreviewContainer<Content: View>: View {
         let focusMode = FocusModeController()
         let screenLock = ScreenLockController(settings: settings)
         let biometrics = BiometricAuthenticationController()
-        let faceUnlock = FaceUnlockController(biometrics: biometrics)
         let calendar = CalendarService()
         let eventCountdown = EventCountdownController(calendar: calendar, settings: settings)
         let liveActivities = LiveActivityController(settings: settings)
@@ -120,7 +118,6 @@ struct NotchPreviewContainer<Content: View>: View {
         _focusMode = StateObject(wrappedValue: focusMode)
         _screenLock = StateObject(wrappedValue: screenLock)
         _biometrics = StateObject(wrappedValue: biometrics)
-        _faceUnlock = StateObject(wrappedValue: faceUnlock)
         _calendar = StateObject(wrappedValue: calendar)
         _eventCountdown = StateObject(wrappedValue: eventCountdown)
         _airDrop = StateObject(wrappedValue: airDrop)
@@ -153,7 +150,6 @@ struct NotchPreviewContainer<Content: View>: View {
             .environmentObject(focusMode)
             .environmentObject(screenLock)
             .environmentObject(biometrics)
-            .environmentObject(faceUnlock)
             .environmentObject(calendar)
             .environmentObject(eventCountdown)
             .environmentObject(airDrop)

@@ -252,10 +252,11 @@ struct NowPlayingCollapsedView: View {
             presentation: presentation,
             processedBackground: backgroundModel.image,
             backgroundIdentity: backgroundModel.identity,
-            hardwareNotchWidth: min(
-                CGFloat(settings.collapsedWidth),
-                presentation.preferredWidth * 0.38
+            hardwareNotchWidth: NotchLayoutMetrics.exclusionWidth(
+                hardwareWidth: CGFloat(settings.collapsedWidth),
+                usesVirtualNotch: settings.virtualNotchEnabled
             ),
+            notchSize: settings.notchContentSize == .large ? .medium : settings.notchContentSize,
             isHovering: isHovering,
             revealsContent: revealsContent,
             accessibilityContrast: accessibilityContrast,
@@ -312,6 +313,7 @@ struct CompactMediaContent: View {
     let processedBackground: NSImage?
     let backgroundIdentity: String?
     let hardwareNotchWidth: CGFloat
+    var notchSize: NotchSize = .small
     let isHovering: Bool
     let revealsContent: Bool
     let accessibilityContrast: ColorSchemeContrast
@@ -324,7 +326,7 @@ struct CompactMediaContent: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             CompactMediaBackground(
                 image: processedBackground,
                 identity: backgroundIdentity,
@@ -334,49 +336,24 @@ struct CompactMediaContent: View {
                 accessibilityContrast: accessibilityContrast,
                 reduceMotion: reduceMotion
             )
-            .frame(maxWidth: .infinity)
-            .frame(height: NowPlayingMetrics.compactSurfaceHeight)
-            .clipShape(compactSurfaceShape)
-            .overlay {
-                compactSurfaceShape
-                    .stroke(
-                        .white.opacity(accessibilityContrast == .increased ? 0.24 : 0.09),
-                        lineWidth: accessibilityContrast == .increased ? 1 : 0.75
-                    )
-            }
-            .shadow(color: .black.opacity(isHovering ? 0.48 : 0.36), radius: 8, y: 3)
-            .padding(.horizontal, NowPlayingMetrics.compactSurfaceHorizontalInset)
-            .padding(.bottom, NowPlayingMetrics.compactSurfaceBottomInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            CompactHardwareBridgeShape(
-                bottomRadius: NowPlayingMetrics.compactHardwareBridgeBottomRadius
-            )
-            .fill(.black)
-            .frame(
-                width: hardwareNotchWidth,
-                height: NowPlayingMetrics.compactHardwareBridgeHeight
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .shadow(color: .black.opacity(0.34), radius: 4, y: 2)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-
-            HStack(spacing: 0) {
+            NotchHardwareLayout(exclusionWidth: hardwareNotchWidth, size: notchSize) {
                 HStack(spacing: 10) {
-                    CompactSourceIdentityView(style: presentation.source, size: 32)
+                    CompactSourceIdentityView(style: presentation.source, size: sourceIconSize)
                         .scaleEffect(revealsContent && !reduceMotion ? 1 : 0.88)
                         .opacity(revealsContent ? 1 : 0)
                         .animation(entranceAnimation(delay: 0), value: revealsContent)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(presentation.primaryTitle)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .contentTransition(.interpolate)
                         Text(presentation.secondaryTitle)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
                             .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -392,11 +369,7 @@ struct CompactMediaContent: View {
                     .accessibilityValue(presentation.secondaryTitle)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-                Color.clear
-                    .frame(width: hardwareNotchWidth)
-                    .accessibilityHidden(true)
-
+            } right: {
                 HStack(spacing: 11) {
                     CompactMediaWaveform(
                         isPlaying: presentation.isPlaying,
@@ -430,49 +403,21 @@ struct CompactMediaContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .frame(height: NowPlayingMetrics.compactContentHeight)
-            .padding(.horizontal, NowPlayingMetrics.compactHorizontalPadding)
-            .padding(.bottom, NowPlayingMetrics.compactContentBottomPadding)
+            .frame(maxHeight: .infinity)
             .scaleEffect(isHovering ? 1.006 : 1, anchor: .bottom)
-            .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
+            .animation(NotchAnimationProfile.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
 
-    private var compactSurfaceShape: RoundedRectangle {
-        RoundedRectangle(
-            cornerRadius: NowPlayingMetrics.compactSurfaceCornerRadius,
-            style: .continuous
-        )
+    private var sourceIconSize: CGFloat {
+        notchSize == .small ? 30 : 40
     }
 
     private func entranceAnimation(delay: TimeInterval) -> Animation {
         if reduceMotion { return NotchMotionGraph.reduced.animation }
         return NotchMotionGraph.animation(for: .contentEnter).delay(delay)
-    }
-}
-
-private struct CompactHardwareBridgeShape: Shape {
-    let bottomRadius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let radius = min(bottomRadius, rect.width / 2, rect.height)
-        var path = Path()
-        path.move(to: rect.origin)
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.maxX - radius, y: rect.maxY),
-            control: CGPoint(x: rect.maxX, y: rect.maxY)
-        )
-        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - radius),
-            control: CGPoint(x: rect.minX, y: rect.maxY)
-        )
-        path.closeSubpath()
-        return path
     }
 }
 

@@ -11,27 +11,21 @@ import Foundation
 import LocalAuthentication
 
 nonisolated enum DeviceAuthenticationCapability: Equatable, Sendable {
-    case faceID
     case touchID
-    case opticID
     case systemAuthentication
     case unavailable
 
     var title: String {
         switch self {
-        case .faceID: "Face ID"
         case .touchID: "Touch ID"
-        case .opticID: "Optic ID"
-        case .systemAuthentication: "System Authentication"
+        case .systemAuthentication: "Mac Authentication"
         case .unavailable: "Unavailable"
         }
     }
 
     var symbol: String {
         switch self {
-        case .faceID: "faceid"
         case .touchID: "touchid"
-        case .opticID: "opticid"
         case .systemAuthentication: "lock.shield.fill"
         case .unavailable: "lock.slash"
         }
@@ -52,10 +46,8 @@ struct LocalAuthenticationService: DeviceAuthenticating {
 
         if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
             switch context.biometryType {
-            case .faceID: return .faceID
             case .touchID: return .touchID
-            case .opticID: return .opticID
-            case .none: break
+            case .faceID, .opticID, .none: break
             @unknown default: break
             }
         }
@@ -138,10 +130,4 @@ final class BiometricAuthenticationController: ObservableObject {
         errorMessage = nil
     }
 
-    /// Accepts the app-local Face Unlock convenience factor. This never leaves
-    /// NotchLand and cannot authorize macOS or Keychain system operations.
-    func acceptFaceUnlock() {
-        isAuthenticated = true
-        errorMessage = nil
-    }
 }

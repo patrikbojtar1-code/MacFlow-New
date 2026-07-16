@@ -17,7 +17,6 @@ final class NotchIntentRuntime {
     weak var timer: NotchTimerController?
     weak var notes: QuickNotesController?
     weak var biometrics: BiometricAuthenticationController?
-    weak var faceUnlock: FaceUnlockController?
 
     private init() {}
 
@@ -25,14 +24,12 @@ final class NotchIntentRuntime {
         appState: AppState,
         timer: NotchTimerController,
         notes: QuickNotesController,
-        biometrics: BiometricAuthenticationController,
-        faceUnlock: FaceUnlockController
+        biometrics: BiometricAuthenticationController
     ) {
         self.appState = appState
         self.timer = timer
         self.notes = notes
         self.biometrics = biometrics
-        self.faceUnlock = faceUnlock
     }
 }
 
@@ -130,7 +127,6 @@ struct LockNotchPrivacyIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        NotchIntentRuntime.shared.faceUnlock?.cancel()
         NotchIntentRuntime.shared.biometrics?.lock()
         return .result(dialog: "Private NotchLand widgets are locked.")
     }

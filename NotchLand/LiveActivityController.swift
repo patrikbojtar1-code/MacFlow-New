@@ -14,6 +14,7 @@ import Combine
 import Foundation
 
 enum AudioAccessoryModel: String, Equatable, Sendable {
+    case macBookAirM4
     case airPodsMax
     case airPodsPro
     case airPods3
@@ -27,6 +28,9 @@ enum AudioAccessoryModel: String, Equatable, Sendable {
             options: [.caseInsensitive, .diacriticInsensitive],
             locale: .current
         ).lowercased()
+        if value.contains("macbook air") || value.contains("built-in") || value.contains("speaker") {
+            return .macBookAirM4
+        }
         if value.contains("airpods max") { return .airPodsMax }
         if value.contains("airpods pro") { return .airPodsPro }
         if value.contains("airpods 3") || value.contains("airpods (3") || value.contains("airpods gen 3") { return .airPods3 }
@@ -38,6 +42,7 @@ enum AudioAccessoryModel: String, Equatable, Sendable {
 
     var symbolName: String {
         switch self {
+        case .macBookAirM4: "macbook"
         case .airPodsMax: "airpodsmax"
         case .airPodsPro: "airpodspro"
         case .airPods3: "airpods.gen3"
@@ -48,9 +53,32 @@ enum AudioAccessoryModel: String, Equatable, Sendable {
     }
 }
 
+enum AudioAccessoryConnectionPhase: String, Equatable, Sendable {
+    case connecting
+    case connected
+    case disconnecting
+    case disconnected
+    case lowBattery
+
+    var displayName: String {
+        switch self {
+        case .connecting: "Connecting…"
+        case .connected: "Connected"
+        case .disconnecting: "Disconnecting…"
+        case .disconnected: "Disconnected"
+        case .lowBattery: "Low Battery"
+        }
+    }
+}
+
 struct LiveActivity: Identifiable, Equatable {
     enum Kind: Equatable {
-        case audioDevice(name: String, model: AudioAccessoryModel, batteryPercent: Int?)
+        case audioDevice(
+            name: String,
+            model: AudioAccessoryModel,
+            batteryPercent: Int?,
+            phase: AudioAccessoryConnectionPhase
+        )
         case message(sender: String)
         case timer(remaining: TimeInterval)
         case download(fileName: String)
@@ -71,6 +99,20 @@ struct LiveActivity: Identifiable, Equatable {
     }
 
     var branchKey: String { "activity" }
+}
+
+extension LiveActivity: NotchActivityPresenting {
+    var activityType: NotchActivityType {
+        switch kind {
+        case .audioDevice: .bluetooth
+        case .message, .download: .systemStatus
+        case .timer: .timer
+        }
+    }
+
+    var presentationID: String { id.uuidString }
+    var primaryTitle: String { title }
+    var secondaryTitle: String { detail ?? "" }
 }
 
 @MainActor

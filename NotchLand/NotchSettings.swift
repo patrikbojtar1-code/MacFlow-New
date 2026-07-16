@@ -54,7 +54,6 @@ nonisolated final class NotchSettings: ObservableObject {
         static let showHUDOnNotch = false
         static let lockUnlockAnimationEnabled = true
         static let biometricPrivacyEnabled = false
-        static let faceUnlockEnabled = false
         static let systemCallDetectionEnabled = true
 
         static let theme: Theme = .system
@@ -100,7 +99,6 @@ nonisolated final class NotchSettings: ObservableObject {
         static let showHUDOnNotch = "notch.showHUDOnNotch"
         static let lockUnlockAnimationEnabled = "notch.lockUnlockAnimationEnabled"
         static let biometricPrivacyEnabled = "notch.biometricPrivacyEnabled"
-        static let faceUnlockEnabled = "notch.faceUnlockEnabled"
         static let systemCallDetectionEnabled = "notch.systemCallDetectionEnabled"
         static let legacyHideSystemHUD = "notch.hideSystemHUD"
         static let theme = "notch.theme"
@@ -171,9 +169,6 @@ nonisolated final class NotchSettings: ObservableObject {
     @Published var biometricPrivacyEnabled: Bool = read(Keys.biometricPrivacyEnabled, Defaults.biometricPrivacyEnabled) {
         didSet { Self.write(biometricPrivacyEnabled, Keys.biometricPrivacyEnabled) }
     }
-    @Published var faceUnlockEnabled: Bool = read(Keys.faceUnlockEnabled, Defaults.faceUnlockEnabled) {
-        didSet { Self.write(faceUnlockEnabled, Keys.faceUnlockEnabled) }
-    }
     @Published var systemCallDetectionEnabled: Bool = read(Keys.systemCallDetectionEnabled, Defaults.systemCallDetectionEnabled) {
         didSet { Self.write(systemCallDetectionEnabled, Keys.systemCallDetectionEnabled) }
     }
@@ -236,7 +231,6 @@ nonisolated final class NotchSettings: ObservableObject {
         showHUDOnNotch = Defaults.showHUDOnNotch
         lockUnlockAnimationEnabled = Defaults.lockUnlockAnimationEnabled
         biometricPrivacyEnabled = Defaults.biometricPrivacyEnabled
-        faceUnlockEnabled = Defaults.faceUnlockEnabled
         systemCallDetectionEnabled = Defaults.systemCallDetectionEnabled
         theme = Defaults.theme
         cornerRadius = Defaults.cornerRadius

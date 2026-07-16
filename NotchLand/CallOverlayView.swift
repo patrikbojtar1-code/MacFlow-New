@@ -6,12 +6,19 @@
 import SwiftUI
 
 enum CallOverlayMetrics {
-    nonisolated static let incomingSize = CGSize(width: 430, height: 116)
-    nonisolated static let activeSize = CGSize(width: 390, height: 76)
-    nonisolated static let endedSize = CGSize(width: 330, height: 58)
+    nonisolated static let incomingSize = CGSize(width: 520, height: 50)
+    // Every compact call phase keeps the same shell footprint. Only content
+    // changes, so accepting or dismissing never shifts the notch sideways.
+    nonisolated static let activeSize = CGSize(width: 520, height: 50)
+    nonisolated static let endedSize = CGSize(width: 520, height: 50)
+    nonisolated static let mediumSize = CGSize(width: 700, height: 78)
 
-    nonisolated static func size(for presentation: CallPresentation) -> CGSize {
-        switch presentation.phase {
+    nonisolated static func size(
+        for presentation: CallPresentation,
+        notchSize: NotchSize = .small
+    ) -> CGSize {
+        if notchSize == .medium || notchSize == .large { return mediumSize }
+        return switch presentation.phase {
         case .incoming, .connecting: incomingSize
         case .active: activeSize
         case .ended, .missed: endedSize
@@ -19,210 +26,200 @@ enum CallOverlayMetrics {
     }
 }
 
+/// One call renderer for incoming, active and result phases. Content can only
+/// occupy the left and right wings; `NotchHardwareLayout` owns the black camera
+/// exclusion region between them.
 struct CallOverlayView: View {
     let presentation: CallPresentation
 
     @EnvironmentObject private var calls: CallActivityController
+    @EnvironmentObject private var settings: NotchSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var callMotion
     @State private var isRinging = false
 
+    private var notchSize: NotchSize {
+        settings.notchContentSize == .large ? .medium : settings.notchContentSize
+    }
+
+    private var exclusionWidth: CGFloat {
+        NotchLayoutMetrics.exclusionWidth(
+            hardwareWidth: CGFloat(settings.collapsedWidth),
+            usesVirtualNotch: settings.virtualNotchEnabled
+        )
+    }
+
     var body: some View {
-        ZStack {
-            switch presentation.phase {
-            case .incoming:
-                incomingContent
-            case .connecting:
-                connectingContent
-            case .active:
-                activeContent
-            case let .ended(reason):
-                resultContent(symbol: "phone.down.fill", title: reason, tint: .secondary)
-            case .missed:
-                resultContent(symbol: "phone.badge.xmark.fill", title: "Missed Call", tint: .red)
-            }
+        NotchHardwareLayout(exclusionWidth: exclusionWidth, size: notchSize) {
+            leftWing
+                .id("left-\(phaseIdentity)")
+                .transition(phaseTransition(edge: .leading))
+        } right: {
+            rightWing
+                .id("right-\(phaseIdentity)")
+                .transition(phaseTransition(edge: .trailing))
         }
-        .id(phaseIdentity)
-        .transition(phaseTransition)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(callAnimation, value: phaseIdentity)
+        .animation(
+            NotchAnimationProfile.animation(for: .compact, reduceMotion: reduceMotion),
+            value: phaseIdentity
+        )
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(NotchAmbientMotion.ringing()) {
+            withAnimation(NotchAmbientMotion.ringing(reduceMotion: reduceMotion)) {
                 isRinging = true
             }
         }
+        .accessibilityElement(children: .contain)
     }
 
-    private var incomingContent: some View {
-        HStack(spacing: 14) {
-            avatar(size: 48, showsRingingPulse: true)
-            callerIdentity(status: presentation.serviceName)
-            Spacer(minLength: 8)
-
-            if presentation.supportsCallControl {
-                callButton(
-                    symbol: "phone.down.fill",
-                    title: "Decline",
-                    color: .red,
-                    action: calls.decline
-                )
-                callButton(
-                    symbol: "video.fill",
-                    title: "Answer",
-                    color: .green,
-                    action: calls.answer
-                )
-            } else {
-                callButton(
-                    symbol: "xmark",
-                    title: "Dismiss",
-                    color: .gray,
-                    action: calls.dismiss
-                )
-                callButton(
-                    symbol: "arrow.up.forward.app.fill",
-                    title: "Open",
-                    color: .blue,
-                    action: calls.openCallingApp
-                )
+    @ViewBuilder
+    private var leftWing: some View {
+        switch presentation.phase {
+        case .incoming:
+            identityWing(status: presentation.serviceName, showsPulse: true)
+        case .connecting:
+            identityWing(status: "Connecting…", showsPulse: false)
+        case .active:
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                identityWing(status: activeDuration(at: context.date), showsPulse: false)
             }
+        case .ended:
+            resultIdentity(symbol: "phone.down.fill")
+        case .missed:
+            resultIdentity(symbol: "phone.badge.xmark.fill")
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 32)
-        .padding(.bottom, 9)
     }
 
-    private var connectingContent: some View {
-        HStack(spacing: 14) {
-            avatar(size: 44, showsRingingPulse: false)
-            callerIdentity(status: "Connecting…")
-            Spacer()
-            ProgressView()
-                .controlSize(.small)
-            callButton(
-                symbol: "phone.down.fill",
-                title: "End",
-                color: .red,
-                action: calls.end
-            )
-        }
-        .padding(.horizontal, 18)
-        .padding(.top, 31)
-        .padding(.bottom, 8)
-    }
-
-    private var activeContent: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 12) {
-                avatar(size: 34, showsRingingPulse: false)
-                callerIdentity(status: activeDuration(at: context.date))
-                Spacer()
-                callButton(
+    @ViewBuilder
+    private var rightWing: some View {
+        switch presentation.phase {
+        case .incoming:
+            HStack(spacing: notchSize == .small ? 8 : 12) {
+                if presentation.supportsCallControl {
+                    actionButton(
+                        symbol: "phone.down.fill",
+                        title: "Decline",
+                        color: .red,
+                        action: calls.decline
+                    )
+                    actionButton(
+                        symbol: presentation.serviceName.localizedCaseInsensitiveContains("video")
+                            ? "video.fill" : "phone.fill",
+                        title: "Answer",
+                        color: .green,
+                        action: calls.answer
+                    )
+                } else {
+                    actionButton(symbol: "xmark", title: "Dismiss", color: .gray, action: calls.dismiss)
+                    actionButton(
+                        symbol: "arrow.up.forward.app.fill",
+                        title: "Open",
+                        color: .blue,
+                        action: calls.openCallingApp
+                    )
+                }
+            }
+        case .connecting:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                actionButton(symbol: "phone.down.fill", title: "End", color: .red, action: calls.end)
+            }
+        case .active:
+            HStack(spacing: notchSize == .small ? 8 : 12) {
+                actionButton(
                     symbol: presentation.isMuted ? "mic.slash.fill" : "mic.fill",
                     title: presentation.isMuted ? "Unmute" : "Mute",
                     color: presentation.isMuted ? .orange : .gray,
-                    action: calls.toggleMute,
-                    compact: true
+                    action: calls.toggleMute
                 )
-                callButton(
-                    symbol: "phone.down.fill",
-                    title: "End",
-                    color: .red,
-                    action: calls.end,
-                    compact: true
-                )
+                actionButton(symbol: "phone.down.fill", title: "End", color: .red, action: calls.end)
+            }
+        case let .ended(reason):
+            resultLabel(reason, tint: .secondary)
+        case .missed:
+            resultLabel("Missed call", tint: .red)
+        }
+    }
+
+    private func identityWing(status: String, showsPulse: Bool) -> some View {
+        HStack(spacing: notchSize == .small ? 9 : 12) {
+            avatar(size: notchSize == .small ? 30 : 42, showsPulse: showsPulse)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(presentation.callerName)
+                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
+                    .lineLimit(1)
+                Text(status)
+                    .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
+                    .foregroundStyle(NotchTheme.secondaryText)
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 28)
-        .padding(.bottom, 6)
-    }
-
-    private func resultContent(symbol: String, title: String, tint: Color) -> some View {
-        HStack(spacing: 10) {
-            avatar(size: 28, showsRingingPulse: false)
-            Image(systemName: symbol)
-                .foregroundStyle(tint)
-            Text(presentation.callerName)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .lineLimit(1)
-            Spacer()
-            Text(title)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 26)
-        .padding(.bottom, 5)
-    }
-
-    private func avatar(size: CGFloat, showsRingingPulse: Bool) -> some View {
-        ZStack {
-            if showsRingingPulse {
-                ForEach(0..<2, id: \.self) { index in
-                    Circle()
-                        .stroke(.green.opacity(0.34), lineWidth: 1.5)
-                        .scaleEffect(isRinging ? 1.42 + CGFloat(index) * 0.16 : 0.92)
-                        .opacity(isRinging ? 0 : 0.72)
-                        .animation(
-                            NotchAmbientMotion.ringing().delay(Double(index) * 0.32),
-                            value: isRinging
-                        )
-                }
-            }
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [.cyan.opacity(0.95), .blue, .purple.opacity(0.86)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay {
-                    Text(presentation.initials)
-                        .font(.system(size: size * 0.31, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                }
-                .shadow(color: .blue.opacity(0.32), radius: 8, y: 3)
-        }
-        .frame(width: size, height: size)
-        .matchedGeometryEffect(id: "call-avatar", in: callMotion)
-    }
-
-    private func callerIdentity(status: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(presentation.callerName)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .lineLimit(1)
-            Text(status)
-                .font(.system(size: 9, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 
-    private func callButton(
+    private func resultIdentity(symbol: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 28, height: 28)
+                .background(NotchTheme.interactiveSurface, in: Circle())
+            Text(presentation.callerName)
+                .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                .foregroundStyle(NotchTheme.primaryText)
+                .lineLimit(1)
+        }
+    }
+
+    private func resultLabel(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .medium))
+            .foregroundStyle(tint)
+            .lineLimit(1)
+            .transition(.opacity)
+    }
+
+    private func avatar(size: CGFloat, showsPulse: Bool) -> some View {
+        ZStack {
+            if showsPulse {
+                Circle()
+                    .stroke(.green.opacity(0.30), lineWidth: 1)
+                    .scaleEffect(isRinging ? 1.28 : 0.96)
+                    .opacity(isRinging ? 0 : 0.62)
+            }
+            Circle()
+                .fill(Color.white.opacity(0.13))
+                .overlay {
+                    Text(presentation.initials)
+                        .font(.system(size: size * 0.31, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+        }
+        .frame(width: size, height: size)
+    }
+
+    private func actionButton(
         symbol: String,
         title: String,
         color: Color,
-        action: @escaping () -> Void,
-        compact: Bool = false
+        action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: symbol)
-                    .font(.system(size: compact ? 11 : 13, weight: .bold))
-                    .frame(width: compact ? 27 : 34, height: compact ? 27 : 34)
-                    .background(color.gradient, in: Circle())
-                    .foregroundStyle(.white)
-                if !compact {
-                    Text(title)
-                        .font(.system(size: 8, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-            }
+        let dimension: CGFloat = notchSize == .small ? 29 : 36
+        return Button {
+            NotchHaptics.perform(.navigation)
+            action()
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: notchSize == .small ? 11 : 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: dimension, height: dimension)
+                .background(color.opacity(0.94), in: Circle())
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -235,10 +232,6 @@ struct CallOverlayView: View {
         return String(format: "%02d:%02d", elapsed / 60, elapsed % 60)
     }
 
-    private var callAnimation: Animation {
-        NotchMotionGraph.animation(for: .contentEnter, reduceMotion: reduceMotion)
-    }
-
     private var phaseIdentity: String {
         switch presentation.phase {
         case .incoming: "incoming"
@@ -249,14 +242,11 @@ struct CallOverlayView: View {
         }
     }
 
-    private var phaseTransition: AnyTransition {
+    private func phaseTransition(edge: Edge) -> AnyTransition {
         guard !reduceMotion else { return .opacity }
         return .asymmetric(
-            insertion: .opacity
-                .combined(with: .scale(scale: 0.94, anchor: .top))
-                .combined(with: .offset(y: -5)),
+            insertion: .opacity.combined(with: .offset(x: edge == .leading ? -5 : 5)),
             removal: .opacity
-                .combined(with: .scale(scale: 0.985, anchor: .top))
         )
     }
 }
