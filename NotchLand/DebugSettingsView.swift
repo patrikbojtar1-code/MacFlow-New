@@ -26,9 +26,44 @@ struct DebugSettingsView: View {
     @EnvironmentObject var liveActivities: LiveActivityController
     @EnvironmentObject var notchTimer: NotchTimerController
     @EnvironmentObject var calls: CallActivityController
+    @StateObject private var motionDebugger = MotionDebugStore.shared
 
     var body: some View {
         Form {
+            Section("Motion Debugger") {
+                Toggle("Record named motion", isOn: $motionDebugger.isEnabled)
+                    .accessibilityHint("Records animation state, reason and redraw count in Debug builds only")
+
+                if motionDebugger.isEnabled {
+                    HStack(spacing: MacFlowSpacing.space16) {
+                        Label(
+                            "\(motionDebugger.activeEvents.count) active",
+                            systemImage: motionDebugger.activeEvents.count > 1
+                                ? "exclamationmark.triangle.fill"
+                                : "waveform.path"
+                        )
+                        .foregroundStyle(motionDebugger.activeEvents.count > 1 ? .orange : .secondary)
+
+                        Spacer()
+
+                        Button("Clear") { motionDebugger.clear() }
+                            .disabled(motionDebugger.events.isEmpty)
+                    }
+
+                    if motionDebugger.events.isEmpty {
+                        ContentUnavailableView(
+                            "No motion recorded",
+                            systemImage: "waveform.path",
+                            description: Text("Interact with the notch, change its size, or switch a module.")
+                        )
+                    } else {
+                        ForEach(motionDebugger.events.prefix(12)) { event in
+                            MotionDebugEventRow(event: event)
+                        }
+                    }
+                }
+            }
+
             Section("Factory") {
                 Button(role: .destructive) {
                     resetToFactory()
@@ -182,6 +217,69 @@ struct DebugSettingsView: View {
                 .frame(minWidth: 112)
         }
         .buttonStyle(.bordered)
+    }
+}
+
+private struct MotionDebugEventRow: View {
+    let event: MotionDebugEvent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: MacFlowSpacing.space8) {
+            HStack(spacing: MacFlowSpacing.space8) {
+                Image(systemName: phaseSymbol)
+                    .foregroundStyle(phaseColor)
+                    .accessibilityHidden(true)
+                Text(event.name)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: MacFlowSpacing.space8)
+                Text(event.duration, format: .number.precision(.fractionLength(2)))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                Text("s")
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(event.state)
+                .font(.caption.monospaced())
+                .lineLimit(2)
+                .textSelection(.enabled)
+
+            HStack(spacing: MacFlowSpacing.space12) {
+                Label(event.surface, systemImage: "rectangle.on.rectangle")
+                Label("\(event.redrawCount) redraws", systemImage: "arrow.triangle.2.circlepath")
+                    .contentTransition(.numericText())
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Text(event.reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, MacFlowSpacing.space4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(event.name), \(event.phase.rawValue), duration \(event.duration) seconds, "
+                + "\(event.redrawCount) redraws, \(event.reason)"
+        )
+    }
+
+    private var phaseSymbol: String {
+        switch event.phase {
+        case .active: "play.circle.fill"
+        case .completed: "checkmark.circle.fill"
+        case .interrupted: "stop.circle.fill"
+        }
+    }
+
+    private var phaseColor: Color {
+        switch event.phase {
+        case .active: .blue
+        case .completed: .green
+        case .interrupted: .orange
+        }
     }
 }
 
