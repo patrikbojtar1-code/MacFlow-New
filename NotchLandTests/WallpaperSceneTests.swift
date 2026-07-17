@@ -37,6 +37,20 @@ struct WallpaperSceneTests {
         #expect(WallpaperBrowserState.filteredScenes([earlier, later], query: "", scope: .all, sort: .title).map(\.id) == [later.id, earlier.id])
     }
 
+    @MainActor
+    @Test func focusMonitorCanBeEnabledAndDisabledWithoutDuplicateRegistration() {
+        let controller = FocusModeController()
+
+        controller.setMonitoring(true)
+        controller.setMonitoring(true)
+        #expect(controller.authorizationStatus == .monitoring)
+
+        controller.setMonitoring(false)
+        #expect(controller.authorizationStatus == .stopped)
+        #expect(controller.currentPresentation == nil)
+        #expect(!controller.isFocusActive)
+    }
+
     @Test func supportedFilesNormalizeToTheCorrectSceneKind() {
         #expect(WallpaperSceneFileSupport.kind(for: URL(fileURLWithPath: "/tmp/Scene.HEIC")) == .image)
         #expect(WallpaperSceneFileSupport.kind(for: URL(fileURLWithPath: "/tmp/Scene.MP4")) == .video)
@@ -195,6 +209,220 @@ struct WallpaperSceneTests {
             windows: [sameSizeOnAnotherDisplay],
             displayFrames: [display]
         ))
+    }
+
+    @MainActor
+    @Test func telemetryMeasuresRendererLifecycleAndDirectFirstFrame() {
+        let monitor = WallpaperTelemetryMonitor(
+            maximumEventCount: 24,
+            inspectsAssetMetadata: false
+        )
+        let scene = WallpaperScene(
+            title: "Measured Still",
+            kind: .image,
+            assetFilename: "measured.png"
+        )
+        let start = Date(timeIntervalSince1970: 1_000)
+        let transitionID = UUID()
+        let rendererID = UUID()
+
+        monitor.updateContext(
+            scene: scene,
+            assetURL: URL(fileURLWithPath: "/tmp/measured.png"),
+            displayIDs: [7],
+            selectedProfile: .automatic,
+            effectiveProfile: .balanced,
+            isLowPowerModeEnabled: false,
+            thermalState: .nominal,
+            isPaused: false,
+            pauseReason: nil,
+            at: start
+        )
+        monitor.beginTransition(
+            id: transitionID,
+            sceneID: scene.id,
+            targetDisplayIDs: [7],
+            strategy: .direct,
+            at: start
+        )
+        monitor.rendererEvent(
+            .rendererCreated(hasPlayer: false),
+            rendererID: rendererID,
+            displayID: 7,
+            transitionID: transitionID,
+            at: start
+        )
+        monitor.rendererEvent(
+            .firstFramePresented,
+            rendererID: rendererID,
+            displayID: 7,
+            transitionID: transitionID,
+            at: start.addingTimeInterval(0.125)
+        )
+
+        #expect(monitor.snapshot.activeRendererCount == 1)
+        #expect(monitor.snapshot.activePlayerCount == 0)
+        #expect(monitor.snapshot.currentTransition == nil)
+        #expect(monitor.snapshot.lastTransition?.phase == .completed)
+        #expect(monitor.snapshot.lastTransition?.timeToFirstFrame == 0.125)
+        #expect(monitor.snapshot.displays.first?.readiness == .firstFramePresented)
+
+        monitor.rendererEvent(
+            .stopped,
+            rendererID: rendererID,
+            displayID: 7,
+            transitionID: transitionID,
+            at: start.addingTimeInterval(0.2)
+        )
+        #expect(monitor.snapshot.activeRendererCount == 0)
+    }
+
+    @MainActor
+    @Test func telemetryDoesNotMistakeRetiringFramesForNewDisplayReadiness() throws {
+        let monitor = WallpaperTelemetryMonitor(inspectsAssetMetadata: false)
+        let scene = WallpaperScene(
+            title: "Two Displays",
+            kind: .video,
+            assetFilename: "two-displays.mov"
+        )
+        let start = Date(timeIntervalSince1970: 2_000)
+
+        monitor.updateContext(
+            scene: scene,
+            assetURL: URL(fileURLWithPath: "/tmp/two-displays.mov"),
+            displayIDs: [1, 2],
+            selectedProfile: .balanced,
+            effectiveProfile: .balanced,
+            isLowPowerModeEnabled: false,
+            thermalState: .nominal,
+            isPaused: false,
+            pauseReason: nil,
+            at: start
+        )
+
+        let retiredRenderer = UUID()
+        monitor.rendererEvent(
+            .rendererCreated(hasPlayer: true),
+            rendererID: retiredRenderer,
+            displayID: 2,
+            transitionID: nil,
+            at: start
+        )
+        monitor.rendererEvent(
+            .firstFramePresented,
+            rendererID: retiredRenderer,
+            displayID: 2,
+            transitionID: nil,
+            at: start
+        )
+
+        let transitionID = UUID()
+        monitor.beginTransition(
+            id: transitionID,
+            sceneID: scene.id,
+            targetDisplayIDs: [1, 2],
+            strategy: .dualRendererCrossfade,
+            at: start
+        )
+        let first = UUID()
+        monitor.rendererEvent(
+            .rendererCreated(hasPlayer: true),
+            rendererID: first,
+            displayID: 1,
+            transitionID: transitionID,
+            at: start
+        )
+        monitor.rendererEvent(
+            .firstFramePresented,
+            rendererID: first,
+            displayID: 1,
+            transitionID: transitionID,
+            at: start.addingTimeInterval(0.1)
+        )
+
+        #expect(monitor.snapshot.currentTransition?.firstFrameAt == nil)
+
+        let second = UUID()
+        monitor.rendererEvent(
+            .rendererCreated(hasPlayer: true),
+            rendererID: second,
+            displayID: 2,
+            transitionID: transitionID,
+            at: start
+        )
+        monitor.rendererEvent(
+            .firstFramePresented,
+            rendererID: second,
+            displayID: 2,
+            transitionID: transitionID,
+            at: start.addingTimeInterval(0.16)
+        )
+
+        let firstFrame = try #require(monitor.snapshot.currentTransition?.timeToFirstFrame)
+        #expect(abs(firstFrame - 0.16) < 0.001)
+        #expect(monitor.snapshot.activePlayerCount == 3)
+    }
+
+    @MainActor
+    @Test func telemetryBoundsEventsAndRecordsPauseReason() {
+        let monitor = WallpaperTelemetryMonitor(
+            maximumEventCount: 16,
+            inspectsAssetMetadata: false
+        )
+        for displayID in 1...20 {
+            monitor.synchronizeDisplays([UInt32(displayID)])
+        }
+        monitor.updatePlayback(isPaused: true, reason: .thermalPressure)
+
+        #expect(monitor.recentEvents.count == 16)
+        #expect(monitor.snapshot.isPaused)
+        #expect(monitor.snapshot.pauseReason == .thermalPressure)
+    }
+
+    @MainActor
+    @Test func benchmarkRunnerCapturesEventDrivenMaximums() throws {
+        let runner = WallpaperBenchmarkRunner()
+        let startedAt = Date(timeIntervalSince1970: 3_000)
+        runner.begin(.shared4KTwoDisplays, at: startedAt)
+
+        var snapshot = WallpaperTelemetrySnapshot.empty
+        snapshot.activeRendererCount = 4
+        snapshot.activePlayerCount = 4
+        snapshot.estimatedDecodedMemoryBytes = Int64(128 * 1_024 * 1_024)
+        snapshot.displays = [
+            WallpaperDisplayTelemetry(
+                id: 1,
+                visibility: .visible,
+                rendererCount: 2,
+                playerCount: 2,
+                readiness: .firstFramePresented,
+                isPaused: false,
+                pauseReason: nil,
+                droppedFrames: 1,
+                timeToFirstFrame: 0.2
+            ),
+            WallpaperDisplayTelemetry(
+                id: 2,
+                visibility: .visible,
+                rendererCount: 2,
+                playerCount: 2,
+                readiness: .firstFramePresented,
+                isPaused: false,
+                pauseReason: nil,
+                droppedFrames: 0,
+                timeToFirstFrame: 0.2
+            ),
+        ]
+        snapshot.droppedFrames = 1
+        runner.observe(snapshot)
+
+        let result = try #require(runner.finish(at: startedAt.addingTimeInterval(60)))
+        #expect(result.sampleCount == 1)
+        #expect(result.maximumRendererCount == 4)
+        #expect(result.maximumPlayerCount == 4)
+        #expect(result.maximumDisplayCount == 2)
+        #expect(result.maximumEstimatedDecodedMemoryBytes == Int64(128 * 1_024 * 1_024))
+        #expect(result.droppedFrames == 1)
     }
 
     @MainActor

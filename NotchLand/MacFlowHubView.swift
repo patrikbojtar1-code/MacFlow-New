@@ -10,40 +10,34 @@ import SwiftUI
 struct MacFlowHubView: View {
     @EnvironmentObject private var settings: NotchSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("macflow.selectedSection") private var selection: MacFlowSection = .home
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @AppStorage("macflow.selectedSection", store: AppDefaults.store)
+    private var selection: MacFlowSection = .home
+    @AppStorage("macflow.sidebar.isCollapsed", store: AppDefaults.store)
+    private var isSidebarCollapsed = false
     #if NOTCHLAND_ENABLE_DEBUG_UI
-    @AppStorage("settings.debugMenuUnlocked") private var debugMenuUnlocked = false
+    @AppStorage("settings.debugMenuUnlocked", store: AppDefaults.store)
+    private var debugMenuUnlocked = false
     @State private var aboutIconTapCount = 0
     #endif
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        HStack(spacing: 0) {
             MacFlowSidebarView(
                 selection: $selection,
                 showsDebug: showsDebug,
-                onHideSidebar: hideSidebar
+                isCollapsed: isSidebarCollapsed,
+                onToggleSidebar: toggleSidebar
             )
-                .navigationSplitViewColumnWidth(
-                    min: 168,
-                    ideal: MacFlowMetrics.sidebarWidth,
-                    max: 240
-                )
-        } detail: {
+            .frame(width: isSidebarCollapsed ? 52 : MacFlowMetrics.sidebarWidth)
+
+            Divider()
+
             detail
                 .id(selection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MacFlowColor.canvas)
                 .transition(.opacity)
         }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
-        .frame(
-            minWidth: MacFlowMetrics.minimumWindowWidth,
-            idealWidth: MacFlowMetrics.idealWindowWidth,
-            minHeight: MacFlowMetrics.minimumWindowHeight,
-            idealHeight: MacFlowMetrics.idealWindowHeight
-        )
         .preferredColorScheme(settings.theme.colorScheme)
         .motionDebugProbe("App Shell")
         .onChange(of: selection) { oldSection, newSection in
@@ -65,16 +59,17 @@ struct MacFlowHubView: View {
         #endif
     }
 
-    private func hideSidebar() {
+    private func toggleSidebar() {
+        let nextState = !isSidebarCollapsed
         MotionDebug.record(
             name: "sidebar.visibility",
             surface: "App Shell",
             duration: AppMotion.Duration.standard,
-            state: "visible → hidden",
-            reason: "User pressed the stable sidebar-leading hide control."
+            state: nextState ? "expanded → collapsed" : "collapsed → expanded",
+            reason: "User pressed the stable control owned by the sidebar rail."
         )
         withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
-            columnVisibility = .detailOnly
+            isSidebarCollapsed = nextState
         }
     }
 

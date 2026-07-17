@@ -58,6 +58,7 @@ struct MacFlowPreferencesView: View {
             ForEach(Section.allCases) { item in
                 Label(item.title, systemImage: item.systemImage)
                     .tag(item)
+                    .accessibilityIdentifier("preferences.section.\(item.rawValue)")
             }
         }
         .labelsHidden()
@@ -176,7 +177,10 @@ struct MacFlowPreferencesView: View {
             MacFlowSettingsGroup {
                 MacFlowSettingsRow(
                     icon: "scope",
-                    title: "Focus Monitor"
+                    title: "Focus Monitor",
+                    subtitle: focusMode.authorizationStatus == .monitoring
+                        ? "Listening for macOS Focus changes"
+                        : "Focus activities are paused"
                 ) {
                     HStack(spacing: MacFlowSpacing.space8) {
                         MacFlowStatusPill(
@@ -184,12 +188,20 @@ struct MacFlowPreferencesView: View {
                             systemImage: nil,
                             color: focusMode.authorizationStatus == .monitoring ? .green : .secondary
                         )
-                        Button("Restart") {
-                            focusMode.stop()
-                            focusMode.start()
-                        }
-                        .buttonStyle(.bordered)
+                        Toggle(
+                            "Focus Monitor",
+                            isOn: Binding(
+                                get: { settings.focusMonitorEnabled },
+                                set: { isEnabled in
+                                    settings.focusMonitorEnabled = isEnabled
+                                    focusMode.setMonitoring(isEnabled)
+                                }
+                            )
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                         .controlSize(.small)
+                        .accessibilityIdentifier("preferences.focusMonitor")
                     }
                 }
             }

@@ -50,6 +50,7 @@ final class WallpaperSceneController: ObservableObject {
 
     let library: WallpaperSceneLibrary
     let performance: WallpaperPerformanceMonitor
+    let telemetry: WallpaperTelemetryMonitor
 
     private let defaults: UserDefaults
     private let displayCoordinator: DisplayCoordinator
@@ -101,12 +102,14 @@ final class WallpaperSceneController: ObservableObject {
         performance: WallpaperPerformanceMonitor,
         focusMode: FocusModeController? = nil,
         displayCoordinator: DisplayCoordinator,
+        telemetry: WallpaperTelemetryMonitor? = nil,
         defaults: UserDefaults = .standard
     ) {
         self.library = library
         self.performance = performance
         self.focusMode = focusMode
         self.displayCoordinator = displayCoordinator
+        self.telemetry = telemetry ?? WallpaperTelemetryMonitor()
         self.defaults = defaults
         activeSceneID = defaults.string(forKey: Keys.activeSceneID).flatMap(UUID.init(uuidString:))
         isPaused = defaults.bool(forKey: Keys.isPaused)
@@ -153,10 +156,13 @@ final class WallpaperSceneController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        performance.$effectiveProfile
-            .combineLatest(performance.$shouldSuspendVideo)
+        Publishers.CombineLatest3(
+            performance.$selectedProfile,
+            performance.$effectiveProfile,
+            performance.$shouldSuspendVideo
+        )
             .dropFirst()
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _, _, _ in
                 self?.updatePlaybackState()
             }
             .store(in: &cancellables)
@@ -196,6 +202,7 @@ final class WallpaperSceneController: ObservableObject {
         windows.removeAll()
         retiringWindows.removeAll()
         isRunning = false
+        telemetry.deactivate()
         dragEnded()
     }
 
@@ -292,6 +299,7 @@ final class WallpaperSceneController: ObservableObject {
         retiringWindows.removeAll()
         activeSceneID = nil
         isRunning = false
+        telemetry.deactivate()
         automationReason = nil
         if automationConfiguration.isEnabled {
             manualOverrideUntil = Date().addingTimeInterval(Timing.manualOverrideDuration)
@@ -369,14 +377,18 @@ final class WallpaperSceneController: ObservableObject {
         guard let scene = activeScene else {
             windows.values.forEach { $0.stopRendering() }
             isRunning = false
+            telemetry.deactivate()
             return
         }
 
+        let sceneChanged = telemetry.snapshot.sceneID != scene.id
         let screensByID = Dictionary(uniqueKeysWithValues: displayCoordinator
             .selectedScreens(policy: .allDisplays, selectedIDs: [])
             .compactMap { screen in
                 screen.displayID.map { ($0, screen) }
             })
+
+        refreshTelemetryContext(scene: scene, displayIDs: Set(screensByID.keys))
 
         let shouldCrossfade = crossfade
             && !windows.isEmpty
@@ -385,6 +397,19 @@ final class WallpaperSceneController: ObservableObject {
         if shouldCrossfade {
             crossfadeToScene(scene, on: screensByID)
             return
+        }
+
+        let transitionID: UUID? = (sceneChanged || windows.isEmpty) ? UUID() : nil
+        if let transitionID {
+            let strategy: WallpaperTransitionStrategy = crossfade
+                ? .reducedMotionSwap
+                : .direct
+            telemetry.beginTransition(
+                id: transitionID,
+                sceneID: scene.id,
+                targetDisplayIDs: Set(screensByID.keys),
+                strategy: strategy
+            )
         }
 
         let staleDisplayIDs = windows.keys.filter { screensByID[$0] == nil }
@@ -401,20 +426,46 @@ final class WallpaperSceneController: ObservableObject {
                 scene: scene,
                 assetURL: assetURL,
                 profile: performance.effectiveProfile,
-                paused: shouldPause(scene: scene)
+                paused: shouldPause(scene: scene),
+                onRendererEvent: { [weak self] rendererID, event in
+                    self?.telemetry.rendererEvent(
+                        event,
+                        rendererID: rendererID,
+                        displayID: displayID,
+                        transitionID: transitionID
+                    )
+                }
             )
         }
         isRunning = !windows.isEmpty
+        if let transitionID, windows.isEmpty {
+            telemetry.cancelTransition(
+                id: transitionID,
+                reason: "No target display was available"
+            )
+        }
     }
 
     private func crossfadeToScene(
         _ scene: WallpaperScene,
         on screensByID: [CGDirectDisplayID: NSScreen]
     ) {
+        if let activeTransition = telemetry.snapshot.currentTransition {
+            telemetry.cancelTransition(
+                id: activeTransition.id,
+                reason: "Superseded by a newer scene"
+            )
+        }
         finishRetiringWindows()
         transitionGeneration = UUID()
         let generation = transitionGeneration
         crossfadeStartedGeneration = nil
+        telemetry.beginTransition(
+            id: generation,
+            sceneID: scene.id,
+            targetDisplayIDs: Set(screensByID.keys),
+            strategy: .dualRendererCrossfade
+        )
 
         let oldWindows = Array(windows.values)
         let assetURL = library.assetURL(for: scene)
@@ -444,6 +495,14 @@ final class WallpaperSceneController: ObservableObject {
                         oldWindows: oldWindows,
                         generation: generation
                     )
+                },
+                onRendererEvent: { [weak self] rendererID, event in
+                    self?.telemetry.rendererEvent(
+                        event,
+                        rendererID: rendererID,
+                        displayID: displayID,
+                        transitionID: generation
+                    )
                 }
             )
         }
@@ -457,6 +516,10 @@ final class WallpaperSceneController: ObservableObject {
         // and stutter caused by animating an empty replacement window.
         if nextWindows.isEmpty {
             finishRetiringWindows()
+            telemetry.cancelTransition(
+                id: generation,
+                reason: "No target display was available"
+            )
         } else {
             transitionTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(420))
@@ -487,6 +550,7 @@ final class WallpaperSceneController: ObservableObject {
             state: "\(oldWindows.count) old → \(nextWindows.count) ready",
             reason: "A newly selected scene finished preparing on every target display."
         )
+        telemetry.transitionAnimationStarted(id: generation)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Timing.crossfadeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -500,6 +564,7 @@ final class WallpaperSceneController: ObservableObject {
             guard let self, !Task.isCancelled else { return }
             guard self.transitionGeneration == generation else { return }
             self.finishRetiringWindows()
+            self.telemetry.completeTransition(id: generation)
         }
     }
 
@@ -513,6 +578,14 @@ final class WallpaperSceneController: ObservableObject {
     private func updatePlaybackState() {
         guard let scene = activeScene else { return }
         let paused = shouldPause(scene: scene)
+        refreshTelemetryContext(
+            scene: scene,
+            displayIDs: Set(displayCoordinator.displays.map(\.id))
+        )
+        telemetry.updatePlayback(
+            isPaused: paused,
+            reason: pauseReason(scene: scene)
+        )
         windows.values.forEach {
             $0.update(
                 profile: performance.effectiveProfile,
@@ -524,6 +597,39 @@ final class WallpaperSceneController: ObservableObject {
 
     private func shouldPause(scene: WallpaperScene) -> Bool {
         isPaused || (scene.kind == .video && isSuspendedBySystem)
+    }
+
+    private func pauseReason(scene: WallpaperScene) -> WallpaperPauseReason? {
+        guard shouldPause(scene: scene) else { return nil }
+        if isPaused { return .user }
+        if !isSessionActive { return .sessionInactive }
+        if performance.shouldSuspendVideo { return .thermalPressure }
+        if isFullscreenApplicationActive { return .fullscreen }
+        return nil
+    }
+
+    private func refreshTelemetryContext(
+        scene: WallpaperScene,
+        displayIDs: Set<UInt32>
+    ) {
+        let paused = shouldPause(scene: scene)
+        telemetry.updateContext(
+            scene: scene,
+            assetURL: library.assetURL(for: scene),
+            displayIDs: displayIDs,
+            selectedProfile: performance.selectedProfile,
+            effectiveProfile: performance.effectiveProfile,
+            isLowPowerModeEnabled: performance.isLowPowerModeEnabled,
+            thermalState: performance.thermalState,
+            isPaused: paused,
+            pauseReason: pauseReason(scene: scene)
+        )
+        for displayID in displayIDs {
+            telemetry.updateVisibility(
+                isFullscreenApplicationActive ? .fullscreenCovered : .visible,
+                displayID: displayID
+            )
+        }
     }
 
     private func clearPersistedSelection() {

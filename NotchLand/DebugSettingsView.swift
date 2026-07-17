@@ -27,6 +27,7 @@ struct DebugSettingsView: View {
     @EnvironmentObject var notchTimer: NotchTimerController
     @EnvironmentObject var calls: CallActivityController
     @EnvironmentObject var displayCoordinator: DisplayCoordinator
+    @EnvironmentObject var scenes: WallpaperSceneController
     @StateObject private var motionDebugger = MotionDebugStore.shared
 
     var body: some View {
@@ -99,6 +100,8 @@ struct DebugSettingsView: View {
                     }
                 }
             }
+
+            WallpaperTelemetryDebugSection(telemetry: scenes.telemetry)
 
             Section("Factory") {
                 Button(role: .destructive) {
@@ -253,6 +256,144 @@ struct DebugSettingsView: View {
                 .frame(minWidth: 112)
         }
         .buttonStyle(.bordered)
+    }
+}
+
+private struct WallpaperTelemetryDebugSection: View {
+    @ObservedObject var telemetry: WallpaperTelemetryMonitor
+    @ObservedObject var benchmark: WallpaperBenchmarkRunner
+
+    init(telemetry: WallpaperTelemetryMonitor) {
+        self.telemetry = telemetry
+        benchmark = telemetry.benchmarkRunner
+    }
+
+    var body: some View {
+        Section("Wallpaper Telemetry") {
+            LabeledContent("Scene", value: telemetry.snapshot.sceneTitle ?? "Inactive")
+            LabeledContent("Runtime") {
+                Text(
+                    "\(telemetry.snapshot.activePlayerCount) player(s) · "
+                        + "\(telemetry.snapshot.activeRendererCount) renderer(s) · "
+                        + "\(connectedDisplayCount) display(s)"
+                )
+                .monospacedDigit()
+            }
+            LabeledContent("Profile") {
+                Text(profileSummary)
+            }
+            LabeledContent("Asset") {
+                Text(assetSummary)
+                    .textSelection(.enabled)
+            }
+            LabeledContent("Playback") {
+                Text(
+                    telemetry.snapshot.isPaused
+                        ? (telemetry.snapshot.pauseReason?.title ?? "Paused")
+                        : "Playing"
+                )
+            }
+            if let memory = telemetry.snapshot.estimatedDecodedMemoryBytes {
+                LabeledContent("Decoded memory estimate") {
+                    Text(memory, format: .byteCount(style: .memory))
+                        .help("Estimated frame-buffer footprint; not a measurement of total process memory")
+                }
+            }
+            if let transition = telemetry.snapshot.currentTransition ?? telemetry.snapshot.lastTransition {
+                LabeledContent("Last transition") {
+                    Text(transitionSummary(transition))
+                        .monospacedDigit()
+                }
+            }
+
+            ForEach(telemetry.snapshot.displays) { display in
+                LabeledContent("Display \(display.id)") {
+                    Text(
+                        "\(display.visibility.title) · "
+                            + "\(display.playerCount) player(s) · "
+                            + (display.readiness?.rawValue ?? "idle")
+                    )
+                    .monospacedDigit()
+                }
+            }
+
+            HStack {
+                Menu("Start benchmark") {
+                    ForEach(WallpaperBenchmarkScenario.allCases) { scenario in
+                        Button(scenario.title) { benchmark.begin(scenario) }
+                            .help(scenario.method)
+                    }
+                }
+                .disabled(benchmark.activeScenario != nil)
+
+                if let activeScenario = benchmark.activeScenario {
+                    Text(activeScenario.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Finish") { benchmark.finish() }
+                }
+            }
+
+            if let result = benchmark.latestResult {
+                Text(
+                    "\(result.scenario.title): \(result.sampleCount) event samples, "
+                        + "max \(result.maximumPlayerCount) players"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if !telemetry.recentEvents.isEmpty {
+                DisclosureGroup("Recent events") {
+                    ForEach(telemetry.recentEvents.prefix(8)) { event in
+                        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                            Text(event.kind.rawValue)
+                                .font(.caption.weight(.semibold))
+                            Text(event.detail)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, MacFlowSpacing.space4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var connectedDisplayCount: Int {
+        telemetry.snapshot.displays.filter { $0.visibility != .disconnected }.count
+    }
+
+    private var profileSummary: String {
+        let effective = telemetry.snapshot.effectiveProfile?.title ?? "Unknown"
+        let power = telemetry.snapshot.isLowPowerModeEnabled ? "Low Power" : "Normal power"
+        return "\(effective) · \(power) · \(telemetry.snapshot.thermalLevel.rawValue)"
+    }
+
+    private var assetSummary: String {
+        guard let asset = telemetry.snapshot.asset else { return "Inspecting…" }
+        let codec = asset.codec ?? "Unknown codec"
+        let resolution = asset.resolution.map { "\(Int($0.width))×\(Int($0.height))" } ?? "Unknown size"
+        let fps = asset.nominalFramesPerSecond.map {
+            "\($0.formatted(.number.precision(.fractionLength(0...2)))) fps"
+        } ?? "—"
+        let rate = telemetry.snapshot.playbackRate.map {
+            "\($0.formatted(.number.precision(.fractionLength(0...2))))×"
+        } ?? "—"
+        return "\(codec) · \(resolution) · \(fps) · \(rate) · \(asset.variantName)"
+    }
+
+    private func transitionSummary(_ transition: WallpaperTransitionTelemetry) -> String {
+        let firstFrame = transition.timeToFirstFrame.map {
+            "first frame \(Int(($0 * 1_000).rounded())) ms"
+        } ?? "first frame pending"
+        let total = transition.totalDuration.map {
+            "total \(Int(($0 * 1_000).rounded())) ms"
+        } ?? transition.phase.rawValue
+        return "\(firstFrame) · \(total)"
     }
 }
 

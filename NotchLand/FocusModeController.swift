@@ -89,6 +89,14 @@ final class FocusModeController: NSObject, ObservableObject {
         start()
     }
 
+    func setMonitoring(_ isEnabled: Bool) {
+        if isEnabled {
+            start()
+        } else {
+            stop()
+        }
+    }
+
     func dismissCurrentPresentation() {
         dismissTask?.cancel()
         dismissTask = nil

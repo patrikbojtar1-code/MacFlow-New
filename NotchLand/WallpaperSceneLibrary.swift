@@ -94,6 +94,45 @@ final class WallpaperSceneLibrary: ObservableObject {
         return WallpaperSceneCollection(title: "Favorites", kind: .favorites)
     }
 
+    #if DEBUG
+    func prepareUITestFixtures() throws {
+        guard AppRuntime.isUITest else { return }
+
+        try? fileManager.removeItem(at: rootDirectory)
+        prepareStorage()
+        scenes.removeAll()
+        collections.removeAll()
+
+        let fixtures: [(String, NSColor)] = [
+            ("Aurora Test", .systemIndigo),
+            ("Forest Test", .systemGreen),
+            ("Sunset Test", .systemOrange),
+        ]
+
+        for (index, fixture) in fixtures.enumerated() {
+            let id = UUID()
+            let filename = "ui-test-\(index).png"
+            let destination = assetsDirectory.appendingPathComponent(filename)
+            guard let data = Self.uiTestImageData(color: fixture.1) else {
+                throw WallpaperSceneLibraryError.unreadableAsset
+            }
+            try data.write(to: destination, options: .atomic)
+            scenes.append(
+                WallpaperScene(
+                    id: id,
+                    title: fixture.0,
+                    author: "MacFlow UI Tests",
+                    kind: .image,
+                    assetFilename: filename
+                )
+            )
+        }
+
+        ensureFavoritesCollection()
+        try persistIndex()
+    }
+    #endif
+
     func isFavorite(_ scene: WallpaperScene) -> Bool {
         favorites.sceneIDs.contains(scene.id)
     }
@@ -532,4 +571,20 @@ final class WallpaperSceneLibrary: ObservableObject {
         )
         try data.write(to: destinationURL, options: .atomic)
     }
+
+    #if DEBUG
+    private static func uiTestImageData(color: NSColor) -> Data? {
+        let size = NSSize(width: 96, height: 60)
+        let image = NSImage(size: size, flipped: false) { rect in
+            color.setFill()
+            rect.fill()
+            return true
+        }
+        guard let tiffData = image.tiffRepresentation,
+              let representation = NSBitmapImageRep(data: tiffData) else {
+            return nil
+        }
+        return representation.representation(using: .png, properties: [:])
+    }
+    #endif
 }

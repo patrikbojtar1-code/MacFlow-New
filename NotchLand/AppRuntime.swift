@@ -11,9 +11,23 @@
 
 import Foundation
 
-enum AppRuntime {
+nonisolated enum AppRuntime {
     static var shouldStartApplicationServices: Bool {
-        !isXcodePreview && !isUnitTest
+        !isXcodePreview && (!isUnitTest || isUITest)
+    }
+
+    static var isUITest: Bool {
+        isEnabled(ProcessInfo.processInfo.environment["MACFLOW_UI_TESTING"])
+    }
+
+    static var wallpaperSceneRootOverride: URL? {
+        guard isUITest else { return nil }
+        if let path = ProcessInfo.processInfo.environment["MACFLOW_UI_TEST_SCENE_ROOT"],
+           !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("MacFlow-UITests", isDirectory: true)
     }
 
     static var isXcodePreview: Bool {

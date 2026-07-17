@@ -12,11 +12,48 @@ import SwiftUI
 struct MacFlowSidebarView: View {
     @Binding var selection: MacFlowSection
     let showsDebug: Bool
-    let onHideSidebar: () -> Void
+    let isCollapsed: Bool
+    let onToggleSidebar: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        Group {
+            if isCollapsed {
+                collapsedRail
+                    .transition(.opacity)
+            } else {
+                expandedSidebar
+                    .transition(.opacity)
+            }
+        }
+        .background(MacFlowColor.sidebar)
+        .clipped()
+    }
+
+    private var selectionBinding: Binding<MacFlowSection?> {
+        Binding(
+            get: { selection },
+            set: { newSelection in
+                guard let newSelection, newSelection != selection else { return }
+                NotchHaptics.perform(.navigation)
+                withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
+                    selection = newSelection
+                }
+            }
+        )
+    }
+
+    private var brand: some View {
+        HStack(spacing: MacFlowSpacing.space8) {
+            sidebarToggle
+            Text("MacFlow")
+                .font(.title3.weight(.semibold))
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var expandedSidebar: some View {
         VStack(spacing: 0) {
             brand
                 .padding(.horizontal, MacFlowSpacing.space16)
@@ -40,38 +77,27 @@ struct MacFlowSidebarView: View {
             MacFlowProfileControl()
                 .padding(MacFlowSpacing.space12)
         }
-        .background(MacFlowColor.sidebar)
     }
 
-    private var selectionBinding: Binding<MacFlowSection?> {
-        Binding(
-            get: { selection },
-            set: { newSelection in
-                guard let newSelection, newSelection != selection else { return }
-                NotchHaptics.perform(.navigation)
-                withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
-                    selection = newSelection
-                }
-            }
-        )
-    }
-
-    private var brand: some View {
-        HStack(spacing: MacFlowSpacing.space8) {
-            Text("MacFlow")
-                .font(.title3.weight(.semibold))
+    private var collapsedRail: some View {
+        VStack(spacing: 0) {
+            sidebarToggle
+                .padding(.top, MacFlowSpacing.space16)
             Spacer(minLength: 0)
-            Button(action: onHideSidebar) {
-                Image(systemName: "sidebar.left")
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Hide Sidebar")
-            .accessibilityLabel("Hide Sidebar")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("MacFlow")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var sidebarToggle: some View {
+        Button(action: onToggleSidebar) {
+            Image(systemName: isCollapsed ? "sidebar.right" : "sidebar.left")
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help(isCollapsed ? "Show Sidebar" : "Hide Sidebar")
+        .accessibilityLabel(isCollapsed ? "Show Sidebar" : "Hide Sidebar")
+        .accessibilityIdentifier("sidebar.toggle")
     }
 
     @ViewBuilder
@@ -82,6 +108,7 @@ struct MacFlowSidebarView: View {
                 .tag(section)
                 .help(section.detail)
                 .accessibilityHint(section.detail)
+                .accessibilityIdentifier("sidebar.\(section.rawValue)")
         }
     }
 
@@ -95,9 +122,12 @@ struct MacFlowSidebarView: View {
 }
 
 private struct MacFlowProfileControl: View {
-    @AppStorage("macflow.profile.isSignedIn") private var isSignedIn = false
-    @AppStorage("macflow.profile.displayName") private var displayName = ""
-    @AppStorage("macflow.profile.email") private var email = ""
+    @AppStorage("macflow.profile.isSignedIn", store: AppDefaults.store)
+    private var isSignedIn = false
+    @AppStorage("macflow.profile.displayName", store: AppDefaults.store)
+    private var displayName = ""
+    @AppStorage("macflow.profile.email", store: AppDefaults.store)
+    private var email = ""
 
     @State private var showsProfile = false
     @State private var draftName = ""

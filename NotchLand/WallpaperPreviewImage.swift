@@ -7,34 +7,61 @@
 //
 
 import AppKit
+import ImageIO
 import SwiftUI
 
-private actor WallpaperPreviewDataCache {
-    static let shared = WallpaperPreviewDataCache()
+private struct DecodedWallpaperPreview: @unchecked Sendable {
+    let image: CGImage
+    let byteCost: Int
+}
 
-    private var values: [URL: Data] = [:]
+private actor WallpaperPreviewImageCache {
+    static let shared = WallpaperPreviewImageCache()
+
+    private var values: [URL: DecodedWallpaperPreview] = [:]
     private var order: [URL] = []
     private var totalBytes = 0
-    private let maximumBytes = 64 * 1_024 * 1_024
+    private let maximumBytes = 96 * 1_024 * 1_024
 
-    func data(for url: URL) async -> Data? {
-        if let cached = values[url] { return cached }
+    func image(for url: URL) async -> CGImage? {
+        if let cached = values[url] {
+            touch(url)
+            return cached.image
+        }
 
-        let loaded = await Task.detached(priority: .userInitiated) {
-            try? Data(contentsOf: url, options: [.mappedIfSafe])
+        let loaded = await Task.detached(priority: .userInitiated) { () -> DecodedWallpaperPreview? in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1_600,
+                kCGImageSourceShouldCacheImmediately: true
+            ]
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                return nil
+            }
+            return DecodedWallpaperPreview(
+                image: image,
+                byteCost: image.bytesPerRow * image.height
+            )
         }.value
         guard let loaded else { return nil }
+
         values[url] = loaded
-        order.removeAll { $0 == url }
-        order.append(url)
-        totalBytes += loaded.count
+        touch(url)
+        totalBytes += loaded.byteCost
         while totalBytes > maximumBytes, let oldest = order.first {
             order.removeFirst()
             if let removed = values.removeValue(forKey: oldest) {
-                totalBytes -= removed.count
+                totalBytes -= removed.byteCost
             }
         }
-        return loaded
+        return loaded.image
+    }
+
+    private func touch(_ url: URL) {
+        order.removeAll { $0 == url }
+        order.append(url)
     }
 }
 
@@ -45,7 +72,7 @@ struct WallpaperPreviewImage: View {
     var dimming: Double = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var image: NSImage?
+    @State private var image: CGImage?
 
     var body: some View {
         GeometryReader { proxy in
@@ -67,9 +94,8 @@ struct WallpaperPreviewImage: View {
         .clipped()
         .task(id: url) {
             image = nil
-            guard let data = await WallpaperPreviewDataCache.shared.data(for: url),
-                  !Task.isCancelled,
-                  let loadedImage = NSImage(data: data) else { return }
+            guard let loadedImage = await WallpaperPreviewImageCache.shared.image(for: url),
+                  !Task.isCancelled else { return }
             withAnimation(AppMotion.insertion(reduceMotion: reduceMotion)) {
                 image = loadedImage
             }
@@ -79,21 +105,21 @@ struct WallpaperPreviewImage: View {
     }
 
     @ViewBuilder
-    private func imageView(_ image: NSImage, size: CGSize) -> some View {
+    private func imageView(_ image: CGImage, size: CGSize) -> some View {
         switch scalingMode {
         case .fill:
-            Image(nsImage: image)
+            Image(decorative: image, scale: 1)
                 .resizable()
                 .scaledToFill()
                 .frame(width: size.width, height: size.height)
                 .clipped()
         case .fit:
-            Image(nsImage: image)
+            Image(decorative: image, scale: 1)
                 .resizable()
                 .scaledToFit()
                 .frame(width: size.width, height: size.height)
         case .stretch:
-            Image(nsImage: image)
+            Image(decorative: image, scale: 1)
                 .resizable()
                 .frame(width: size.width, height: size.height)
         }

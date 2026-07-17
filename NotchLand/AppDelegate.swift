@@ -56,7 +56,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var audioActivity = AudioDeviceActivitySource(activities: liveActivities)
     lazy var notchTimer = NotchTimerController(activities: liveActivities)
     lazy var downloadsActivity = DownloadsActivitySource(activities: liveActivities)
-    lazy var sceneLibrary = WallpaperSceneLibrary()
+    lazy var sceneLibrary = WallpaperSceneLibrary(
+        rootDirectory: AppRuntime.wallpaperSceneRootOverride
+    )
     lazy var scenePerformance = WallpaperPerformanceMonitor()
     lazy var scenes = WallpaperSceneController(
         library: sceneLibrary,
@@ -102,6 +104,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard AppRuntime.shouldStartApplicationServices else { return }
+        #if DEBUG
+        if AppRuntime.isUITest {
+            settings.hasCompletedOnboarding = true
+            settings.showNotch = false
+            settings.showMenuBarItem = false
+            settings.launchAtLogin = false
+            try? sceneLibrary.prepareUITestFixtures()
+
+            NSApp.setActivationPolicy(.regular)
+            displayCoordinator.start()
+            focusMode.start()
+            windowManager.start()
+            didStartServices = true
+            return
+        }
+        #endif
+
         NSApp.setActivationPolicy(.accessory)
         NotchIntentRuntime.shared.configure(
             appState: appState,
@@ -113,7 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowManager.start()
         hud.start()
         batteryAlerts.start()
-        focusMode.start()
+        if settings.focusMonitorEnabled {
+            focusMode.start()
+        }
         screenLock.start()
         systemCalls.start()
         systemMessages.start()
@@ -132,6 +153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         guard didStartServices else { return }
+        #if DEBUG
+        if AppRuntime.isUITest {
+            displayCoordinator.stop()
+            focusMode.stop()
+            return
+        }
+        #endif
+
         displayCoordinator.stop()
         hud.stop()
         batteryAlerts.stop()

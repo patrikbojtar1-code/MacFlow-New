@@ -19,7 +19,20 @@
 			remoteGlobalIDString = F5F14C4C2FAA36310071784D;
 			remoteInfo = NotchLand;
 		};
+		AC1000000000000000000009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F5F14C452FAA36310071784D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F5F14C4C2FAA36310071784D;
+			remoteInfo = NotchLand;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		AB10000000000000000000F2 /* NotchLandTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchLandTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC1000000000000000000002 /* MacFlowUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MacFlowUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F5F14C4D2FAA36310071784D /* MacFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
 		AB30000000000000000000A1 /* Exceptions for "NotchLand" folder in "NotchLand" target */ = {
@@ -31,15 +44,15 @@
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
-/* Begin PBXFileReference section */
-		AB10000000000000000000F2 /* NotchLandTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchLandTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F5F14C4D2FAA36310071784D /* MacFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
-/* End PBXFileReference section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AB10000000000000000000F1 /* NotchLandTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = NotchLandTests;
+			sourceTree = "<group>";
+		};
+		AC1000000000000000000001 /* MacFlowUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MacFlowUITests;
 			sourceTree = "<group>";
 		};
 		F5F14C4F2FAA36310071784D /* NotchLand */ = {
@@ -70,6 +83,7 @@
 			children = (
 				F5F14C4F2FAA36310071784D /* NotchLand */,
 				AB10000000000000000000F1 /* NotchLandTests */,
+				AC1000000000000000000001 /* MacFlowUITests */,
 				F5F14C4E2FAA36310071784D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -79,6 +93,7 @@
 			children = (
 				F5F14C4D2FAA36310071784D /* MacFlow.app */,
 				AB10000000000000000000F2 /* NotchLandTests.xctest */,
+				AC1000000000000000000002 /* MacFlowUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -104,6 +119,25 @@
 			productName = NotchLandTests;
 			productReference = AB10000000000000000000F2 /* NotchLandTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		AC1000000000000000000003 /* MacFlowUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AC1000000000000000000004 /* Build configuration list for PBXNativeTarget "MacFlowUITests" */;
+			buildPhases = (
+				AC1000000000000000000007 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AC1000000000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AC1000000000000000000001 /* MacFlowUITests */,
+			);
+			name = MacFlowUITests;
+			productName = MacFlowUITests;
+			productReference = AC1000000000000000000002 /* MacFlowUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		F5F14C4C2FAA36310071784D /* NotchLand */ = {
 			isa = PBXNativeTarget;
@@ -142,6 +176,9 @@
 					AB10000000000000000000F3 = {
 						TestTargetID = F5F14C4C2FAA36310071784D;
 					};
+					AC1000000000000000000003 = {
+						TestTargetID = F5F14C4C2FAA36310071784D;
+					};
 					F5F14C4C2FAA36310071784D = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -167,6 +204,7 @@
 			targets = (
 				F5F14C4C2FAA36310071784D /* NotchLand */,
 				AB10000000000000000000F3 /* NotchLandTests */,
+				AC1000000000000000000003 /* MacFlowUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -189,6 +227,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AC1000000000000000000007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F5F14C492FAA36310071784D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -203,6 +248,11 @@
 			isa = PBXTargetDependency;
 			target = F5F14C4C2FAA36310071784D /* NotchLand */;
 			targetProxy = AB10000000000000000000F9 /* PBXContainerItemProxy */;
+		};
+		AC1000000000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F5F14C4C2FAA36310071784D /* NotchLand */;
+			targetProxy = AC1000000000000000000009 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -244,6 +294,44 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MacFlow.app/Contents/MacOS/MacFlow";
+			};
+			name = Release;
+		};
+		AC1000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = H7RVWCMKF5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rudrashah.MacFlowUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = NotchLand;
+			};
+			name = Debug;
+		};
+		AC1000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = H7RVWCMKF5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.3;
+				MARKETING_VERSION = 1.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rudrashah.MacFlowUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = NotchLand;
 			};
 			name = Release;
 		};
@@ -371,7 +459,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = H7RVWCMKF5;
+				DEVELOPMENT_TEAM = L2RYQZPVU2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -381,10 +469,10 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacFlow;
 				INFOPLIST_KEY_CFBundleName = MacFlow;
 				INFOPLIST_KEY_LSUIElement = NO;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacFlow reads the current TV episode metadata to show the series, season, and episode in the notch.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "MacFlow uses the camera only for the Mirror module. Camera frames are never uploaded or stored.";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacFlow reads the current TV episode metadata to show the series, season, and episode in the notch.";
 				INFOPLIST_KEY_NSFocusStatusUsageDescription = "MacFlow uses Focus status to show a notch alert when Focus turns on.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Rudra Shah. Licensed under the Apache License 2.0.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -414,7 +502,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 2;
-				DEVELOPMENT_TEAM = H7RVWCMKF5;
+				DEVELOPMENT_TEAM = L2RYQZPVU2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -424,10 +512,10 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacFlow;
 				INFOPLIST_KEY_CFBundleName = MacFlow;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacFlow reads the current TV episode metadata to show the series, season, and episode in the notch.";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "MacFlow uses the camera only for the Mirror module. Camera frames are never uploaded or stored.";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacFlow reads the current TV episode metadata to show the series, season, and episode in the notch.";
 				INFOPLIST_KEY_NSFocusStatusUsageDescription = "MacFlow uses Focus status to show a notch alert when Focus turns on.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Rudra Shah. Licensed under the Apache License 2.0.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -456,6 +544,15 @@
 			buildConfigurations = (
 				AB10000000000000000000F5 /* Debug */,
 				AB10000000000000000000F6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AC1000000000000000000004 /* Build configuration list for PBXNativeTarget "MacFlowUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC1000000000000000000005 /* Debug */,
+				AC1000000000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

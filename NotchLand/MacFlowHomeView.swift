@@ -14,7 +14,8 @@ struct MacFlowHomeView: View {
     @EnvironmentObject private var scenes: WallpaperSceneController
     @EnvironmentObject private var mouseFree: MouseFreeController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("macflow.profile.displayName") private var profileName = ""
+    @AppStorage("macflow.profile.displayName", store: AppDefaults.store)
+    private var profileName = ""
 
     private let columns = [
         GridItem(.adaptive(minimum: 180, maximum: 280), spacing: MacFlowSpacing.space12)

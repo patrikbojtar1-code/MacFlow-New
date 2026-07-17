@@ -17,6 +17,11 @@ struct ScenesSettingsView: View {
     @State private var presentsSceneConfiguration = false
     @State private var newCollectionName = ""
     @State private var isImporting = false
+    @State private var presentsImporter = false
+    @State private var showsCompactSearch = false
+    @State private var showsSortOptions = false
+    @State private var showsSceneOptions = false
+    @State private var activationTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -52,7 +57,7 @@ struct ScenesSettingsView: View {
             Button("Cancel", role: .cancel) { newCollectionName = "" }
             Button("Create") {
                 if let collection = controller.library.createCollection(named: newCollectionName) {
-                    browser.scope = .collection(collection.id)
+                    selectScope(.collection(collection.id))
                 }
                 newCollectionName = ""
             }
@@ -69,7 +74,17 @@ struct ScenesSettingsView: View {
                 sceneConfigurationSheet(scene)
             }
         }
+        .fileImporter(
+            isPresented: $presentsImporter,
+            allowedContentTypes: [.image, .movie, .notchLandScene],
+            allowsMultipleSelection: false,
+            onCompletion: handleImport
+        )
         .onAppear { synchronizeSelection() }
+        .onDisappear {
+            activationTask?.cancel()
+            activationTask = nil
+        }
         .onChange(of: sceneIDs) { _, _ in synchronizeSelection() }
         .onChange(of: controller.activeSceneID) { _, _ in synchronizeSelection() }
         .onChange(of: browser.scope) { _, _ in synchronizeSelectionToVisibleScenes() }
@@ -84,99 +99,269 @@ struct ScenesSettingsView: View {
 
             Spacer(minLength: MacFlowSpacing.space16)
 
-            HStack(spacing: MacFlowSpacing.space8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(MacFlowColor.textTertiary)
-                TextField("Search scenes", text: $browser.query)
-                    .textFieldStyle(.plain)
-                if !browser.query.isEmpty {
-                    Button {
-                        browser.query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(MacFlowColor.textTertiary)
-                    .accessibilityLabel("Clear search")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: MacFlowSpacing.space8) {
+                    searchField
+                    sortControl
+                    sceneOptionsControl
+                    layoutControl
+                    importControl(showsTitle: true)
                 }
-            }
-            .padding(.horizontal, MacFlowSpacing.space12)
-            .frame(width: 168, height: 30)
-            .background(MacFlowColor.surface2, in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                    .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
-            }
 
-            Menu {
-                ForEach(WallpaperBrowserSort.allCases) { sort in
-                    Button {
-                        withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
-                            browser.sort = sort
-                        }
-                    } label: {
-                        Label(sort.title, systemImage: browser.sort == sort ? "checkmark" : sort.systemImage)
-                    }
-                }
-            } label: {
-                Label(browser.sort.title, systemImage: "arrow.up.arrow.down")
-                    .labelStyle(.iconOnly)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Sort: \(browser.sort.title)")
-            .accessibilityLabel("Sort scenes")
-
-            Menu {
-                Button {
-                    presentsAutomation = true
-                } label: {
-                    Label("Automation…", systemImage: "clock.arrow.2.circlepath")
-                }
-                Divider()
-                Button {
-                    presentsNewCollection = true
-                } label: {
-                    Label("New Collection…", systemImage: "folder.badge.plus")
-                }
-                ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
-                    Button {
-                        browser.scope = .collection(collection.id)
-                    } label: {
-                        Label(collection.title, systemImage: "folder")
-                    }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .frame(width: 24, height: 24)
-            }
-            .menuStyle(.borderlessButton)
-            .help("Wallpaper options")
-
-            Picker("Layout", selection: $browser.layout) {
-                Image(systemName: "square.grid.2x2").tag(WallpaperBrowserLayout.grid)
-                Image(systemName: "list.bullet").tag(WallpaperBrowserLayout.list)
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 68)
-
-            Button {
-                presentImporter()
-            } label: {
-                ViewThatFits(in: .horizontal) {
-                    Label("Import", systemImage: "plus")
-                    Image(systemName: "plus")
+                HStack(spacing: MacFlowSpacing.space8) {
+                    compactSearchControl
+                    sortControl
+                    sceneOptionsControl
+                    layoutControl
+                    importControl(showsTitle: false)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(MacFlowColor.accent)
-            .disabled(isImporting)
         }
         .padding(.horizontal, MacFlowSpacing.space16)
         .frame(minHeight: 62)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: MacFlowSpacing.space8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(MacFlowColor.textTertiary)
+            TextField("Search scenes", text: $browser.query)
+                .textFieldStyle(.plain)
+            if !browser.query.isEmpty {
+                Button {
+                    browser.query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MacFlowColor.textTertiary)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, MacFlowSpacing.space12)
+        .frame(width: 168, height: 30)
+        .background(
+            MacFlowColor.surface2,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private var compactSearchControl: some View {
+        Button {
+            showsCompactSearch.toggle()
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("Search scenes")
+        .accessibilityLabel("Search scenes")
+        .popover(isPresented: $showsCompactSearch, arrowEdge: .bottom) {
+            searchField
+                .padding(MacFlowSpacing.space12)
+        }
+    }
+
+    private var sortControl: some View {
+        Button {
+            showsSortOptions.toggle()
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            MacFlowColor.surface2,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+        }
+        .fixedSize()
+        .help("Sort: \(browser.sort.title)")
+        .accessibilityLabel("Sort scenes")
+        .accessibilityValue(browser.sort.title)
+        .accessibilityIdentifier("wallpapers.sort")
+        .popover(isPresented: $showsSortOptions, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                ForEach(WallpaperBrowserSort.allCases) { sort in
+                    Button {
+                        showsSortOptions = false
+                        selectSort(sort)
+                    } label: {
+                        HStack(spacing: MacFlowSpacing.space8) {
+                            Image(systemName: sort.systemImage)
+                                .frame(width: 16)
+                            Text(sort.title)
+                            Spacer(minLength: MacFlowSpacing.space16)
+                            if browser.sort == sort {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(MacFlowColor.accent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, MacFlowSpacing.space8)
+                    .frame(height: 28)
+                    .accessibilityIdentifier("wallpapers.sort.\(sort.rawValue)")
+                }
+            }
+            .padding(MacFlowSpacing.space8)
+            .frame(width: 164)
+        }
+    }
+
+    private var sceneOptionsControl: some View {
+        Button {
+            showsSceneOptions.toggle()
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .frame(width: 30, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            MacFlowColor.surface2,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+        }
+        .fixedSize()
+        .help("Scene and automation options")
+        .accessibilityLabel("Scene and automation options")
+        .accessibilityIdentifier("wallpapers.options")
+        .popover(isPresented: $showsSceneOptions, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                sceneOptionButton(
+                    title: "Automation…",
+                    systemImage: "clock.arrow.2.circlepath",
+                    identifier: "wallpapers.options.automation"
+                ) {
+                    showsSceneOptions = false
+                    presentsAutomation = true
+                }
+
+                Divider()
+
+                sceneOptionButton(
+                    title: "New Collection…",
+                    systemImage: "folder.badge.plus",
+                    identifier: "wallpapers.options.newCollection"
+                ) {
+                    showsSceneOptions = false
+                    presentsNewCollection = true
+                }
+
+                ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
+                    sceneOptionButton(
+                        title: collection.title,
+                        systemImage: "folder",
+                        identifier: "wallpapers.options.collection.\(collection.id.uuidString)"
+                    ) {
+                        showsSceneOptions = false
+                        selectScope(.collection(collection.id))
+                    }
+                }
+            }
+            .padding(MacFlowSpacing.space8)
+            .frame(width: 200)
+        }
+    }
+
+    private func sceneOptionButton(
+        title: String,
+        systemImage: String,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: MacFlowSpacing.space8) {
+                Image(systemName: systemImage)
+                    .frame(width: 16)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, MacFlowSpacing.space8)
+        .frame(height: 28)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var layoutControl: some View {
+        HStack(spacing: MacFlowSpacing.space4) {
+            layoutButton(.grid, systemImage: "square.grid.2x2", title: "Grid")
+            layoutButton(.list, systemImage: "list.bullet", title: "List")
+        }
+        .padding(MacFlowSpacing.space4)
+        .background(
+            MacFlowColor.surface2,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
+                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+        }
+    }
+
+    private func layoutButton(
+        _ layout: WallpaperBrowserLayout,
+        systemImage: String,
+        title: String
+    ) -> some View {
+        let isSelected = browser.layout == layout
+        return Button {
+            selectLayout(layout)
+        } label: {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isSelected ? .primary : MacFlowColor.textSecondary)
+                .frame(width: 24, height: 22)
+                .background(
+                    isSelected ? MacFlowColor.surface3 : .clear,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("wallpapers.layout.\(layout.rawValue)")
+    }
+
+    @ViewBuilder
+    private func importControl(showsTitle: Bool) -> some View {
+        Button {
+            presentImporter()
+        } label: {
+            if showsTitle {
+                Label("Import", systemImage: "plus")
+            } else {
+                Image(systemName: "plus")
+                    .frame(width: 14, height: 14)
+            }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(MacFlowColor.accent)
+        .controlSize(.small)
+        .disabled(isImporting)
+        .help("Import wallpaper")
+        .accessibilityLabel("Import wallpaper")
+        .accessibilityIdentifier("wallpapers.import")
     }
 
     private var browserContent: some View {
@@ -184,10 +369,6 @@ struct ScenesSettingsView: View {
             selectedPreview
                 .padding(.horizontal, MacFlowSpacing.space16)
                 .padding(.top, MacFlowSpacing.space16)
-                .animation(
-                    AppMotion.stateChange(reduceMotion: reduceMotion),
-                    value: browser.selectedSceneID
-                )
 
             libraryHeader
                 .padding(.horizontal, MacFlowSpacing.space16)
@@ -244,8 +425,6 @@ struct ScenesSettingsView: View {
                             scalingMode: .fill,
                             dimming: scene.rendering.dimming
                         )
-                        .id(scene.id)
-                        .transition(.opacity)
                         .overlay(alignment: .bottomTrailing) {
                             if scene.kind == .video {
                                 Label("Looping video", systemImage: "play.fill")
@@ -262,8 +441,6 @@ struct ScenesSettingsView: View {
                     }
                     .frame(height: 162)
                 }
-                .id(scene.id)
-                .transition(.opacity)
             } else {
                 MacFlowPanel(.grouped) {
                     MacFlowEmptyState(
@@ -364,7 +541,7 @@ struct ScenesSettingsView: View {
             Menu {
                 ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
                     Button(collection.title) {
-                        browser.scope = .collection(collection.id)
+                        selectScope(.collection(collection.id))
                     }
                 }
                 if controller.library.collections.allSatisfy({ $0.kind != .custom }) {
@@ -388,7 +565,7 @@ struct ScenesSettingsView: View {
     private func filterButton(_ scope: WallpaperBrowserScope) -> some View {
         let isSelected = browser.scope == scope
         return Button(scope.title) {
-            browser.scope = scope
+            selectScope(scope)
         }
         .buttonStyle(MacFlowInteractiveButtonStyle())
         .font(.system(size: 10.5, weight: .medium))
@@ -416,7 +593,7 @@ struct ScenesSettingsView: View {
                 actionTitle: "Show All",
                 action: {
                     browser.query = ""
-                    browser.scope = .all
+                    selectScope(.all)
                 }
             )
         } else {
@@ -605,27 +782,52 @@ struct ScenesSettingsView: View {
         }
         guard controller.activeSceneID != scene.id else { return }
         NotchHaptics.perform(.confirmation)
-        controller.apply(scene)
+        activationTask?.cancel()
+        activationTask = Task { @MainActor in
+            // Give SwiftUI one render pass to show the selection before the
+            // AppKit wallpaper renderer starts preparing windows and media.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            controller.apply(scene)
+            activationTask = nil
+        }
+    }
+
+    private func selectLayout(_ layout: WallpaperBrowserLayout) {
+        guard browser.layout != layout else { return }
+        Task { @MainActor in
+            // AppKit's segmented/menu controls are still completing their
+            // action here. Rebuilding the large library on the next turn
+            // avoids constraint invalidation re-entrancy in NSHostingView.
+            await Task.yield()
+            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                browser.layout = layout
+            }
+        }
+    }
+
+    private func selectSort(_ sort: WallpaperBrowserSort) {
+        guard browser.sort != sort else { return }
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                browser.sort = sort
+            }
+        }
+    }
+
+    private func selectScope(_ scope: WallpaperBrowserScope) {
+        guard browser.scope != scope else { return }
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                browser.scope = scope
+            }
+        }
     }
 
     private func presentImporter() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Wallpaper"
-        panel.prompt = "Import"
-        panel.allowedContentTypes = [.image, .movie, .notchLandScene]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-
-        let completion: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .OK, let url = panel.url else { return }
-            handleImportedURL(url)
-        }
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            panel.beginSheetModal(for: window, completionHandler: completion)
-        } else {
-            panel.begin(completionHandler: completion)
-        }
+        presentsImporter = true
     }
 
     private func handleImportedURL(_ url: URL) {
@@ -635,7 +837,7 @@ struct ScenesSettingsView: View {
             isImporting = false
             if imported {
                 browser.query = ""
-                browser.scope = .all
+                selectScope(.all)
                 browser.selectedSceneID = controller.activeSceneID
             }
         }
@@ -683,44 +885,50 @@ private struct WallpaperSceneTile: View {
     let toggleFavorite: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Button(action: select) {
-            VStack(alignment: .leading, spacing: 0) {
-                WallpaperThumbnailView(scene: scene, url: previewURL, scalingMode: .fill, dimming: 0)
-                    .aspectRatio(16 / 9, contentMode: .fit)
+        ZStack(alignment: .topTrailing) {
+            Button(action: select) {
+                VStack(alignment: .leading, spacing: 0) {
+                    WallpaperThumbnailView(scene: scene, url: previewURL, scalingMode: .fill, dimming: 0)
+                        .aspectRatio(16 / 9, contentMode: .fit)
 
-                HStack(spacing: MacFlowSpacing.space8) {
-                    VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                        Text(scene.title)
-                            .font(.system(size: 11.5, weight: .medium))
-                            .lineLimit(1)
-                        HStack(spacing: MacFlowSpacing.space4) {
-                            Circle()
-                                .fill(isActive ? Color.green : MacFlowColor.textTertiary)
-                                .frame(width: 5, height: 5)
-                            Text(isActive ? "Live" : scene.kind.displayName)
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(MacFlowColor.textSecondary)
+                    HStack(spacing: MacFlowSpacing.space8) {
+                        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                            Text(scene.title)
+                                .font(.system(size: 11.5, weight: .medium))
+                                .lineLimit(1)
+                            HStack(spacing: MacFlowSpacing.space4) {
+                                Circle()
+                                    .fill(isActive ? Color.green : MacFlowColor.textTertiary)
+                                    .frame(width: 5, height: 5)
+                                Text(isActive ? "Live" : scene.kind.displayName)
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(MacFlowColor.textSecondary)
+                            }
                         }
+                        Spacer()
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(isSelected ? MacFlowColor.wallpaper : MacFlowColor.textTertiary)
                     }
-                    Spacer()
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(isSelected ? MacFlowColor.wallpaper : MacFlowColor.textTertiary)
+                    .padding(MacFlowSpacing.space12)
                 }
-                .padding(MacFlowSpacing.space12)
+                .background(MacFlowColor.surface1)
+                .clipShape(RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
+                        .stroke(
+                            isSelected ? MacFlowColor.wallpaper : MacFlowColor.borderSubtle,
+                            lineWidth: isSelected ? 1.5 : 1
+                        )
+                }
+                .contentShape(Rectangle())
             }
-            .background(MacFlowColor.surface1)
-            .clipShape(RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
-                    .stroke(isSelected ? MacFlowColor.wallpaper : MacFlowColor.borderSubtle, lineWidth: isSelected ? 1.5 : 1)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(MacFlowInteractiveButtonStyle())
-        .overlay(alignment: .topTrailing) {
+            .buttonStyle(MacFlowInteractiveButtonStyle())
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+
             Button(action: toggleFavorite) {
                 Image(systemName: isFavorite ? "star.fill" : "star")
                     .font(.system(size: 10, weight: .semibold))
@@ -734,7 +942,7 @@ private struct WallpaperSceneTile: View {
             .accessibilityLabel(isFavorite ? "Remove from Favorites" : "Add to Favorites")
         }
         .onHover { isHovered = $0 }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: isHovered)
     }
 }
 

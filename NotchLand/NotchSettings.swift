@@ -72,6 +72,7 @@ nonisolated final class NotchSettings: ObservableObject {
         static let fileShelfEnabled = true
         static let liveActivitiesEnabled = true
         static let autoUpdateCheckEnabled = true
+        static let focusMonitorEnabled = true
 
         static let hasCompletedOnboarding = false
     }
@@ -118,6 +119,7 @@ nonisolated final class NotchSettings: ObservableObject {
         static let fileShelfEnabled = "notch.fileShelfEnabled"
         static let liveActivitiesEnabled = "notch.liveActivitiesEnabled"
         static let autoUpdateCheckEnabled = "notch.autoUpdateCheckEnabled"
+        static let focusMonitorEnabled = "notch.focusMonitorEnabled"
         static let hasCompletedOnboarding = "notch.hasCompletedOnboarding"
     }
 
@@ -224,6 +226,9 @@ nonisolated final class NotchSettings: ObservableObject {
     @Published var autoUpdateCheckEnabled: Bool = read(Keys.autoUpdateCheckEnabled, Defaults.autoUpdateCheckEnabled) {
         didSet { Self.write(autoUpdateCheckEnabled, Keys.autoUpdateCheckEnabled) }
     }
+    @Published var focusMonitorEnabled: Bool = read(Keys.focusMonitorEnabled, Defaults.focusMonitorEnabled) {
+        didSet { Self.write(focusMonitorEnabled, Keys.focusMonitorEnabled) }
+    }
 
     // Onboarding — flipped to true the first time the user taps GET STARTED.
     @Published var hasCompletedOnboarding: Bool = read(Keys.hasCompletedOnboarding, Defaults.hasCompletedOnboarding) {
@@ -261,6 +266,7 @@ nonisolated final class NotchSettings: ObservableObject {
         fileShelfEnabled = Defaults.fileShelfEnabled
         liveActivitiesEnabled = Defaults.liveActivitiesEnabled
         autoUpdateCheckEnabled = Defaults.autoUpdateCheckEnabled
+        focusMonitorEnabled = Defaults.focusMonitorEnabled
     }
 
     func resetToFactoryDefaults() {
@@ -278,15 +284,15 @@ nonisolated final class NotchSettings: ObservableObject {
     }
 
     private static func read<T>(_ key: String, _ fallback: T) -> T {
-        UserDefaults.standard.object(forKey: key) as? T ?? fallback
+        AppDefaults.store.object(forKey: key) as? T ?? fallback
     }
 
     private static func write<T>(_ value: T, _ key: String) {
-        UserDefaults.standard.set(value, forKey: key)
+        AppDefaults.store.set(value, forKey: key)
     }
 
     private static func readTheme() -> Theme {
-        if let raw = UserDefaults.standard.string(forKey: Keys.theme),
+        if let raw = AppDefaults.store.string(forKey: Keys.theme),
            let theme = Theme(rawValue: raw) {
             return theme
         }
@@ -294,7 +300,7 @@ nonisolated final class NotchSettings: ObservableObject {
     }
 
     private static func readNotchSize() -> NotchSize {
-        guard let rawValue = UserDefaults.standard.string(forKey: Keys.notchContentSize),
+        guard let rawValue = AppDefaults.store.string(forKey: Keys.notchContentSize),
               let size = NotchSize(rawValue: rawValue) else {
             return Defaults.notchContentSize
         }
@@ -302,7 +308,7 @@ nonisolated final class NotchSettings: ObservableObject {
     }
 
     private static func readDisplayPolicy() -> NotchDisplayPolicy {
-        guard let rawValue = UserDefaults.standard.string(forKey: Keys.displayPolicy),
+        guard let rawValue = AppDefaults.store.string(forKey: Keys.displayPolicy),
               let policy = NotchDisplayPolicy(rawValue: rawValue) else {
             return Defaults.displayPolicy
         }
@@ -310,7 +316,7 @@ nonisolated final class NotchSettings: ObservableObject {
     }
 
     private static func readSelectedDisplayIDs() -> Set<UInt32> {
-        let values = UserDefaults.standard.array(forKey: Keys.selectedDisplayIDs) as? [NSNumber] ?? []
+        let values = AppDefaults.store.array(forKey: Keys.selectedDisplayIDs) as? [NSNumber] ?? []
         return Set(values.map(\.uint32Value))
     }
 
@@ -338,7 +344,7 @@ nonisolated final class NotchSettings: ObservableObject {
     }
 
     private static func readDisplayConfigurations() -> [UInt32: DisplayNotchConfiguration] {
-        guard let data = UserDefaults.standard.data(forKey: Keys.displayConfigurations),
+        guard let data = AppDefaults.store.data(forKey: Keys.displayConfigurations),
               let stored = try? JSONDecoder().decode(
                 [String: DisplayNotchConfiguration].self,
                 from: data
@@ -355,14 +361,14 @@ nonisolated final class NotchSettings: ObservableObject {
             (String(key), value)
         })
         guard let data = try? JSONEncoder().encode(stored) else { return }
-        UserDefaults.standard.set(data, forKey: Keys.displayConfigurations)
+        AppDefaults.store.set(data, forKey: Keys.displayConfigurations)
     }
 
     private static func readShowHUDOnNotch() -> Bool {
-        if let value = UserDefaults.standard.object(forKey: Keys.showHUDOnNotch) as? Bool {
+        if let value = AppDefaults.store.object(forKey: Keys.showHUDOnNotch) as? Bool {
             return value
         }
-        return UserDefaults.standard.object(forKey: Keys.legacyHideSystemHUD) as? Bool ?? Defaults.showHUDOnNotch
+        return AppDefaults.store.object(forKey: Keys.legacyHideSystemHUD) as? Bool ?? Defaults.showHUDOnNotch
     }
 }
 

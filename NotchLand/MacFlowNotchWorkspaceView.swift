@@ -99,6 +99,7 @@ struct MacFlowNotchWorkspaceView: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("notch.tab.\(item.rawValue)")
             }
         }
         .animation(AppMotion.interaction(reduceMotion: reduceMotion), value: tab)

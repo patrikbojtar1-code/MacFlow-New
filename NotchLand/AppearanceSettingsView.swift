@@ -108,6 +108,7 @@ struct AppearanceSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .accessibilityIdentifier("notch.appearance.form")
     }
 }
 

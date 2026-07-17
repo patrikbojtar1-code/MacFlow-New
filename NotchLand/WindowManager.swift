@@ -287,7 +287,7 @@ final class WindowManager: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
-                    UserDefaults.standard.set(
+                    AppDefaults.store.set(
                         MacFlowSection.wallpaperEngine.rawValue,
                         forKey: "macflow.selectedSection"
                     )
@@ -951,20 +951,26 @@ final class WindowManager: NSObject {
         guard let companionWindow else { return }
         let wasVisible = companionWindow.isVisible
         if !wasVisible { companionWindow.center() }
-        let targetFrame = companionWindow.frame
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if !wasVisible, !reduceMotion {
             companionWindow.alphaValue = 0
-            companionWindow.setFrame(targetFrame.offsetBy(dx: 0, dy: -8), display: false)
         }
         companionWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         guard !wasVisible, !reduceMotion else { return }
+
+        if let layer = companionWindow.contentView?.layer {
+            let translation = CABasicAnimation(keyPath: "transform.translation.y")
+            translation.fromValue = -8
+            translation.toValue = 0
+            translation.duration = AppMotion.Duration.standard
+            translation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(translation, forKey: "macflow.window.entry")
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = AppMotion.Duration.standard
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             companionWindow.animator().alphaValue = 1
-            companionWindow.animator().setFrame(targetFrame, display: true)
         }
     }
 
@@ -972,6 +978,7 @@ final class WindowManager: NSObject {
         let hosting = NSHostingView(
             rootView: SettingsView()
                 .environmentObject(settings)
+                .environmentObject(displayCoordinator)
                 .environmentObject(appState)
                 .environmentObject(hud)
                 .environmentObject(batteryAlerts)
@@ -1016,11 +1023,25 @@ final class WindowManager: NSObject {
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.isMovableByWindowBackground = true
+        // MacFlow owns this companion window and centers it explicitly. Opting
+        // out of AppKit state restoration prevents WindowScene from replaying
+        // a server-side frame while the SwiftUI hierarchy is mid-layout.
+        window.isRestorable = false
         window.contentMinSize = NSSize(
             width: MacFlowMetrics.minimumWindowWidth,
             height: MacFlowMetrics.minimumWindowHeight
         )
-        window.contentView = hosting
+        // Keep a neutral AppKit container as the window's direct content view.
+        // AppKit observes that view's frame to synchronize WindowScene state;
+        // using NSHostingView directly creates a feedback loop when SwiftUI
+        // updates its own layout during a server-driven window-frame restore.
+        let container = NSView(frame: window.contentLayoutRect)
+        container.wantsLayer = true
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        window.contentView = container
+        hosting.wantsLayer = true
         window.isReleasedWhenClosed = false
         return window
     }
