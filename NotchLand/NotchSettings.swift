@@ -47,6 +47,9 @@ nonisolated final class NotchSettings: ObservableObject {
         static let expandedHeight: Double = 140
         static let notchContentSize: NotchSize = .small
         static let virtualNotchEnabled = true
+        static let displayPolicy: NotchDisplayPolicy = .internalDisplay
+        static let selectedDisplayIDs: Set<UInt32> = []
+        static let displayConfigurations: [UInt32: DisplayNotchConfiguration] = [:]
 
         static let hoverToExpand = true
         static let collapseDelay: Double = 0.25
@@ -93,6 +96,9 @@ nonisolated final class NotchSettings: ObservableObject {
         static let expandedHeight = "notch.expandedHeight"
         static let notchContentSize = "notch.contentSize"
         static let virtualNotchEnabled = "notch.virtualNotchEnabled"
+        static let displayPolicy = "notch.displayPolicy"
+        static let selectedDisplayIDs = "notch.selectedDisplayIDs"
+        static let displayConfigurations = "notch.displayConfigurations.v1"
         static let hoverToExpand = "notch.hoverToExpand"
         static let collapseDelay = "notch.collapseDelay"
         static let autoCollapse = "notch.autoCollapse"
@@ -146,6 +152,15 @@ nonisolated final class NotchSettings: ObservableObject {
     }
     @Published var virtualNotchEnabled: Bool = read(Keys.virtualNotchEnabled, Defaults.virtualNotchEnabled) {
         didSet { Self.write(virtualNotchEnabled, Keys.virtualNotchEnabled) }
+    }
+    @Published var displayPolicy: NotchDisplayPolicy = readDisplayPolicy() {
+        didSet { Self.write(displayPolicy.rawValue, Keys.displayPolicy) }
+    }
+    @Published var selectedDisplayIDs: Set<UInt32> = readSelectedDisplayIDs() {
+        didSet { Self.write(Array(selectedDisplayIDs).sorted(), Keys.selectedDisplayIDs) }
+    }
+    @Published var displayConfigurations: [UInt32: DisplayNotchConfiguration] = readDisplayConfigurations() {
+        didSet { Self.writeDisplayConfigurations(displayConfigurations) }
     }
 
     // Behavior
@@ -225,6 +240,9 @@ nonisolated final class NotchSettings: ObservableObject {
         expandedHeight = Defaults.expandedHeight
         notchContentSize = Defaults.notchContentSize
         virtualNotchEnabled = Defaults.virtualNotchEnabled
+        displayPolicy = Defaults.displayPolicy
+        selectedDisplayIDs = Defaults.selectedDisplayIDs
+        displayConfigurations = Defaults.displayConfigurations
         hoverToExpand = Defaults.hoverToExpand
         collapseDelay = Defaults.collapseDelay
         autoCollapse = Defaults.autoCollapse
@@ -256,6 +274,7 @@ nonisolated final class NotchSettings: ObservableObject {
         expandedWidth = Defaults.expandedWidth
         expandedHeight = Defaults.expandedHeight
         notchContentSize = Defaults.notchContentSize
+        displayConfigurations = Defaults.displayConfigurations
     }
 
     private static func read<T>(_ key: String, _ fallback: T) -> T {
@@ -280,6 +299,63 @@ nonisolated final class NotchSettings: ObservableObject {
             return Defaults.notchContentSize
         }
         return size
+    }
+
+    private static func readDisplayPolicy() -> NotchDisplayPolicy {
+        guard let rawValue = UserDefaults.standard.string(forKey: Keys.displayPolicy),
+              let policy = NotchDisplayPolicy(rawValue: rawValue) else {
+            return Defaults.displayPolicy
+        }
+        return policy
+    }
+
+    private static func readSelectedDisplayIDs() -> Set<UInt32> {
+        let values = UserDefaults.standard.array(forKey: Keys.selectedDisplayIDs) as? [NSNumber] ?? []
+        return Set(values.map(\.uint32Value))
+    }
+
+    func contentSize(for displayID: UInt32?) -> NotchSize {
+        guard let displayID else { return notchContentSize }
+        return displayConfigurations[displayID]?.contentSize ?? notchContentSize
+    }
+
+    func horizontalOffset(for displayID: UInt32) -> CGFloat {
+        CGFloat(displayConfigurations[displayID]?.horizontalOffset ?? 0)
+    }
+
+    func setContentSize(_ size: NotchSize, for displayID: UInt32) {
+        var configuration = displayConfigurations[displayID]
+            ?? DisplayNotchConfiguration(contentSize: notchContentSize)
+        configuration.contentSize = size
+        displayConfigurations[displayID] = configuration
+    }
+
+    func setHorizontalOffset(_ offset: Double, for displayID: UInt32) {
+        var configuration = displayConfigurations[displayID]
+            ?? DisplayNotchConfiguration(contentSize: notchContentSize)
+        configuration.horizontalOffset = min(max(offset, -240), 240)
+        displayConfigurations[displayID] = configuration
+    }
+
+    private static func readDisplayConfigurations() -> [UInt32: DisplayNotchConfiguration] {
+        guard let data = UserDefaults.standard.data(forKey: Keys.displayConfigurations),
+              let stored = try? JSONDecoder().decode(
+                [String: DisplayNotchConfiguration].self,
+                from: data
+              ) else { return Defaults.displayConfigurations }
+        return Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
+            UInt32(key).map { ($0, value) }
+        })
+    }
+
+    private static func writeDisplayConfigurations(
+        _ configurations: [UInt32: DisplayNotchConfiguration]
+    ) {
+        let stored = Dictionary(uniqueKeysWithValues: configurations.map { key, value in
+            (String(key), value)
+        })
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.displayConfigurations)
     }
 
     private static func readShowHUDOnNotch() -> Bool {

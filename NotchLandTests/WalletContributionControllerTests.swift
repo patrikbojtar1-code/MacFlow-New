@@ -51,6 +51,18 @@ struct WalletContributionControllerTests {
         #expect(!WalletContributionController.isValidBitcoinAddress("0x1234"))
     }
 
+    @Test func compileTimeWalletEndpointsRemainSecureAndAbsolute() {
+        let endpoints = [
+            WalletAPIEndpoints.bitcoin,
+            WalletAPIEndpoints.blockCypher,
+            WalletAPIEndpoints.solana,
+            WalletAPIEndpoints.fiatPrices
+        ]
+
+        #expect(endpoints.allSatisfy { $0.scheme == "https" && $0.host != nil })
+        #expect(WalletNetwork.ethereum.atomicScale == 1_000_000_000_000_000_000)
+    }
+
     @Test func validatesLitecoinEthereumAndSolanaFormats() {
         #expect(WalletContributionController.isValidAddress("ltc1qg82nt0x3x74l7m4n0xqv3wcl6v4q34x0k7p6sk", for: .litecoin))
         #expect(WalletContributionController.isValidAddress("0x52908400098527886E0F7030069857D2E4169EE7", for: .ethereum))

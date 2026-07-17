@@ -87,7 +87,7 @@ struct MacFlowSidebarView: View {
 
     private var utilitySections: [MacFlowSection] {
         var sections: [MacFlowSection] = [.preferences, .about]
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         if showsDebug { sections.append(.debug) }
         #endif
         return sections

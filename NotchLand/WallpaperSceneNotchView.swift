@@ -158,7 +158,7 @@ private struct SceneMotionBars: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.16, paused: !isActive || reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.lowFrequency, paused: !isActive || reduceMotion)) { context in
             let phase = context.date.timeIntervalSinceReferenceDate
             HStack(alignment: .center, spacing: 2.5) {
                 ForEach(0..<5, id: \.self) { index in

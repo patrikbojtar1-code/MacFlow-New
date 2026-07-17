@@ -87,9 +87,10 @@ struct AboutSettingsView: View {
     }
 
     private var copyrightLine: String {
-        let value = Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String
-        return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? value!
-            : "Copyright © 2026 MacFlow. All rights reserved."
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "NSHumanReadableCopyright") as? String,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Copyright © 2026 MacFlow. All rights reserved."
+        }
+        return value
     }
 }

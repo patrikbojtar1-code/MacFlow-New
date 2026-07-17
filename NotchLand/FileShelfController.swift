@@ -197,19 +197,24 @@ final class FileShelfController: ObservableObject {
             return 0
         }
 
-        let unique = incoming.reduce(into: [URL]()) { result, url in
-            guard !existingPaths.contains(url.url.path), !result.contains(where: { $0.path == url.url.path }) else { return }
-            result.append(url.url)
+        // `add` is actor-reentrant while metadata is prepared. Re-read the
+        // current shelf after the await so two rapid drops cannot insert the
+        // same item or overwrite one another's result.
+        let currentPaths = Set(items.map { $0.url.standardizedFileURL.path })
+        let additions = incoming.reduce(into: [FileShelfItem]()) { result, item in
+            let path = item.url.standardizedFileURL.path
+            guard !currentPaths.contains(path),
+                  !result.contains(where: { $0.url.standardizedFileURL.path == path }) else { return }
+            result.append(item)
         }
 
-        guard !unique.isEmpty else {
+        guard !additions.isEmpty else {
             NotchHaptics.perform(.navigation)
             isPresented = true
             dragEnded()
             return 0
         }
 
-        let additions = incoming.filter { item in unique.contains(where: { $0.path == item.url.path }) }
         items = Array((additions + items).prefix(Constants.maximumItemCount))
         latestAddedItems = additions
         persist()

@@ -102,6 +102,11 @@ struct NotchShape: Shape {
 }
 
 struct FloatingNotchView: View {
+    let displayID: UInt32?
+
+    init(displayID: UInt32? = nil) {
+        self.displayID = displayID
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @EnvironmentObject var settings: NotchSettings
@@ -122,7 +127,6 @@ struct FloatingNotchView: View {
     @EnvironmentObject var widgetPreferences: WidgetPreferencesController
     @EnvironmentObject var wallet: WalletContributionController
     @EnvironmentObject var scenes: WallpaperSceneController
-    @AppStorage("notch.selectedWidget") private var selectedWidgetRaw = NotchWidget.calendar.rawValue
 
     /// Used to morph shared elements (artwork, EQ bars) between the collapsed
     /// and expanded music states. Without this, SwiftUI cross-fades the small
@@ -133,6 +137,7 @@ struct FloatingNotchView: View {
     @State private var notchTransitionBlur: CGFloat = 0
     @State private var notchTransitionTask: Task<Void, Never>?
     @State private var renderedBranchKey: String?
+    @State private var presentationMachine = NotchPresentationMachine()
     @State private var renderedBatteryPresentation: BatteryAlertController.Presentation?
     @State private var renderedFocusPresentation: FocusModeController.Presentation?
     @State private var renderedScreenLockPresentation: ScreenLockController.Presentation?
@@ -167,8 +172,14 @@ struct FloatingNotchView: View {
                 .frame(width: size.width, height: size.height, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(
+            NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion),
+            value: effectiveCompactNotchSize
+        )
+        .motionDebugProbe("Notch Shell")
         .onAppear {
             renderedBranchKey = branchKey
+            presentationMachine.synchronize(to: branchKey)
             renderedBatteryPresentation = batteryAlerts.currentPresentation
             renderedFocusPresentation = focusMode.currentPresentation
             renderedScreenLockPresentation = screenLock.currentPresentation
@@ -219,7 +230,7 @@ struct FloatingNotchView: View {
             guard let rawValue, let widget = NotchWidget(rawValue: rawValue) else { return }
             widgetPreferences.setMode(.pinned, for: widget)
             withAnimation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion)) {
-                selectedWidgetRaw = widget.rawValue
+                widgetPreferences.select(widget)
                 fileShelf.isPresented = widget == .files
             }
             countdown.clearDetail()
@@ -231,18 +242,36 @@ struct FloatingNotchView: View {
                   settings.hasCompletedOnboarding,
                   widgetPreferences.mode(for: .wallet) != .hidden else { return }
             renderedWalletContribution = contribution
-            selectedWidgetRaw = NotchWidget.wallet.rawValue
+            widgetPreferences.select(.wallet)
         }
         .onChange(of: branchKey) { oldBranch, newBranch in
+            let transition = presentationMachine.transition(to: newBranch)
+            recordBranchMotion(transition)
             handleBranchChange(from: oldBranch, to: newBranch)
             playBorderEntrance()
             updateNotchZones()
         }
-        .onChange(of: appState.isHovering) { _, isHovering in
+        .onChange(of: isHoveringThisDisplay) { _, isHovering in
+            MotionDebug.record(
+                name: "notch.hover",
+                surface: "Notch Shell",
+                duration: NotchMotionGraph.measurement(for: .hover).duration,
+                state: isHovering ? "outside → hovering" : "hovering → outside",
+                reason: "Pointer crossed the canonical AppKit hit region."
+            )
             if !isHovering {
                 suppressCollapsedMusicMarquee = false
             }
             updateNotchZones()
+        }
+        .onChange(of: effectiveCompactNotchSize) { oldSize, newSize in
+            MotionDebug.record(
+                name: "notch.content-size",
+                surface: "Notch Shell",
+                duration: NotchMotionGraph.measurement(for: .selection).duration,
+                state: "\(oldSize.rawValue) → \(newSize.rawValue)",
+                reason: "User changed the shared notch density setting."
+            )
         }
         .onChange(of: appState.isExpanded) { _, isExpanded in
             if !isExpanded {
@@ -283,6 +312,39 @@ struct FloatingNotchView: View {
         }
     }
 
+    private func recordBranchMotion(_ transition: NotchPresentationTransition) {
+        let oldBranch = transition.fromBranch ?? transition.toBranch
+        let newBranch = transition.toBranch
+        let role: NotchMotionRole
+        if transition.kind == .interruption || transition.kind == .restoration {
+            role = .interruption
+        } else if isGrowingTransition(from: oldBranch, to: newBranch) {
+            role = .containerExpand
+        } else {
+            role = .dismiss
+        }
+        MotionDebug.record(
+            name: "notch.presentation",
+            surface: "Notch Shell",
+            duration: NotchMotionGraph.measurement(for: role).duration,
+            state: "\(oldBranch) → \(newBranch)",
+            reason: "\(transition.kind.rawValue.capitalized): \(motionReason(for: newBranch))"
+        )
+    }
+
+    private func motionReason(for branch: String) -> String {
+        switch branch {
+        case "call": "Incoming or active call won presentation priority."
+        case "scene-drop-target", "file-shelf-drop-target": "A supported drag entered the notch proximity zone."
+        case "expanded-widget", "expanded-event-detail": "User requested a larger interactive presentation."
+        case "collapsed-music", "collapsed-music-event": "Media became the highest-priority compact activity."
+        case "wallet-contribution": "A wallet contribution event became visible."
+        case "scene": "The active wallpaper scene became the compact activity."
+        case "collapsed-bare": "The previous activity ended and the notch returned to idle."
+        default: "The canonical presentation resolver selected a new highest-priority activity."
+        }
+    }
+
     /// Radius of the body's bottom-left/right corners.
     private func bottomCornerRadius(for key: String) -> CGFloat {
         if key == "expanded-onboarding" {
@@ -299,7 +361,7 @@ struct FloatingNotchView: View {
     /// curves. The value animates on the expansion spring along with the
     /// rest of the path.
     private func invertedCornerRadius(for key: String) -> CGFloat {
-        NotchLayoutCoordinator.invertedRadius(for: key, isHovering: appState.isHovering)
+        NotchLayoutCoordinator.invertedRadius(for: key, isHovering: isHoveringThisDisplay)
     }
 
     static let collapsedCornerRadius = NotchLayoutCoordinator.collapsedCornerRadius
@@ -360,9 +422,9 @@ struct FloatingNotchView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .shadow(
             color: Color.black.opacity(
-                settings.shadowIntensity * (isMusicBranch(key) && appState.isHovering ? 1.12 : 1)
+                settings.shadowIntensity * (isMusicBranch(key) && isHoveringThisDisplay ? 1.12 : 1)
             ),
-            radius: isExpanded ? 18 : (isMusicBranch(key) && appState.isHovering ? 13 : 10),
+            radius: isExpanded ? 18 : (isMusicBranch(key) && isHoveringThisDisplay ? 13 : 10),
             x: 0,
             y: isExpanded ? 8 : (isMusicBranch(key) ? 6 : 4)
         )
@@ -402,7 +464,7 @@ struct FloatingNotchView: View {
                 }
             }
         }
-        .animation(NotchMotion.hover, value: appState.isHovering)
+        .animation(NotchMotion.hover, value: isHoveringThisDisplay)
         .animation(
             NotchMotionGraph.animation(for: .zoneReveal, reduceMotion: reduceMotion),
             value: zoneController.phase
@@ -474,7 +536,7 @@ struct FloatingNotchView: View {
                 .clipShape(shape)
             }
         }
-        .animation(NotchMotion.hover, value: appState.isHovering)
+        .animation(NotchMotion.hover, value: isHoveringThisDisplay)
     }
 
     /// Fills the single-path notch shape with the configured style — solid
@@ -601,7 +663,7 @@ struct FloatingNotchView: View {
 
     private func updateNotchZones() {
         zoneController.update(
-            isHovering: appState.isHovering,
+            isHovering: isHoveringThisDisplay,
             isEligible: zonesAreEligible,
             reduceMotion: reduceMotion
         )
@@ -610,7 +672,7 @@ struct FloatingNotchView: View {
     private func openZone(_ widget: NotchWidget) {
         NotchHaptics.perform(.navigation)
         widgetPreferences.setMode(.pinned, for: widget)
-        selectedWidgetRaw = widget.rawValue
+        widgetPreferences.select(widget)
         fileShelf.isPresented = false
         appState.expand()
     }
@@ -641,7 +703,7 @@ struct FloatingNotchView: View {
     private func openDefaultExpansion() {
         countdown.clearDetail()
         if nowPlaying.track != nil, !fileShelf.isPresented {
-            selectedWidgetRaw = NotchWidget.media.rawValue
+            widgetPreferences.select(.media)
         }
         appState.expand()
     }
@@ -649,7 +711,7 @@ struct FloatingNotchView: View {
     private func toggleDefaultExpansion() {
         countdown.clearDetail()
         if !appState.isExpanded, nowPlaying.track != nil, !fileShelf.isPresented {
-            selectedWidgetRaw = NotchWidget.media.rawValue
+            widgetPreferences.select(.media)
         }
         appState.toggle()
     }
@@ -897,7 +959,7 @@ struct FloatingNotchView: View {
     }
 
     private func finishNotchPhase(targetBranch: String) {
-        suppressCollapsedMusicMarquee = isCollapsedMusicMarqueeBranch(targetBranch) && appState.isHovering
+        suppressCollapsedMusicMarquee = isCollapsedMusicMarqueeBranch(targetBranch) && isHoveringThisDisplay
         if !isBatteryAlertBranch(targetBranch), batteryAlerts.currentPresentation == nil {
             renderedBatteryPresentation = nil
         }
@@ -927,7 +989,7 @@ struct FloatingNotchView: View {
             if let presentation = batteryAlerts.currentPresentation ?? renderedBatteryPresentation {
                 BatteryAlertView(presentation: presentation)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -935,7 +997,7 @@ struct FloatingNotchView: View {
             if let presentation = focusMode.currentPresentation ?? renderedFocusPresentation {
                 FocusModeAlertView(presentation: presentation)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -943,7 +1005,7 @@ struct FloatingNotchView: View {
             if let presentation = screenLock.currentPresentation ?? renderedScreenLockPresentation {
                 LockScreenAlertView(presentation: presentation)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -955,7 +1017,7 @@ struct FloatingNotchView: View {
             if let presentation = calls.current ?? renderedCallPresentation {
                 CallOverlayView(presentation: presentation)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -963,7 +1025,7 @@ struct FloatingNotchView: View {
             if let event = countdown.importantReminderEvent {
                 ImportantEventReminderView(event: event)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -971,7 +1033,7 @@ struct FloatingNotchView: View {
             if let contribution = wallet.currentContribution ?? renderedWalletContribution {
                 WalletContributionChipView(contribution: contribution)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -1007,7 +1069,7 @@ struct FloatingNotchView: View {
                     .padding(.bottom, 2)
                     .frame(maxWidth: .infinity, alignment: .center)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -1015,20 +1077,20 @@ struct FloatingNotchView: View {
             if let activity = liveActivities.current {
                 LiveActivityChipView(activity: activity)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
         case "scene":
             if let scene = scenes.activeScene {
                 ZStack {
-                    WallpaperSceneCompactView(scene: scene, isHovering: appState.isHovering)
+                    WallpaperSceneCompactView(scene: scene, isHovering: isHoveringThisDisplay)
                         .id(scene.id)
                         .transition(.opacity)
                 }
                 .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: scene.id)
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -1038,11 +1100,11 @@ struct FloatingNotchView: View {
             if let track = nowPlaying.track {
                 NowPlayingCollapsedView(
                     track: track,
-                    isHovering: appState.isHovering,
+                    isHovering: isHoveringThisDisplay,
                     morphNamespace: morph
                 )
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -1055,7 +1117,7 @@ struct FloatingNotchView: View {
                     side: .left
                 )
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
@@ -1073,16 +1135,16 @@ struct FloatingNotchView: View {
             } else if let track = nowPlaying.track {
                 NowPlayingCollapsedView(
                     track: track,
-                    isHovering: appState.isHovering,
+                    isHovering: isHoveringThisDisplay,
                     morphNamespace: morph
                 )
             } else {
-                CollapsedNotchContent(isHovering: appState.isHovering)
+                CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
             }
         default:
-            CollapsedNotchContent(isHovering: appState.isHovering)
+            CollapsedNotchContent(isHovering: isHoveringThisDisplay)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 6)
         }
@@ -1192,7 +1254,7 @@ struct FloatingNotchView: View {
     private func shouldShowCollapsedMusicMarquee(for key: String) -> Bool {
         isCollapsedMusicMarqueeBranch(key)
             && branchKey == key
-            && appState.isHovering
+            && isHoveringThisDisplay
             && !isNotchPhaseAnimating
             && !suppressCollapsedMusicMarquee
     }
@@ -1202,7 +1264,7 @@ struct FloatingNotchView: View {
     }
 
     private var effectiveCompactNotchSize: NotchSize {
-        settings.notchContentSize
+        settings.contentSize(for: displayID)
     }
 
     private func currentVisibleSize(for key: String) -> CGSize {
@@ -1235,7 +1297,7 @@ struct FloatingNotchView: View {
                 mediaPreferredWidth: nowPlaying.track?.compactPresentation.preferredWidth
                     ?? NowPlayingMetrics.collapsedWidth,
                 compactSize: effectiveCompactNotchSize,
-                isHovering: appState.isHovering,
+                isHovering: isHoveringThisDisplay,
                 showsCollapsedMusicMarquee: shouldShowCollapsedMusicMarquee(for: key)
             )
         )
@@ -1243,16 +1305,22 @@ struct FloatingNotchView: View {
 
     private var effectiveWidgetSelection: NotchWidget {
         if fileShelf.isPresented { return .files }
-        let stored = NotchWidget(rawValue: selectedWidgetRaw) ?? .calendar
+        let stored = widgetPreferences.selectedWidget
         if stored == .media, nowPlaying.track == nil { return .calendar }
         return stored
+    }
+
+    private var isHoveringThisDisplay: Bool {
+        guard appState.isHovering else { return false }
+        guard let displayID else { return true }
+        return appState.activeDisplayID == displayID
     }
 
     private var widgetSelectionBinding: Binding<NotchWidget> {
         Binding(
             get: { effectiveWidgetSelection },
             set: { selection in
-                selectedWidgetRaw = selection.rawValue
+                widgetPreferences.select(selection)
                 fileShelf.isPresented = selection == .files
             }
         )

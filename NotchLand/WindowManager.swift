@@ -58,6 +58,7 @@ final class WindowManager: NSObject {
     }
 
     private let settings: NotchSettings
+    private let displayCoordinator: DisplayCoordinator
     private let appState: AppState
     private let hud: HUDController
     private let nowPlaying: NowPlayingService
@@ -87,8 +88,10 @@ final class WindowManager: NSObject {
     private let mouseFree: MouseFreeController
     private let updater: UpdaterController
 
-    private var notchPanel: NotchPanel?
+    private var notchPanels: [UInt32: NotchPanel] = [:]
     private var dragMonitors: [Any] = []
+    private var cachedDragPasteboardChangeCount = -1
+    private var cachedDraggedURLs: [URL] = []
     private var statusItem: NSStatusItem?
     private var companionWindow: NSWindow?
     private var hoverTimer: Timer?
@@ -101,7 +104,6 @@ final class WindowManager: NSObject {
     private var pendingFrameUpdate: DispatchWorkItem?
     private var pendingOnboardingFrameShrink: DispatchWorkItem?
     private var isPointerInsideNotch = false
-    private var screenObserver: NSObjectProtocol?
     private var cancellables: Set<AnyCancellable> = []
 
     private enum ScrollSwipeDirection {
@@ -113,6 +115,7 @@ final class WindowManager: NSObject {
 
     init(
         settings: NotchSettings,
+        displayCoordinator: DisplayCoordinator,
         appState: AppState,
         hud: HUDController,
         nowPlaying: NowPlayingService,
@@ -143,6 +146,7 @@ final class WindowManager: NSObject {
         updater: UpdaterController
     ) {
         self.settings = settings
+        self.displayCoordinator = displayCoordinator
         self.appState = appState
         self.hud = hud
         self.nowPlaying = nowPlaying
@@ -175,9 +179,6 @@ final class WindowManager: NSObject {
     }
 
     deinit {
-        if let screenObserver {
-            NotificationCenter.default.removeObserver(screenObserver)
-        }
         if let localScrollMonitor {
             NSEvent.removeMonitor(localScrollMonitor)
         }
@@ -196,7 +197,7 @@ final class WindowManager: NSObject {
 
     func start() {
         observeSettings()
-        observeScreenChanges()
+        observeDisplays()
         observeScreenLock()
         applyVisibility()
         startHoverTracking()
@@ -257,7 +258,10 @@ final class WindowManager: NSObject {
             settings.$expandedWidth.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$expandedHeight.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$notchContentSize.dropFirst().map { _ in () }.eraseToAnyPublisher(),
-            settings.$virtualNotchEnabled.dropFirst().map { _ in () }.eraseToAnyPublisher()
+            settings.$virtualNotchEnabled.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$displayPolicy.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$selectedDisplayIDs.dropFirst().map { _ in () }.eraseToAnyPublisher(),
+            settings.$displayConfigurations.dropFirst().map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self] _ in
             MainActor.assumeIsolated { self?.updateNotchFrame(animated: false) }
@@ -307,7 +311,7 @@ final class WindowManager: NSObject {
                         self?.appState.resetToCollapsed()
                         self?.applyVisibility()
                         self?.updateNotchFrame(animated: false)
-                        self?.notchPanel?.orderFrontRegardless()
+                        self?.orderNotchPanelsFront()
                     }
                 }
             }
@@ -330,7 +334,7 @@ final class WindowManager: NSObject {
                     self?.applyPanelLockMode(presentation != nil)
                     if presentation != nil, self?.settings.showNotch == true {
                         self?.updateNotchFrame(animated: false)
-                        self?.notchPanel?.orderFrontRegardless()
+                        self?.orderNotchPanelsFront()
                     }
                 }
             }
@@ -346,24 +350,21 @@ final class WindowManager: NSObject {
                     self.applyVisibility()
                     self.applyPanelLockMode(true)
                     self.updateNotchFrame(animated: false)
-                    self.notchPanel?.contentView?.needsDisplay = true
-                    self.notchPanel?.orderFrontRegardless()
+                    self.notchPanels.values.forEach { $0.contentView?.needsDisplay = true }
+                    self.orderNotchPanelsFront()
                 }
             }
             .store(in: &cancellables)
     }
 
-    private func observeScreenChanges() {
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            MainActor.assumeIsolated {
-                self.updateNotchFrame(animated: false)
+    private func observeDisplays() {
+        displayCoordinator.$revision
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateNotchFrame(animated: false) }
             }
-        }
+            .store(in: &cancellables)
     }
 
     // MARK: - Show / Hide
@@ -377,17 +378,18 @@ final class WindowManager: NSObject {
     }
 
     private func showNotchPanel() {
-        if notchPanel == nil {
-            notchPanel = makePanel()
-        }
         updateNotchFrame(animated: false)
-        notchPanel?.orderFrontRegardless()
+        orderNotchPanelsFront()
     }
 
     private func hideNotchPanel() {
         appState.resetToCollapsed()
-        notchPanel?.orderOut(nil)
+        notchPanels.values.forEach { $0.orderOut(nil) }
         updatePointerInsideState(false)
+    }
+
+    private func orderNotchPanelsFront() {
+        notchPanels.values.forEach { $0.orderFrontRegardless() }
     }
 
     // MARK: - Hover tracking
@@ -430,28 +432,32 @@ final class WindowManager: NSObject {
     }
 
     private func refreshHoverState() {
-        guard settings.showNotch, let panel = notchPanel, panel.isVisible else {
+        let mouseLocation = NSEvent.mouseLocation
+        let hitPadding: CGFloat = isPointerInsideNotch ? 18 : 10
+        guard settings.showNotch,
+              let panel = visiblePanel(containing: mouseLocation, padding: hitPadding) else {
             updatePointerInsideState(false)
             return
         }
 
-        let mouseLocation = NSEvent.mouseLocation
         // Use a larger exit frame than entry frame. Without hysteresis the
         // animated shell can move its own hit boundary under the pointer and
         // repeatedly enter/exit while it is widening.
-        let hitPadding: CGFloat = isPointerInsideNotch ? 18 : 10
         let hoverFrame = interactiveNotchFrame(in: panel)
             .insetBy(dx: -hitPadding, dy: -hitPadding)
-        updatePointerInsideState(hoverFrame.contains(mouseLocation))
+        updatePointerInsideState(hoverFrame.contains(mouseLocation), activePanel: panel)
     }
 
-    private func updatePointerInsideState(_ isInside: Bool) {
+    private func updatePointerInsideState(_ isInside: Bool, activePanel: NotchPanel? = nil) {
         // The panel covers a large transparent envelope,
         // so we make it ignore mouse events anywhere outside the notch shape so
         // clicks fall through to whatever app sits below. While a file drag
         // hovers the drop zone the panel must keep receiving events so the
         // NSDraggingDestination can accept the drop.
-        notchPanel?.ignoresMouseEvents = !isInside && !fileShelf.isDropTargetVisible
+        for panel in notchPanels.values {
+            let isActivePanel = activePanel.map { $0 === panel } ?? false
+            panel.ignoresMouseEvents = !(isInside && isActivePanel) && !fileShelf.isDropTargetVisible
+        }
 
         // While the HUD is showing, don't propagate hover state to AppState —
         // volume/brightness key bursts shouldn't trigger a hover-to-expand,
@@ -466,17 +472,22 @@ final class WindowManager: NSObject {
             && !fileShelf.isDropTargetVisible
             && settings.hasCompletedOnboarding
 
-        guard isPointerInsideNotch != effectiveInside else { return }
-        isPointerInsideNotch = effectiveInside
+        let activeDisplayID = activePanel.flatMap(displayID(for:))
+        let displayChanged = effectiveInside && appState.activeDisplayID != activeDisplayID
+        guard isPointerInsideNotch != effectiveInside || displayChanged else { return }
 
         if effectiveInside {
             // Media uses the same sustained-hover expansion as every other
             // compact activity. Previously this was explicitly disabled while
             // a track existed, leaving the most common notch state inert.
-            appState.mouseEntered()
+            if displayChanged, isPointerInsideNotch {
+                appState.mouseExited()
+            }
+            appState.mouseEntered(displayID: activeDisplayID)
         } else {
             appState.mouseExited()
         }
+        isPointerInsideNotch = effectiveInside
     }
 
     // MARK: - AirDrop drag detection
@@ -506,7 +517,17 @@ final class WindowManager: NSObject {
 
     private func handleGlobalDragMoved() {
         guard settings.showNotch else { return }
-        guard let panel = notchPanel, panel.isVisible else { return }
+        guard let panel = visiblePanel(
+            containing: NSEvent.mouseLocation,
+            padding: abs(Self.dragProximityInset)
+        ) else {
+            if fileShelf.isDropTargetVisible || scenes.isDropTargetVisible {
+                fileShelf.dragEnded()
+                scenes.dragEnded()
+                notchPanels.values.forEach { $0.ignoresMouseEvents = true }
+            }
+            return
+        }
         // Proximity zone: a modest halo around the actual visible notch shape,
         // not the whole (much larger) panel envelope.
         let zone = interactiveNotchFrame(in: panel).insetBy(
@@ -539,14 +560,28 @@ final class WindowManager: NSObject {
     }
 
     private func draggedFileURLs() -> [URL] {
-        guard let urls = NSPasteboard(name: .drag).readObjects(
+        let pasteboard = NSPasteboard(name: .drag)
+        if pasteboard.changeCount == cachedDragPasteboardChangeCount {
+            return cachedDraggedURLs
+        }
+        cachedDragPasteboardChangeCount = pasteboard.changeCount
+        guard let urls = pasteboard.readObjects(
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty else { return [] }
-        return urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        ) as? [URL], !urls.isEmpty else {
+            cachedDraggedURLs = []
+            return []
+        }
+        // Hover classification must never synchronously touch cloud storage.
+        // Existence, metadata and bookmark validation happen after drop in
+        // `FileShelfIO.prepare` on a detached task.
+        cachedDraggedURLs = urls.map(\.standardizedFileURL)
+        return cachedDraggedURLs
     }
 
     private func handleGlobalDragEnded() {
+        cachedDragPasteboardChangeCount = -1
+        cachedDraggedURLs = []
         guard fileShelf.isDropTargetVisible || scenes.isDropTargetVisible else { return }
         // Give the NSDraggingDestination a beat to process a drop landing on
         // the panel before the branch retracts.
@@ -556,7 +591,7 @@ final class WindowManager: NSObject {
                       self.fileShelf.isDropTargetVisible || self.scenes.isDropTargetVisible else { return }
                 self.fileShelf.dragEnded()
                 self.scenes.dragEnded()
-                self.notchPanel?.ignoresMouseEvents = true
+                self.notchPanels.values.forEach { $0.ignoresMouseEvents = true }
             }
         }
     }
@@ -583,7 +618,8 @@ final class WindowManager: NSObject {
     }
 
     private func handleScrollGesture(_ sample: ScrollGestureSample) -> Bool {
-        guard settings.showNotch, let panel = notchPanel, panel.isVisible else {
+        guard settings.showNotch,
+              let panel = visiblePanel(containing: sample.mouseLocation, padding: 10) else {
             resetScrollGesture()
             return false
         }
@@ -701,8 +737,7 @@ final class WindowManager: NSObject {
     private func cycleExpandedWidget(by offset: Int) {
         guard appState.isExpanded else { return }
         let sequence: [NotchWidget] = [.media, .calendar, .files, .clipboard, .shortcuts]
-        let stored = UserDefaults.standard.string(forKey: "notch.selectedWidget")
-            .flatMap(NotchWidget.init(rawValue:)) ?? (nowPlaying.track == nil ? .calendar : .media)
+        let stored = widgetPreferences.selectedWidget
         let currentIndex = sequence.firstIndex(of: stored) ?? 0
         var nextIndex = (currentIndex + offset) % sequence.count
         if nextIndex < 0 { nextIndex += sequence.count }
@@ -767,7 +802,7 @@ final class WindowManager: NSObject {
         // Notch is centered horizontally at the panel's top edge. With a constant
         // panel envelope we can't derive its rect from the panel frame; we have to
         // compute the visible size from current state.
-        let visible = currentVisibleSize()
+        let visible = currentVisibleSize(for: panel)
         let panelFrame = panel.frame
         return NSRect(
             x: panelFrame.midX - visible.width / 2,
@@ -992,7 +1027,7 @@ final class WindowManager: NSObject {
 
     // MARK: - Panel construction
 
-    private func makePanel() -> NotchPanel {
+    private func makePanel(displayID: UInt32) -> NotchPanel {
         let panel = NotchPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -1027,7 +1062,7 @@ final class WindowManager: NSObject {
         panel.sharingType = .readOnly
 
         let hosting = NotchHostingView(
-            rootView: FloatingNotchView()
+            rootView: FloatingNotchView(displayID: displayID)
                 .environmentObject(settings)
                 .environmentObject(appState)
                 .environmentObject(hud)
@@ -1077,18 +1112,19 @@ final class WindowManager: NSObject {
     }
 
     private func applyPanelLockMode(_ isLockedOrUnlocking: Bool) {
-        guard let panel = notchPanel else { return }
-        panel.level = isLockedOrUnlocking ? PanelLevel.lockScreen : PanelLevel.interactive
-        panel.collectionBehavior = [
-            .canJoinAllSpaces,
-            .stationary,
-            .fullScreenAuxiliary,
-            .ignoresCycle,
-        ]
-        SkyLightWindowBridge.shared.delegateWindow(
-            panel,
-            to: isLockedOrUnlocking ? .lockScreenNotchOverlay : .notchSurface
-        )
+        for panel in notchPanels.values {
+            panel.level = isLockedOrUnlocking ? PanelLevel.lockScreen : PanelLevel.interactive
+            panel.collectionBehavior = [
+                .canJoinAllSpaces,
+                .stationary,
+                .fullScreenAuxiliary,
+                .ignoresCycle,
+            ]
+            SkyLightWindowBridge.shared.delegateWindow(
+                panel,
+                to: isLockedOrUnlocking ? .lockScreenNotchOverlay : .notchSurface
+            )
+        }
     }
 
     private func applyBackingScale(to panel: NSPanel) {
@@ -1112,19 +1148,34 @@ final class WindowManager: NSObject {
     /// is the single source of "no panel-resize during animation" guarantees.
     private func updateNotchFrame(animated: Bool) {
         _ = animated  // kept for source compatibility; envelope resize is never animated.
-        guard let panel = notchPanel else { return }
-        guard let screen = resolvedScreen(for: panel) else { return }
-
+        let targetScreens = targetNotchScreens()
+        let targetIDs = Set(targetScreens.compactMap(\.displayID))
+        for staleID in Array(notchPanels.keys) where !targetIDs.contains(staleID) {
+            notchPanels.removeValue(forKey: staleID)?.orderOut(nil)
+        }
         let envelope = panelEnvelopeSize()
         let panelWidth = envelope.width + Self.shadowHorizontalPadding * 2
         let panelHeight = envelope.height + Self.shadowBottomPadding
-        let screenFrame = screen.frame
-        let originX = screenFrame.midX - panelWidth / 2
-        let originY = screenFrame.maxY - panelHeight   // panel top-edge at screen top
-        let newFrame = NSRect(x: originX, y: originY, width: panelWidth, height: panelHeight)
-
-        applyBackingScale(to: panel)
-        panel.setFrame(newFrame, display: true)
+        for screen in targetScreens {
+            guard let displayID = screen.displayID else { continue }
+            let panel = notchPanels[displayID] ?? makePanel(displayID: displayID)
+            notchPanels[displayID] = panel
+            let screenFrame = screen.frame
+            let originX = screenFrame.midX - panelWidth / 2
+                + settings.horizontalOffset(for: displayID)
+            let originY = screenFrame.maxY - panelHeight
+            let newFrame = NSRect(
+                x: originX,
+                y: originY,
+                width: panelWidth,
+                height: panelHeight
+            )
+            panel.setFrame(newFrame, display: true)
+            applyBackingScale(to: panel)
+            if settings.showNotch {
+                panel.orderFrontRegardless()
+            }
+        }
     }
 
     /// The widest/tallest the visible notch can ever be across collapsed, peek,
@@ -1227,22 +1278,37 @@ final class WindowManager: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: workItem)
     }
 
-    private func resolvedScreen(for panel: NSPanel?) -> NSScreen? {
-        // A panel created while an external display is main must still attach to
-        // the built-in hardware notch. The auxiliary safe-area regions are the
-        // authoritative macOS description of that physical cutout.
-        if let hardwareScreen = NSScreen.screens.first(where: { screen in
-            screen.auxiliaryTopLeftArea != nil || screen.auxiliaryTopRightArea != nil
-        }) {
-            return hardwareScreen
+    private func targetNotchScreens() -> [NSScreen] {
+        displayCoordinator.selectedScreens(
+            policy: settings.displayPolicy,
+            selectedIDs: settings.selectedDisplayIDs
+        )
+        .filter { screen in
+            settings.virtualNotchEnabled
+                || screen.auxiliaryTopLeftArea != nil
+                || screen.auxiliaryTopRightArea != nil
         }
-        return panel?.screen ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func visiblePanel(containing point: CGPoint, padding: CGFloat) -> NotchPanel? {
+        notchPanels.values.first { panel in
+            panel.isVisible
+                && interactiveNotchFrame(in: panel)
+                    .insetBy(dx: -padding, dy: -padding)
+                    .contains(point)
+        }
+    }
+
+    private func displayID(for panel: NSPanel) -> UInt32? {
+        notchPanels.first(where: { $0.value === panel })?.key
     }
 
     /// Resolves the exact same presentation branch and geometry as SwiftUI so
     /// AppKit hover, click, scroll and drop hit testing follow the visible shell.
-    private func currentVisibleSize() -> CGSize {
-        let compactNotchSize = settings.notchContentSize
+    private func currentVisibleSize(for panel: NSPanel) -> CGSize {
+        let displayID = displayID(for: panel)
+        let compactNotchSize = settings.contentSize(for: displayID)
+        let isHoveringThisDisplay = appState.isHovering && appState.activeDisplayID == displayID
         let eventRoute = NotchEventPresentationPolicy.route(
             for: eventCenter.current,
             isExpanded: appState.isExpanded,
@@ -1273,8 +1339,7 @@ final class WindowManager: NSObject {
         )
         let selected = fileShelf.isPresented
             ? NotchWidget.files
-            : UserDefaults.standard.string(forKey: "notch.selectedWidget")
-                .flatMap(NotchWidget.init(rawValue:)) ?? .calendar
+            : widgetPreferences.selectedWidget
         let effectiveSelection = selected == .media && nowPlaying.track == nil ? .calendar : selected
         let widgetSize = effectiveSelection == .media && nowPlaying.track?.videoPresentation == nil
             ? NotchWidgetMetrics.audioExpandedSize
@@ -1304,8 +1369,8 @@ final class WindowManager: NSObject {
                 mediaPreferredWidth: nowPlaying.track?.compactPresentation.preferredWidth
                     ?? NowPlayingMetrics.collapsedWidth,
                 compactSize: compactNotchSize,
-                isHovering: appState.isHovering,
-                showsCollapsedMusicMarquee: appState.isHovering
+                isHovering: isHoveringThisDisplay,
+                showsCollapsedMusicMarquee: isHoveringThisDisplay
             )
         )
     }

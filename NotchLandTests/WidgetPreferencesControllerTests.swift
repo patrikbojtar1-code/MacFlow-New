@@ -107,4 +107,34 @@ struct WidgetPreferencesControllerTests {
         #expect(preferences.orderedWidgets == NotchWidget.allCases)
         #expect(preferences.visibleWidgets == NotchWidget.allCases)
     }
+
+    @Test func selectedWidgetPersistsAcrossRelaunch() {
+        let defaults = makeDefaults()
+        let preferences = WidgetPreferencesController(defaults: defaults)
+
+        preferences.select(.clipboard)
+        let restored = WidgetPreferencesController(defaults: defaults)
+
+        #expect(restored.selectedWidget == .clipboard)
+    }
+
+    @Test func hidingSelectedWidgetChoosesTheFirstVisibleFallback() {
+        let preferences = WidgetPreferencesController(defaults: makeDefaults())
+        preferences.select(.clipboard)
+
+        preferences.setMode(.hidden, for: .clipboard)
+
+        #expect(preferences.selectedWidget == preferences.visibleWidgets.first)
+        #expect(preferences.selectedWidget != .clipboard)
+    }
+
+    @Test func hiddenWidgetCannotBecomeTheActiveSelection() {
+        let preferences = WidgetPreferencesController(defaults: makeDefaults())
+        preferences.setMode(.hidden, for: .clipboard)
+        let previous = preferences.selectedWidget
+
+        preferences.select(.clipboard)
+
+        #expect(preferences.selectedWidget == previous)
+    }
 }

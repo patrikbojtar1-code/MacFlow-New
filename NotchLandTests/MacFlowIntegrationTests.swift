@@ -80,6 +80,24 @@ struct MacFlowIntegrationTests {
     }
 
     @MainActor
+    @Test func hoverOwnershipMovesBetweenDisplaysWithoutAStaleExit() {
+        let state = AppState(settings: NotchSettings())
+
+        state.mouseEntered(displayID: 11, allowsExpansion: false)
+        #expect(state.isHovering)
+        #expect(state.activeDisplayID == 11)
+
+        state.mouseEntered(displayID: 22, allowsExpansion: false)
+        state.mouseExited(displayID: 11)
+        #expect(state.isHovering)
+        #expect(state.activeDisplayID == 22)
+
+        state.mouseExited(displayID: 22)
+        #expect(!state.isHovering)
+        #expect(state.activeDisplayID == nil)
+    }
+
+    @MainActor
     @Test func notchResolverKeepsEventPriorityConsistentAcrossRenderingAndHitTesting() {
         var input = presentationInput()
         input.eventRoute = .call
@@ -96,6 +114,90 @@ struct MacFlowIntegrationTests {
 
         input.isSceneDropTargetVisible = false
         #expect(NotchPresentationResolver.branchKey(for: input) == "file-shelf-drop-target")
+    }
+
+    @Test func presentationMachineRestoresTheInterruptedActivity() {
+        var machine = NotchPresentationMachine()
+        #expect(machine.transition(to: "collapsed-music").kind == .initial)
+
+        let call = machine.transition(to: "call")
+        #expect(call.kind == .interruption)
+        #expect(call.interruptedBranch == "collapsed-music")
+
+        let restored = machine.transition(to: "collapsed-music")
+        #expect(restored.kind == .restoration)
+        #expect(machine.interruptionStack.isEmpty)
+    }
+
+    @Test func presentationMachineSupportsNestedPriorityInterruptions() {
+        var machine = NotchPresentationMachine()
+        machine.synchronize(to: "collapsed-music")
+        #expect(machine.transition(to: "scene-drop-target").kind == .interruption)
+        #expect(machine.transition(to: "call").kind == .interruption)
+        #expect(machine.transition(to: "scene-drop-target").kind == .restoration)
+        #expect(machine.transition(to: "collapsed-music").kind == .restoration)
+    }
+
+    @Test func displaySelectionPoliciesUseStableDisplayIdentifiersAndFallbacks() {
+        let builtIn = DisplaySnapshot(
+            id: 11,
+            name: "Built-in",
+            frame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 875),
+            scaleFactor: 2,
+            isBuiltIn: true,
+            isMain: true,
+            hasHardwareNotch: true
+        )
+        let external = DisplaySnapshot(
+            id: 22,
+            name: "External",
+            frame: CGRect(x: 1_440, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_440, y: 0, width: 2_560, height: 1_415),
+            scaleFactor: 1,
+            isBuiltIn: false,
+            isMain: false,
+            hasHardwareNotch: false
+        )
+        let displays = [builtIn, external]
+
+        #expect(DisplaySelectionResolver.selectedIDs(
+            policy: .internalDisplay,
+            selectedIDs: [],
+            displays: displays
+        ) == [11])
+        #expect(DisplaySelectionResolver.selectedIDs(
+            policy: .selectedDisplays,
+            selectedIDs: [22],
+            displays: displays
+        ) == [22])
+        #expect(DisplaySelectionResolver.selectedIDs(
+            policy: .allDisplays,
+            selectedIDs: [],
+            displays: displays
+        ) == [11, 22])
+        #expect(DisplaySelectionResolver.selectedIDs(
+            policy: .selectedDisplays,
+            selectedIDs: [999],
+            displays: displays
+        ) == [11])
+    }
+
+    @Test func perDisplayNotchConfigurationRoundTripsWithoutScreenObjects() throws {
+        let original: [String: DisplayNotchConfiguration] = [
+            "11": DisplayNotchConfiguration(contentSize: .small, horizontalOffset: 0),
+            "22": DisplayNotchConfiguration(contentSize: .large, horizontalOffset: -36)
+        ]
+
+        let data = try JSONEncoder().encode(original)
+        let restored = try JSONDecoder().decode(
+            [String: DisplayNotchConfiguration].self,
+            from: data
+        )
+
+        #expect(restored == original)
+        #expect(restored["22"]?.contentSize == .large)
+        #expect(restored["22"]?.horizontalOffset == -36)
     }
 
     @MainActor

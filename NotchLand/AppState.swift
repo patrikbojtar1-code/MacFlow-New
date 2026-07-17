@@ -30,6 +30,7 @@ nonisolated final class AppState: ObservableObject {
 
     @Published var isExpanded: Bool = false
     @Published var isHovering: Bool = false
+    @Published private(set) var activeDisplayID: UInt32?
     @Published var requestedWidgetRawValue: String?
 
     private let settings: NotchSettings
@@ -41,7 +42,8 @@ nonisolated final class AppState: ObservableObject {
     }
 
     @MainActor
-    func mouseEntered(allowsExpansion: Bool = true) {
+    func mouseEntered(displayID: UInt32? = nil, allowsExpansion: Bool = true) {
+        activeDisplayID = displayID
         isHovering = true
         cancelCollapse()
         guard allowsExpansion, settings.hoverToExpand, !isExpanded else { return }
@@ -49,8 +51,10 @@ nonisolated final class AppState: ObservableObject {
     }
 
     @MainActor
-    func mouseExited() {
+    func mouseExited(displayID: UInt32? = nil) {
+        guard displayID == nil || activeDisplayID == displayID else { return }
         isHovering = false
+        activeDisplayID = nil
         cancelExpand()
         guard settings.autoCollapse, isExpanded else { return }
         cancelCollapse()
@@ -93,6 +97,7 @@ nonisolated final class AppState: ObservableObject {
         withTransaction(Transaction(animation: nil)) {
             isHovering = false
             isExpanded = false
+            activeDisplayID = nil
         }
     }
 

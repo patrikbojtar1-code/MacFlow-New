@@ -12,7 +12,7 @@ struct MacFlowHubView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("macflow.selectedSection") private var selection: MacFlowSection = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    #if DEBUG
+    #if NOTCHLAND_ENABLE_DEBUG_UI
     @AppStorage("settings.debugMenuUnlocked") private var debugMenuUnlocked = false
     @State private var aboutIconTapCount = 0
     #endif
@@ -45,10 +45,20 @@ struct MacFlowHubView: View {
             idealHeight: MacFlowMetrics.idealWindowHeight
         )
         .preferredColorScheme(settings.theme.colorScheme)
+        .motionDebugProbe("App Shell")
+        .onChange(of: selection) { oldSection, newSection in
+            MotionDebug.record(
+                name: "app.section",
+                surface: "App Shell",
+                duration: AppMotion.Duration.quick,
+                state: "\(oldSection.rawValue) → \(newSection.rawValue)",
+                reason: "User selected a different primary workspace."
+            )
+        }
     }
 
     private var showsDebug: Bool {
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         debugMenuUnlocked
         #else
         false
@@ -56,6 +66,13 @@ struct MacFlowHubView: View {
     }
 
     private func hideSidebar() {
+        MotionDebug.record(
+            name: "sidebar.visibility",
+            surface: "App Shell",
+            duration: AppMotion.Duration.standard,
+            state: "visible → hidden",
+            reason: "User pressed the stable sidebar-leading hide control."
+        )
         withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
             columnVisibility = .detailOnly
         }
@@ -76,7 +93,7 @@ struct MacFlowHubView: View {
             MacFlowPreferencesView()
         case .about:
             AboutSettingsView(onIconClick: handleAboutIconClick)
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         case .debug:
             if debugMenuUnlocked {
                 DebugSettingsView()
@@ -89,7 +106,7 @@ struct MacFlowHubView: View {
     }
 
     private func handleAboutIconClick() {
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         guard !debugMenuUnlocked else { return }
         aboutIconTapCount += 1
         if aboutIconTapCount >= 7 {

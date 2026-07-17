@@ -79,7 +79,6 @@ struct FileShelfView: View {
     @EnvironmentObject private var intelligence: DropIntelligenceController
     @EnvironmentObject private var shortcuts: ShortcutsBridgeController
     @EnvironmentObject private var preferences: WidgetPreferencesController
-    @AppStorage("notch.selectedWidget") private var selectedWidgetRaw = NotchWidget.files.rawValue
 
     var body: some View {
         VStack(spacing: 8) {
@@ -185,7 +184,7 @@ struct FileShelfView: View {
             shortcuts.prepareInput(analysis.urls)
             preferences.setMode(.pinned, for: .shortcuts)
             shelf.isPresented = false
-            selectedWidgetRaw = NotchWidget.shortcuts.rawValue
+            preferences.select(.shortcuts)
         }
     }
 

@@ -684,7 +684,7 @@ private struct CompactMediaWaveform: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !isPlaying || reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.ambient, paused: !isPlaying || reduceMotion)) { timeline in
             Canvas { context, size in
                 let barCount = 7
                 let barWidth: CGFloat = 2.4
@@ -1117,7 +1117,7 @@ struct NowPlayingExpandedView: View {
     }
 
     private func scrubber(theme: MediaSourceTheme) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !track.isPlaying)) { ctx in
+        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.standard, paused: !track.isPlaying)) { ctx in
             let elapsed = track.elapsed(at: ctx.date)
             let progress = track.progress(at: ctx.date)
             let displayedProgress = scrubbedProgress ?? progress
@@ -1374,7 +1374,7 @@ struct MarqueeText: View {
             let needsScroll = textWidth > viewportWidth - 1
             ZStack(alignment: .leading) {
                 if needsScroll, !reduceMotion {
-                    TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { ctx in
+                    TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.standard)) { ctx in
                         let cycle = textWidth + gap
                         let elapsed = max(0, ctx.date.timeIntervalSince(startDate))
                         let phase = CGFloat(elapsed * pointsPerSecond)
@@ -1714,7 +1714,7 @@ struct EQBarsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isAnimating || reduceMotion)) { ctx in
+        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.standard, paused: !isAnimating || reduceMotion)) { ctx in
             Canvas { context, size in
                 let barGradient = Gradient(stops: [
                     .init(color: primaryColor, location: 0.0),

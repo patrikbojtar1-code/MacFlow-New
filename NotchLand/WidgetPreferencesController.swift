@@ -36,11 +36,13 @@ enum WidgetVisibilityMode: String, CaseIterable, Identifiable, Sendable {
 final class WidgetPreferencesController: ObservableObject {
     @Published private(set) var orderedWidgets: [NotchWidget]
     @Published private(set) var visibilityModes: [NotchWidget: WidgetVisibilityMode]
+    @Published private(set) var selectedWidget: NotchWidget
 
     private enum Keys {
         static let order = "widgets.order.v1"
         static let enabled = "widgets.enabled.v1"
         static let modes = "widgets.visibilityModes.v2"
+        static let selected = "notch.selectedWidget"
     }
 
     private let defaults: UserDefaults
@@ -81,7 +83,10 @@ final class WidgetPreferencesController: ObservableObject {
                 ($0, Self.defaultMode(for: $0))
             })
         }
+        selectedWidget = defaults.string(forKey: Keys.selected)
+            .flatMap(NotchWidget.init(rawValue:)) ?? .calendar
         ensureAtLeastOneVisibleWidget()
+        ensureSelectedWidgetIsVisible()
         persist()
     }
 
@@ -112,6 +117,18 @@ final class WidgetPreferencesController: ObservableObject {
         }
         guard self.mode(for: widget) != mode else { return }
         visibilityModes[widget] = mode
+        ensureSelectedWidgetIsVisible()
+        persist()
+        NotchHaptics.perform(.navigation)
+    }
+
+    func select(_ widget: NotchWidget) {
+        guard mode(for: widget) != .hidden else {
+            NotchHaptics.perform(.rejection)
+            return
+        }
+        guard selectedWidget != widget else { return }
+        selectedWidget = widget
         persist()
         NotchHaptics.perform(.navigation)
     }
@@ -159,6 +176,7 @@ final class WidgetPreferencesController: ObservableObject {
             return (widget, mode)
         })
         ensureAtLeastOneVisibleWidget()
+        ensureSelectedWidgetIsVisible()
         persist()
         NotchHaptics.perform(.confirmation)
     }
@@ -168,6 +186,7 @@ final class WidgetPreferencesController: ObservableObject {
         visibilityModes = Dictionary(uniqueKeysWithValues: NotchWidget.allCases.map {
             ($0, Self.defaultMode(for: $0))
         })
+        selectedWidget = .calendar
         persist()
         NotchHaptics.perform(.navigation)
     }
@@ -179,12 +198,19 @@ final class WidgetPreferencesController: ObservableObject {
             Dictionary(uniqueKeysWithValues: visibilityModes.map { ($0.key.rawValue, $0.value.rawValue) }),
             forKey: Keys.modes
         )
+        defaults.set(selectedWidget.rawValue, forKey: Keys.selected)
     }
 
     private func ensureAtLeastOneVisibleWidget() {
         guard !visibilityModes.values.contains(where: { $0 != .hidden }),
               let first = orderedWidgets.first else { return }
         visibilityModes[first] = .pinned
+    }
+
+    private func ensureSelectedWidgetIsVisible() {
+        guard mode(for: selectedWidget) == .hidden,
+              let fallback = visibleWidgets.first else { return }
+        selectedWidget = fallback
     }
 
     private static func defaultMode(for widget: NotchWidget) -> WidgetVisibilityMode {

@@ -13,7 +13,7 @@ import SwiftUI
 
 /// User-facing density. The selected density changes presentation, not the
 /// underlying activity data or controller ownership.
-nonisolated enum NotchSize: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum NotchSize: String, CaseIterable, Identifiable, Codable, Sendable {
     case small
     case medium
     case large
@@ -247,6 +247,118 @@ enum NotchPresentationResolver {
             || isFileDropBranch(key) || isSceneDropBranch(key) || isCallBranch(key)
             || isWalletBranch(key) || key == "activity" || key == "important-event"
             || key == "scene"
+    }
+}
+
+/// Semantic priority used only to explain and validate transitions. Branch
+/// selection remains a pure function in `NotchPresentationResolver`.
+nonisolated enum NotchPresentationPriority: Int, Comparable, Sendable {
+    case idle = 0
+    case ambient = 10
+    case interactive = 30
+    case expanded = 40
+    case notification = 60
+    case dragTarget = 80
+    case call = 90
+    case lockScreen = 100
+
+    static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    static func priority(for branch: String) -> Self {
+        if branch == "screen-lock" || branch == "onboarding-lock" { return .lockScreen }
+        if branch == "call" { return .call }
+        if branch == "scene-drop-target" || branch == "file-shelf-drop-target" { return .dragTarget }
+        if branch.hasPrefix("battery-")
+            || branch == "focus-mode"
+            || branch == "wallet-contribution"
+            || branch == "important-event"
+            || branch == "activity" {
+            return .notification
+        }
+        if branch.hasPrefix("expanded") { return .expanded }
+        if branch == "hud" { return .interactive }
+        if branch == "collapsed-bare" || branch == "hardware-notch" {
+            return .idle
+        }
+        return .ambient
+    }
+}
+
+nonisolated enum NotchPresentationTransitionKind: String, Equatable, Sendable {
+    case initial
+    case unchanged
+    case replacement
+    case interruption
+    case restoration
+}
+
+nonisolated struct NotchPresentationTransition: Equatable, Sendable {
+    let fromBranch: String?
+    let toBranch: String
+    let kind: NotchPresentationTransitionKind
+    let interruptedBranch: String?
+}
+
+/// Small deterministic state machine for presentation continuity. It does not
+/// own feature business state; it records which lower-priority presentation was
+/// interrupted so the return animation can be classified as a restoration
+/// instead of an unrelated replacement.
+nonisolated struct NotchPresentationMachine: Sendable {
+    private(set) var currentBranch: String?
+    private(set) var interruptionStack: [String] = []
+
+    mutating func synchronize(to branch: String) {
+        currentBranch = branch
+        interruptionStack.removeAll(keepingCapacity: true)
+    }
+
+    mutating func transition(to branch: String) -> NotchPresentationTransition {
+        guard let currentBranch else {
+            self.currentBranch = branch
+            return NotchPresentationTransition(
+                fromBranch: nil,
+                toBranch: branch,
+                kind: .initial,
+                interruptedBranch: nil
+            )
+        }
+        guard currentBranch != branch else {
+            return NotchPresentationTransition(
+                fromBranch: currentBranch,
+                toBranch: branch,
+                kind: .unchanged,
+                interruptedBranch: nil
+            )
+        }
+
+        let currentPriority = NotchPresentationPriority.priority(for: currentBranch)
+        let nextPriority = NotchPresentationPriority.priority(for: branch)
+        let kind: NotchPresentationTransitionKind
+        var interruptedBranch: String?
+
+        if nextPriority > currentPriority {
+            if interruptionStack.last != currentBranch {
+                interruptionStack.append(currentBranch)
+            }
+            interruptedBranch = currentBranch
+            kind = .interruption
+        } else if let restorationIndex = interruptionStack.lastIndex(of: branch) {
+            interruptionStack.removeSubrange(restorationIndex...)
+            kind = .restoration
+        } else {
+            interruptionStack.removeAll { savedBranch in
+                NotchPresentationPriority.priority(for: savedBranch) >= nextPriority
+            }
+            kind = .replacement
+        }
+
+        self.currentBranch = branch
+        return NotchPresentationTransition(
+            fromBranch: currentBranch,
+            toBranch: branch,
+            kind: kind,
+            interruptedBranch: interruptedBranch
+        )
     }
 }
 

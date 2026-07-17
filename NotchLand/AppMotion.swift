@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 
 nonisolated enum AppMotion {
@@ -14,6 +15,12 @@ nonisolated enum AppMotion {
         static let quick: TimeInterval = 0.16
         static let standard: TimeInterval = 0.22
         static let emphasized: TimeInterval = 0.34
+    }
+
+    enum FrameInterval {
+        static let ambient: TimeInterval = 1.0 / 24.0
+        static let standard: TimeInterval = 1.0 / 30.0
+        static let lowFrequency: TimeInterval = 0.16
     }
 
     static func stateChange(reduceMotion: Bool) -> Animation {

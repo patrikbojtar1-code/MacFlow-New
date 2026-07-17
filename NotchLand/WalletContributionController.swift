@@ -47,17 +47,17 @@ nonisolated enum WalletNetwork: String, Codable, CaseIterable, Identifiable, Sen
     var atomicScale: Decimal {
         switch self {
         case .bitcoin, .litecoin: Decimal(100_000_000)
-        case .ethereum: Decimal(string: "1000000000000000000")!
+        case .ethereum: 1_000_000_000_000_000_000
         case .solana: Decimal(1_000_000_000)
         }
     }
 
     var sampleContribution: Decimal {
         switch self {
-        case .bitcoin: Decimal(string: "0.00025")!
-        case .litecoin: Decimal(string: "0.01")!
-        case .ethereum: Decimal(string: "0.005")!
-        case .solana: Decimal(string: "0.25")!
+        case .bitcoin: Decimal(25) / Decimal(100_000)
+        case .litecoin: Decimal(1) / Decimal(100)
+        case .ethereum: Decimal(5) / Decimal(1_000)
+        case .solana: Decimal(25) / Decimal(100)
         }
     }
 
@@ -207,6 +207,20 @@ nonisolated enum WalletProviderError: LocalizedError {
     }
 }
 
+nonisolated enum WalletAPIEndpoints {
+    static let bitcoin = validated("https://blockstream.info/api")
+    static let blockCypher = validated("https://api.blockcypher.com/v1")
+    static let solana = validated("https://api.mainnet-beta.solana.com")
+    static let fiatPrices = validated("https://api.coingecko.com/api/v3/simple/price")
+
+    private static func validated(_ value: String) -> URL {
+        guard let url = URL(string: value) else {
+            preconditionFailure("Invalid compile-time wallet endpoint: \(value)")
+        }
+        return url
+    }
+}
+
 actor MultiChainWalletAPI: WalletSnapshotProviding {
     private let session: URLSession
     private let bitcoinBaseURL: URL
@@ -215,9 +229,9 @@ actor MultiChainWalletAPI: WalletSnapshotProviding {
 
     init(
         session: URLSession = .shared,
-        bitcoinBaseURL: URL = URL(string: "https://blockstream.info/api")!,
-        blockCypherBaseURL: URL = URL(string: "https://api.blockcypher.com/v1")!,
-        solanaRPCURL: URL = URL(string: "https://api.mainnet-beta.solana.com")!
+        bitcoinBaseURL: URL = WalletAPIEndpoints.bitcoin,
+        blockCypherBaseURL: URL = WalletAPIEndpoints.blockCypher,
+        solanaRPCURL: URL = WalletAPIEndpoints.solana
     ) {
         self.session = session
         self.bitcoinBaseURL = bitcoinBaseURL
@@ -413,7 +427,7 @@ actor CoinGeckoWalletPriceAPI: WalletFiatPriceProviding {
 
     init(
         session: URLSession = .shared,
-        baseURL: URL = URL(string: "https://api.coingecko.com/api/v3/simple/price")!
+        baseURL: URL = WalletAPIEndpoints.fiatPrices
     ) {
         self.session = session
         self.baseURL = baseURL

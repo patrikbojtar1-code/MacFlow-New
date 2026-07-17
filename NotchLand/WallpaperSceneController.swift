@@ -52,6 +52,7 @@ final class WallpaperSceneController: ObservableObject {
     let performance: WallpaperPerformanceMonitor
 
     private let defaults: UserDefaults
+    private let displayCoordinator: DisplayCoordinator
     private weak var focusMode: FocusModeController?
     private var windows: [CGDirectDisplayID: WallpaperSceneWindow] = [:]
     private var retiringWindows: [WallpaperSceneWindow] = []
@@ -99,11 +100,13 @@ final class WallpaperSceneController: ObservableObject {
         library: WallpaperSceneLibrary,
         performance: WallpaperPerformanceMonitor,
         focusMode: FocusModeController? = nil,
+        displayCoordinator: DisplayCoordinator,
         defaults: UserDefaults = .standard
     ) {
         self.library = library
         self.performance = performance
         self.focusMode = focusMode
+        self.displayCoordinator = displayCoordinator
         self.defaults = defaults
         activeSceneID = defaults.string(forKey: Keys.activeSceneID).flatMap(UUID.init(uuidString:))
         isPaused = defaults.bool(forKey: Keys.isPaused)
@@ -125,8 +128,9 @@ final class WallpaperSceneController: ObservableObject {
         isStarted = true
         performance.start()
 
-        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
-            .receive(on: RunLoop.main)
+        displayCoordinator.$revision
+            .dropFirst()
+            .removeDuplicates()
             .sink { [weak self] _ in self?.rebuildRenderers() }
             .store(in: &cancellables)
 
@@ -368,9 +372,11 @@ final class WallpaperSceneController: ObservableObject {
             return
         }
 
-        let screensByID = Dictionary(uniqueKeysWithValues: NSScreen.screens.compactMap { screen in
-            screen.displayID.map { ($0, screen) }
-        })
+        let screensByID = Dictionary(uniqueKeysWithValues: displayCoordinator
+            .selectedScreens(policy: .allDisplays, selectedIDs: [])
+            .compactMap { screen in
+                screen.displayID.map { ($0, screen) }
+            })
 
         let shouldCrossfade = crossfade
             && !windows.isEmpty
@@ -474,6 +480,13 @@ final class WallpaperSceneController: ObservableObject {
         crossfadeStartedGeneration = generation
         transitionTask?.cancel()
         transitionTask = nil
+        MotionDebug.record(
+            name: "wallpaper.crossfade",
+            surface: "Wallpaper Runtime",
+            duration: Timing.crossfadeDuration,
+            state: "\(oldWindows.count) old → \(nextWindows.count) ready",
+            reason: "A newly selected scene finished preparing on every target display."
+        )
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Timing.crossfadeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -634,7 +647,7 @@ final class WallpaperSceneController: ObservableObject {
         visibilityTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
                 let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                let displayFrames = NSScreen.screens.map(\.frame)
+                let displayFrames = self.displayCoordinator.displays.map(\.frame)
                 let isFullscreen = await Task.detached(priority: .utility) {
                     WallpaperFullscreenDetector.isFullscreen(
                         frontmostPID: frontmostPID,
@@ -651,12 +664,5 @@ final class WallpaperSceneController: ObservableObject {
                 try? await Task.sleep(for: .seconds(1.25))
             }
         }
-    }
-}
-
-private extension NSScreen {
-    var displayID: CGDirectDisplayID? {
-        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)
-            .map { CGDirectDisplayID($0.uint32Value) }
     }
 }

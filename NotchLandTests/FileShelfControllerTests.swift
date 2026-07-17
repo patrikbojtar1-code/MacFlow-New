@@ -51,6 +51,35 @@ struct FileShelfControllerTests {
         #expect(controller.items.count == 1)
     }
 
+    @Test func rapidConcurrentDropsMergeWithoutDuplicates() async throws {
+        let defaults = makeDefaults()
+        let settings = NotchSettings()
+        settings.fileShelfEnabled = true
+        let file = try makeFile()
+        let controller = FileShelfController(settings: settings, defaults: defaults)
+
+        async let first = controller.add([file])
+        async let second = controller.add([file])
+        let results = await (first, second)
+        let inserted = results.0 + results.1
+
+        #expect(inserted == 1)
+        #expect(controller.items.count == 1)
+    }
+
+    @Test func hundredFileDropIsBoundedToShelfCapacity() async throws {
+        let defaults = makeDefaults()
+        let settings = NotchSettings()
+        settings.fileShelfEnabled = true
+        let files = try (0..<100).map { index in
+            try makeFile(named: "bulk-\(UUID().uuidString)-\(index).txt")
+        }
+        let controller = FileShelfController(settings: settings, defaults: defaults)
+
+        #expect(await controller.add(files) == 50)
+        #expect(controller.items.count == 50)
+    }
+
     @Test func missingFilesAreNotAdded() async {
         let defaults = makeDefaults()
         let settings = NotchSettings()

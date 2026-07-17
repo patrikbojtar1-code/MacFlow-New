@@ -26,10 +26,46 @@ struct DebugSettingsView: View {
     @EnvironmentObject var liveActivities: LiveActivityController
     @EnvironmentObject var notchTimer: NotchTimerController
     @EnvironmentObject var calls: CallActivityController
+    @EnvironmentObject var displayCoordinator: DisplayCoordinator
     @StateObject private var motionDebugger = MotionDebugStore.shared
 
     var body: some View {
         Form {
+            Section("Runtime") {
+                LabeledContent("Notch state") {
+                    Text(appState.isExpanded ? "Expanded" : (appState.isHovering ? "Hover" : "Compact"))
+                }
+                LabeledContent("Content size") {
+                    Text(settings.notchContentSize.title)
+                }
+                LabeledContent("Display policy") {
+                    Text(settings.displayPolicy.title)
+                }
+
+                ForEach(displayCoordinator.displays) { display in
+                    VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                        HStack {
+                            Label(
+                                display.name,
+                                systemImage: display.isBuiltIn ? "laptopcomputer" : "display"
+                            )
+                            Spacer()
+                            Text("\(display.scaleFactor, format: .number)×")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(
+                            "ID \(display.id) · "
+                                + "\(Int(display.frame.width))×\(Int(display.frame.height)) · "
+                                + "x \(Int(display.frame.minX)), y \(Int(display.frame.minY))"
+                        )
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    }
+                }
+            }
+
             Section("Motion Debugger") {
                 Toggle("Record named motion", isOn: $motionDebugger.isEnabled)
                     .accessibilityHint("Records animation state, reason and redraw count in Debug builds only")

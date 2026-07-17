@@ -19,6 +19,7 @@ struct NotchLandApp: App {
             } else {
                 SettingsView()
                     .environmentObject(appDelegate.settings)
+                    .environmentObject(appDelegate.displayCoordinator)
                     .frame(
                         minWidth: MacFlowMetrics.minimumWindowWidth,
                         idealWidth: MacFlowMetrics.idealWindowWidth,

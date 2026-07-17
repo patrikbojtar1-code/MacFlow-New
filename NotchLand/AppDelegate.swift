@@ -13,6 +13,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = NotchSettings()
+    lazy var displayCoordinator = DisplayCoordinator()
     lazy var appState = AppState(settings: settings)
     lazy var hud = HUDController(settings: settings)
     lazy var nowPlaying = NowPlayingService()
@@ -60,13 +61,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var scenes = WallpaperSceneController(
         library: sceneLibrary,
         performance: scenePerformance,
-        focusMode: focusMode
+        focusMode: focusMode,
+        displayCoordinator: displayCoordinator
     )
     lazy var mouseFree = MouseFreeController()
     lazy var updater = UpdaterController(settings: settings)
     private var didStartServices = false
     private lazy var windowManager = WindowManager(
         settings: settings,
+        displayCoordinator: displayCoordinator,
         appState: appState,
         hud: hud,
         nowPlaying: nowPlaying,
@@ -106,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notes: quickNotes,
             biometrics: biometrics
         )
+        displayCoordinator.start()
         windowManager.start()
         hud.start()
         batteryAlerts.start()
@@ -128,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         guard didStartServices else { return }
+        displayCoordinator.stop()
         hud.stop()
         batteryAlerts.stop()
         focusMode.stop()

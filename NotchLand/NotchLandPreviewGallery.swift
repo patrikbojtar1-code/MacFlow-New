@@ -12,6 +12,7 @@ import SwiftUI
 @MainActor
 struct NotchPreviewContainer<Content: View>: View {
     @StateObject private var settings: NotchSettings
+    @StateObject private var displayCoordinator: DisplayCoordinator
     @StateObject private var appState: AppState
     @StateObject private var hud: HUDController
     @StateObject private var nowPlaying: NowPlayingService
@@ -47,6 +48,7 @@ struct NotchPreviewContainer<Content: View>: View {
         @ViewBuilder content: @escaping () -> Content
     ) {
         let settings = NotchSettings()
+        let displayCoordinator = DisplayCoordinator()
         let appState = AppState(settings: settings)
         let hud = HUDController(settings: settings)
         let nowPlaying = NowPlayingService()
@@ -111,6 +113,7 @@ struct NotchPreviewContainer<Content: View>: View {
         )
 
         _settings = StateObject(wrappedValue: settings)
+        _displayCoordinator = StateObject(wrappedValue: displayCoordinator)
         _appState = StateObject(wrappedValue: appState)
         _hud = StateObject(wrappedValue: hud)
         _nowPlaying = StateObject(wrappedValue: nowPlaying)
@@ -143,6 +146,7 @@ struct NotchPreviewContainer<Content: View>: View {
     var body: some View {
         content()
             .environmentObject(settings)
+            .environmentObject(displayCoordinator)
             .environmentObject(appState)
             .environmentObject(hud)
             .environmentObject(nowPlaying)

@@ -854,7 +854,7 @@ final class HUDController: ObservableObject {
 
     private nonisolated static let systemDefinedEventType = CGEventType(
         rawValue: CGEventType.RawValue(NSEvent.EventType.systemDefined.rawValue)
-    )!
+    ) ?? .null
 
     private func clamp(_ value: Double) -> Double {
         min(max(value, 0), 1)

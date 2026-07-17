@@ -413,11 +413,20 @@ final class SystemCallActivitySource: ObservableObject {
             return SystemCallDetection(
                 callerName: result.callerName,
                 serviceName: result.serviceName,
-                answerAction: answer.map { handle in { handle.perform() } },
-                declineAction: decline.map { handle in { handle.perform() } }
+                answerAction: pressAction(for: answer),
+                declineAction: pressAction(for: decline)
             )
         }
         return nil
+    }
+
+    private func pressAction(
+        for handle: SystemAccessibilityPressHandle?
+    ) -> (@MainActor @Sendable () -> Void)? {
+        guard let handle else { return nil }
+        return { @MainActor @Sendable in
+            handle.perform()
+        }
     }
 
     private func resetDetectionState(dismissIncoming: Bool) {

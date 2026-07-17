@@ -15,7 +15,7 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
     case wallpaperEngine
     case preferences
     case about
-    #if DEBUG
+    #if NOTCHLAND_ENABLE_DEBUG_UI
     case debug
     #endif
 
@@ -29,7 +29,7 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
         case .wallpaperEngine: "Wallpapers"
         case .preferences: "Preferences"
         case .about: "About MacFlow"
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         case .debug: "Developer"
         #endif
         }
@@ -43,7 +43,7 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
         case .wallpaperEngine: "SCENE LIBRARY"
         case .preferences: "APPLICATION"
         case .about: "PRODUCT"
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         case .debug: "INTERNAL"
         #endif
         }
@@ -57,7 +57,7 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
         case .wallpaperEngine: "Browse, apply and tune native image and video scenes."
         case .preferences: "Shared defaults for the MacFlow application."
         case .about: "Version, updates, license and credits."
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         case .debug: "Diagnostics and internal feature controls."
         #endif
         }
@@ -71,7 +71,7 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
         case .wallpaperEngine: "photo.on.rectangle.angled"
         case .preferences: "gearshape.fill"
         case .about: "info.circle.fill"
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         case .debug: "hammer.fill"
         #endif
         }
@@ -83,7 +83,7 @@ nonisolated enum MacFlowSection: String, CaseIterable, Identifiable, Sendable {
         case .notch: MacFlowColor.notch
         case .mouseFree: MacFlowColor.mouseFree
         case .wallpaperEngine: MacFlowColor.wallpaper
-        #if DEBUG
+        #if NOTCHLAND_ENABLE_DEBUG_UI
         case .debug: .pink
         #endif
         }
