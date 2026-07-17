@@ -15,7 +15,7 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Show NotchLand", isOn: $settings.showNotch)
+                Toggle("Show MacFlow", isOn: $settings.showNotch)
                 Toggle("Launch at Login", isOn: $settings.launchAtLogin)
             }
 

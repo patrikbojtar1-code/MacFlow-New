@@ -25,6 +25,7 @@ private nonisolated struct ScrollGestureSample: Sendable {
     let didEndMomentum: Bool
     let didBegin: Bool
     let didEnd: Bool
+    let isPrecise: Bool
 
     init(event: NSEvent, mouseLocation: CGPoint) {
         let multiplier: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
@@ -37,6 +38,7 @@ private nonisolated struct ScrollGestureSample: Sendable {
         didEndMomentum = event.momentumPhase == .ended || event.momentumPhase == .cancelled
         didBegin = event.phase == .began || event.phase == .mayBegin
         didEnd = event.phase == .ended || event.phase == .cancelled
+        isPrecise = event.hasPreciseScrollingDeltas
     }
 }
 
@@ -90,6 +92,7 @@ final class WindowManager: NSObject {
     private var statusItem: NSStatusItem?
     private var companionWindow: NSWindow?
     private var hoverTimer: Timer?
+    private var hoverEventMonitors: [Any] = []
     private var localScrollMonitor: Any?
     private var globalScrollMonitor: Any?
     private var scrollAccumulator = CGPoint.zero
@@ -104,6 +107,8 @@ final class WindowManager: NSObject {
     private enum ScrollSwipeDirection {
         case up
         case down
+        case previousWidget
+        case nextWidget
     }
 
     init(
@@ -182,6 +187,9 @@ final class WindowManager: NSObject {
         for monitor in dragMonitors {
             NSEvent.removeMonitor(monitor)
         }
+        for monitor in hoverEventMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
         pendingOnboardingFrameShrink?.cancel()
         hoverTimer?.invalidate()
     }
@@ -191,7 +199,7 @@ final class WindowManager: NSObject {
         observeScreenChanges()
         observeScreenLock()
         applyVisibility()
-        startHoverPolling()
+        startHoverTracking()
         installScrollGestureMonitors()
         installDragMonitors()
         showStatusItem()
@@ -276,8 +284,8 @@ final class WindowManager: NSObject {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
                     UserDefaults.standard.set(
-                        SettingsSection.scenes.rawValue,
-                        forKey: "settings.selectedSection"
+                        MacFlowSection.wallpaperEngine.rawValue,
+                        forKey: "macflow.selectedSection"
                     )
                     self?.showCompanionWindow()
                 }
@@ -320,7 +328,7 @@ final class WindowManager: NSObject {
                     }
                     self?.applyVisibility()
                     self?.applyPanelLockMode(presentation != nil)
-                    if presentation != nil {
+                    if presentation != nil, self?.settings.showNotch == true {
                         self?.updateNotchFrame(animated: false)
                         self?.notchPanel?.orderFrontRegardless()
                     }
@@ -332,7 +340,9 @@ final class WindowManager: NSObject {
             .dropFirst()
             .sink { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.screenLock.currentPresentation != nil else { return }
+                    guard let self,
+                          self.settings.showNotch,
+                          self.screenLock.currentPresentation != nil else { return }
                     self.applyVisibility()
                     self.applyPanelLockMode(true)
                     self.updateNotchFrame(animated: false)
@@ -359,7 +369,7 @@ final class WindowManager: NSObject {
     // MARK: - Show / Hide
 
     private func applyVisibility() {
-        if settings.showNotch || screenLock.currentPresentation != nil {
+        if settings.showNotch {
             showNotchPanel()
         } else {
             hideNotchPanel()
@@ -375,36 +385,68 @@ final class WindowManager: NSObject {
     }
 
     private func hideNotchPanel() {
+        appState.resetToCollapsed()
         notchPanel?.orderOut(nil)
         updatePointerInsideState(false)
     }
 
     // MARK: - Hover tracking
 
-    private func startHoverPolling() {
+    private func startHoverTracking() {
+        guard hoverEventMonitors.isEmpty else { return }
+
+        let eventMask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        if let localMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: eventMask,
+            handler: { [weak self] event in
+                MainActor.assumeIsolated { self?.refreshHoverState() }
+                return event
+            }
+        ) {
+            hoverEventMonitors.append(localMonitor)
+        }
+        if let globalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: eventMask,
+            handler: { [weak self] _ in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self?.refreshHoverState() }
+                }
+            }
+        ) {
+            hoverEventMonitors.append(globalMonitor)
+        }
+
+        // A low-frequency fallback covers a stationary pointer while the shell
+        // changes beneath it. Normal pointer movement is entirely event-driven.
         hoverTimer?.invalidate()
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.pollHoverState()
+                self?.refreshHoverState()
             }
         }
         hoverTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+        refreshHoverState()
     }
 
-    private func pollHoverState() {
+    private func refreshHoverState() {
         guard settings.showNotch, let panel = notchPanel, panel.isVisible else {
             updatePointerInsideState(false)
             return
         }
 
         let mouseLocation = NSEvent.mouseLocation
-        let hoverFrame = interactiveNotchFrame(in: panel).insetBy(dx: -8, dy: -8)
+        // Use a larger exit frame than entry frame. Without hysteresis the
+        // animated shell can move its own hit boundary under the pointer and
+        // repeatedly enter/exit while it is widening.
+        let hitPadding: CGFloat = isPointerInsideNotch ? 18 : 10
+        let hoverFrame = interactiveNotchFrame(in: panel)
+            .insetBy(dx: -hitPadding, dy: -hitPadding)
         updatePointerInsideState(hoverFrame.contains(mouseLocation))
     }
 
     private func updatePointerInsideState(_ isInside: Bool) {
-        // Toggle on every poll — the panel covers a large transparent envelope,
+        // The panel covers a large transparent envelope,
         // so we make it ignore mouse events anywhere outside the notch shape so
         // clicks fall through to whatever app sits below. While a file drag
         // hovers the drop zone the panel must keep receiving events so the
@@ -428,7 +470,10 @@ final class WindowManager: NSObject {
         isPointerInsideNotch = effectiveInside
 
         if effectiveInside {
-            appState.mouseEntered(allowsExpansion: nowPlaying.track == nil)
+            // Media uses the same sustained-hover expansion as every other
+            // compact activity. Previously this was explicitly disabled while
+            // a track existed, leaving the most common notch state inert.
+            appState.mouseEntered()
         } else {
             appState.mouseExited()
         }
@@ -572,7 +617,17 @@ final class WindowManager: NSObject {
         scrollAccumulator.y += sample.normalizedDeltaY
 
         let didHandle: Bool
-        if !didTriggerScrollSwipe, canTriggerScrollSwipe, isVerticalScrollSwipe(scrollAccumulator) {
+        if !didTriggerScrollSwipe,
+           canTriggerScrollSwipe,
+           sample.isPrecise,
+           appState.isExpanded,
+           isHorizontalScrollSwipe(scrollAccumulator) {
+            didTriggerScrollSwipe = true
+            lastScrollSwipeAt = Date()
+            NotchHaptics.perform(.navigation)
+            handleTrackpadSwipe(scrollAccumulator.x < 0 ? .nextWidget : .previousWidget)
+            didHandle = true
+        } else if !didTriggerScrollSwipe, canTriggerScrollSwipe, isVerticalScrollSwipe(scrollAccumulator) {
             didTriggerScrollSwipe = true
             lastScrollSwipeAt = Date()
             NotchHaptics.perform(.navigation)
@@ -597,6 +652,12 @@ final class WindowManager: NSObject {
         let verticalDistance = abs(delta.y)
         let horizontalDistance = abs(delta.x)
         return verticalDistance >= 26 && verticalDistance > horizontalDistance * 1.2
+    }
+
+    private func isHorizontalScrollSwipe(_ delta: CGPoint) -> Bool {
+        let horizontalDistance = abs(delta.x)
+        let verticalDistance = abs(delta.y)
+        return horizontalDistance >= 34 && horizontalDistance > verticalDistance * 1.25
     }
 
     private func shouldLetExpandedCalendarHandleScroll(
@@ -630,7 +691,29 @@ final class WindowManager: NSObject {
             handleTrackpadSwipeUp()
         case .down:
             handleTrackpadSwipeDown()
+        case .previousWidget:
+            cycleExpandedWidget(by: -1)
+        case .nextWidget:
+            cycleExpandedWidget(by: 1)
         }
+    }
+
+    private func cycleExpandedWidget(by offset: Int) {
+        guard appState.isExpanded else { return }
+        let sequence: [NotchWidget] = [.media, .calendar, .files, .clipboard, .shortcuts]
+        let stored = UserDefaults.standard.string(forKey: "notch.selectedWidget")
+            .flatMap(NotchWidget.init(rawValue:)) ?? (nowPlaying.track == nil ? .calendar : .media)
+        let currentIndex = sequence.firstIndex(of: stored) ?? 0
+        var nextIndex = (currentIndex + offset) % sequence.count
+        if nextIndex < 0 { nextIndex += sequence.count }
+        var next = sequence[nextIndex]
+        if next == .media, nowPlaying.track == nil {
+            nextIndex = (nextIndex + offset) % sequence.count
+            if nextIndex < 0 { nextIndex += sequence.count }
+            next = sequence[nextIndex]
+        }
+        widgetPreferences.setMode(.pinned, for: next)
+        appState.requestOpenWidget(rawValue: next.rawValue)
     }
 
     private func handleTrackpadSwipeDown() {
@@ -700,7 +783,14 @@ final class WindowManager: NSObject {
         if statusItem == nil {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             if let button = item.button {
-                button.image = MacFlowMenuBarSymbol.image()
+                if let source = NSImage(named: "MacFlowBrandIcon"),
+                   let image = source.copy() as? NSImage {
+                    image.size = NSSize(width: 18, height: 18)
+                    image.isTemplate = false
+                    button.image = image
+                } else {
+                    button.image = MacFlowMenuBarSymbol.image()
+                }
                 button.imagePosition = .imageOnly
                 button.toolTip = "MacFlow"
             }
@@ -824,9 +914,23 @@ final class WindowManager: NSObject {
         }
 
         guard let companionWindow else { return }
-        companionWindow.center()
+        let wasVisible = companionWindow.isVisible
+        if !wasVisible { companionWindow.center() }
+        let targetFrame = companionWindow.frame
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if !wasVisible, !reduceMotion {
+            companionWindow.alphaValue = 0
+            companionWindow.setFrame(targetFrame.offsetBy(dx: 0, dy: -8), display: false)
+        }
         companionWindow.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        guard !wasVisible, !reduceMotion else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = AppMotion.Duration.standard
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            companionWindow.animator().alphaValue = 1
+            companionWindow.animator().setFrame(targetFrame, display: true)
+        }
     }
 
     private func makeCompanionWindow() -> NSWindow {
@@ -902,6 +1006,7 @@ final class WindowManager: NSObject {
         panel.isMovable = false
         panel.isMovableByWindowBackground = false
         panel.animationBehavior = .none
+        panel.acceptsMouseMovedEvents = true
         panel.becomesKeyOnlyIfNeeded = true
         // The envelope panel covers a large transparent area; ignore mouse events
         // by default so clicks pass through, and only re-enable when the hover
@@ -1123,144 +1228,86 @@ final class WindowManager: NSObject {
     }
 
     private func resolvedScreen(for panel: NSPanel?) -> NSScreen? {
-        panel?.screen ?? NSScreen.main ?? NSScreen.screens.first
+        // A panel created while an external display is main must still attach to
+        // the built-in hardware notch. The auxiliary safe-area regions are the
+        // authoritative macOS description of that physical cutout.
+        if let hardwareScreen = NSScreen.screens.first(where: { screen in
+            screen.auxiliaryTopLeftArea != nil || screen.auxiliaryTopRightArea != nil
+        }) {
+            return hardwareScreen
+        }
+        return panel?.screen ?? NSScreen.main ?? NSScreen.screens.first
     }
 
-    /// Mirrors `FloatingNotchView.currentVisibleSize` so the AppKit-level hover
-    /// frame matches the SwiftUI-rendered shape — including the per-state
-    /// `invertedCornerRadius * 2` reserved for the NotchDrop-style ears.
+    /// Resolves the exact same presentation branch and geometry as SwiftUI so
+    /// AppKit hover, click, scroll and drop hit testing follow the visible shell.
     private func currentVisibleSize() -> CGSize {
-        let baseWidth = CGFloat(settings.collapsedWidth)
-        let baseHeight = CGFloat(settings.collapsedHeight)
-        let hasMusic = nowPlaying.track != nil
-        let hasEvent = eventCountdown.presentation != nil
-        let batteryPresentation = batteryAlerts.currentPresentation
-        let focusPresentation = focusMode.currentPresentation
-        let screenLockPresentation = screenLock.currentPresentation
-        let callPresentation = calls.current
         let compactNotchSize = settings.notchContentSize
-
-        let invertedR: CGFloat
-        if batteryPresentation != nil || focusPresentation != nil || screenLockPresentation != nil
-            || callPresentation != nil
-            || eventCountdown.importantReminderEvent != nil
-            || (liveActivities.current != nil && !appState.isExpanded)
-            || fileShelf.isDropTargetVisible {
-            invertedR = FloatingNotchView.musicInvertedRadius
-        } else {
-            invertedR = FloatingNotchView.invertedRadius(
+        let eventRoute = NotchEventPresentationPolicy.route(
+            for: eventCenter.current,
+            isExpanded: appState.isExpanded,
+            isWalletVisible: widgetPreferences.mode(for: .wallet) != .hidden
+        )
+        let branchKey = NotchPresentationResolver.branchKey(
+            for: NotchPresentationResolutionInput(
+                hasCompletedOnboarding: settings.hasCompletedOnboarding,
+                didRevealOnboarding: appState.isExpanded,
                 isExpanded: appState.isExpanded,
-                hasMusic: hasMusic,
-                isHovering: appState.isHovering
+                screenLockBranchKey: screenLock.currentPresentation?.branchKey,
+                eventRoute: eventRoute,
+                hasCall: calls.current != nil,
+                isSceneDropTargetVisible: scenes.isDropTargetVisible,
+                isFileDropTargetVisible: fileShelf.isDropTargetVisible,
+                batteryBranchKey: batteryAlerts.currentPresentation?.branchKey,
+                focusBranchKey: focusMode.currentPresentation?.branchKey,
+                hasWalletContribution: wallet.currentContribution != nil,
+                hasImportantEvent: eventCountdown.importantReminderEvent != nil,
+                isEventDetailPresented: eventCountdown.isDetailPresented,
+                hasTrackedEvent: eventCountdown.trackedEvent != nil,
+                liveActivityBranchKey: liveActivities.current?.branchKey,
+                hasHUD: hud.current != nil,
+                hasEvent: eventCountdown.presentation != nil,
+                hasMedia: nowPlaying.track != nil,
+                hasScene: scenes.activeScene != nil
             )
-        }
-        let extra = invertedR * 2
+        )
+        let selected = fileShelf.isPresented
+            ? NotchWidget.files
+            : UserDefaults.standard.string(forKey: "notch.selectedWidget")
+                .flatMap(NotchWidget.init(rawValue:)) ?? .calendar
+        let effectiveSelection = selected == .media && nowPlaying.track == nil ? .calendar : selected
+        let widgetSize = effectiveSelection == .media && nowPlaying.track?.videoPresentation == nil
+            ? NotchWidgetMetrics.audioExpandedSize
+            : NotchWidgetMetrics.expandedSize
+        let callSize = calls.current.map {
+            CallOverlayMetrics.size(for: $0, notchSize: compactNotchSize)
+        } ?? (compactNotchSize == .small
+            ? CallOverlayMetrics.incomingSize
+            : CallOverlayMetrics.mediumSize)
 
-        // Onboarding overrides every other state so the hover hit-test matches
-        // the rendered welcome card.
-        if !settings.hasCompletedOnboarding {
-            guard appState.isExpanded else {
-                return CGSize(
-                    width: max(baseWidth, OnboardingLockNotchMetrics.bodyWidth)
-                        + FloatingNotchView.bareInvertedRadius * 2,
-                    height: OnboardingLockNotchMetrics.height
-                )
-            }
-
-            // Uses the largest wizard-step size regardless of which step is
-            // actually showing — SwiftUI-side wizard state isn't mirrored
-            // here, and a hover hit-test that's briefly larger than the
-            // rendered welcome step has no visible effect (onboarding
-            // advances by explicit taps, not hover).
-            return CGSize(
-                width: OnboardingMetrics.expandedStepSize.width + FloatingNotchView.bareInvertedRadius * 2,
-                height: OnboardingMetrics.expandedStepSize.height
+        return NotchLayoutCoordinator.visibleSize(
+            for: NotchContentLayoutRequest(
+                branchKey: branchKey,
+                baseBodySize: CGSize(
+                    width: CGFloat(settings.collapsedWidth),
+                    height: CGFloat(settings.collapsedHeight)
+                ),
+                expandedFallbackBodySize: CGSize(
+                    width: max(CGFloat(settings.expandedWidth), CalendarNotchMetrics.expandedSize.width),
+                    height: CalendarNotchMetrics.expandedSize.height
+                ),
+                onboardingBodySize: OnboardingMetrics.expandedStepSize,
+                expandedWidgetBodySize: widgetSize,
+                batteryBodyWidth: batteryAlerts.currentPresentation
+                    .map(BatteryAlertMetrics.width(for:)) ?? BatteryAlertMetrics.chargingWidth,
+                callBodySize: callSize,
+                mediaPreferredWidth: nowPlaying.track?.compactPresentation.preferredWidth
+                    ?? NowPlayingMetrics.collapsedWidth,
+                compactSize: compactNotchSize,
+                isHovering: appState.isHovering,
+                showsCollapsedMusicMarquee: appState.isHovering
             )
-        }
-
-        if screenLockPresentation != nil {
-            let bodyW = max(baseWidth, LockScreenAlertMetrics.width)
-            return CGSize(width: bodyW + extra, height: LockScreenAlertMetrics.fallbackHeight)
-        }
-        if let callPresentation {
-            let size = CallOverlayMetrics.size(for: callPresentation, notchSize: compactNotchSize)
-            let bodyW = max(baseWidth, size.width)
-            return CGSize(width: bodyW + extra, height: size.height)
-        }
-        if eventCountdown.importantReminderEvent != nil {
-            let reminderSize = ImportantEventReminderMetrics.size(for: compactNotchSize)
-            return CGSize(
-                width: max(baseWidth, reminderSize.width) + extra,
-                height: max(baseHeight, reminderSize.height)
-            )
-        }
-        if fileShelf.isDropTargetVisible {
-            let bodyW = max(baseWidth, FileShelfMetrics.dropSize.width)
-            return CGSize(width: bodyW + extra, height: FileShelfMetrics.dropSize.height)
-        }
-        if let batteryPresentation {
-            switch batteryPresentation {
-            case .charging, .lowBattery:
-                let bodyW = max(baseWidth, BatteryAlertMetrics.width(for: batteryPresentation))
-                return CGSize(width: bodyW + extra, height: baseHeight)
-            }
-        }
-        if focusPresentation != nil {
-            let bodyW = max(baseWidth, FocusModeAlertMetrics.width)
-            return CGSize(width: bodyW + extra, height: baseHeight)
-        }
-        if liveActivities.current != nil, !appState.isExpanded {
-            let activitySize = LiveActivityChipMetrics.size(for: compactNotchSize)
-            let bodyW = max(baseWidth, activitySize.width)
-            return CGSize(width: bodyW + extra, height: max(baseHeight, activitySize.height))
-        }
-        if appState.isExpanded {
-            if eventCountdown.isDetailPresented, eventCountdown.trackedEvent != nil {
-                return CGSize(
-                    width: EventDetailMetrics.eventOnlySize.width + extra,
-                    height: EventDetailMetrics.eventOnlySize.height
-                )
-            }
-            return CGSize(
-                width: NotchWidgetMetrics.expandedSize.width + extra,
-                height: NotchWidgetMetrics.expandedSize.height
-            )
-        }
-        if hud.current != nil {
-            let bodyW = max(baseWidth, HUDController.drawerMinWidth)
-            return CGSize(width: bodyW + extra, height: baseHeight + HUDController.drawerHeight)
-        }
-        if hasMusic, hasEvent {
-            let bodyW = EventCountdownChipMetrics.musicComboContainerBodyWidth(baseWidth: baseWidth)
-            let extraH = appState.isHovering
-                ? NowPlayingMetrics.hoverExtraHeight
-                : NowPlayingMetrics.collapsedExtraHeight
-            return CGSize(width: bodyW + extra, height: baseHeight + extraH)
-        }
-        if hasMusic {
-            let presentation = nowPlaying.track?.compactPresentation
-            let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
-            let densityWidth = NowPlayingMetrics.widthAddition(for: compactNotchSize)
-            let hoverExpansion = appState.isHovering
-                ? NowPlayingMetrics.compactHoverWidthExpansion
-                : 0
-            let bodyW = max(baseWidth, preferredWidth + densityWidth + hoverExpansion)
-            return CGSize(
-                width: bodyW + extra,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight(for: compactNotchSize))
-            )
-        }
-        if hasEvent {
-            let bodyW = EventCountdownChipMetrics.eventOnlyContainerBodyWidth(baseWidth: baseWidth)
-            return CGSize(width: bodyW + extra, height: baseHeight)
-        }
-        if appState.isHovering {
-            return CGSize(
-                width: baseWidth + extra + NotchZoneLayout.hoverSideExpansion,
-                height: baseHeight + 10
-            )
-        }
-        return CGSize(width: baseWidth + extra, height: baseHeight)
+        )
     }
 }
 

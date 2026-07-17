@@ -47,7 +47,7 @@ struct BehaviorSettingsView: View {
                     }
                 }
 
-                Text("Wallet, Timeline, files, calendar, clipboard, notes, tasks and camera stay hidden until macOS authenticates you. NotchLand never receives biometric data.")
+                Text("Wallet, Timeline, files, calendar, clipboard, notes, tasks and camera stay hidden until macOS authenticates you. MacFlow never receives biometric data.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -112,7 +112,7 @@ struct BehaviorSettingsView: View {
                 } label: {
                     Label("Preview Incoming Call", systemImage: "phone.arrow.down.left")
                 }
-                Text("NotchLand recognizes FaceTime, iPhone call, iMessage and SMS Accessibility banners. Unrelated notification content is discarded and message text is kept only for the short on-screen animation.")
+                Text("MacFlow recognizes FaceTime, iPhone call, iMessage and SMS Accessibility banners. Unrelated notification content is discarded and message text is kept only for the short on-screen animation.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

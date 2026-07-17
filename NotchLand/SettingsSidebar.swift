@@ -9,7 +9,7 @@
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case general, widgets, wallet, calendar, behavior, appearance
+    case general, scenes, widgets, wallet, calendar, behavior, appearance
     #if DEBUG
     case debug
     #endif
@@ -20,6 +20,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .general: "General"
+        case .scenes: "Scenes"
         case .widgets: "Widgets"
         case .wallet: "Wallet"
         case .calendar: "Calendar"
@@ -35,6 +36,7 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .general: "gearshape"
+        case .scenes: "sparkles.rectangle.stack"
         case .widgets: "square.grid.2x2"
         case .wallet: "bitcoinsign.circle"
         case .calendar: "calendar"

@@ -68,7 +68,7 @@ struct FileShelfDropZoneView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("File Shelf drop zone")
-        .accessibilityHint("Drop files to keep them in NotchLand")
+        .accessibilityHint("Drop files to keep them in MacFlow")
     }
 }
 

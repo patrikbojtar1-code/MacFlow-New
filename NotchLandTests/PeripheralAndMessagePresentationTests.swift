@@ -20,4 +20,26 @@ struct PeripheralAndMessagePresentationTests {
         #expect(result?.sender == "Saša")
         #expect(result?.body == "Dorazím za pět minut")
     }
+
+    @Test func messageFingerprintCanAppearAgainAfterBannerDisappears() {
+        var gate = SystemMessageFingerprintGate(missingSnapshotLimit: 2)
+
+        let firstAppearance = gate.shouldPublish("Saša|Dorazím")
+        let duplicateAppearance = gate.shouldPublish("Saša|Dorazím")
+        let firstMissingSnapshot = gate.shouldPublish(nil)
+        let secondMissingSnapshot = gate.shouldPublish(nil)
+        let repeatedAppearance = gate.shouldPublish("Saša|Dorazím")
+
+        #expect(firstAppearance)
+        #expect(!duplicateAppearance)
+        #expect(!firstMissingSnapshot)
+        #expect(!secondMissingSnapshot)
+        #expect(repeatedAppearance)
+    }
+
+    @Test func accessibilityScannerUsesAdaptiveCadence() {
+        #expect(SystemActivityScanCadence.interval(isAvailable: false, containsActivity: false) == 2.0)
+        #expect(SystemActivityScanCadence.interval(isAvailable: true, containsActivity: false) == 0.8)
+        #expect(SystemActivityScanCadence.interval(isAvailable: true, containsActivity: true) == 0.3)
+    }
 }

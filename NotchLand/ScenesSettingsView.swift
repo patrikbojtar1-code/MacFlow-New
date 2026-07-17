@@ -12,7 +12,6 @@ import UniformTypeIdentifiers
 struct ScenesSettingsView: View {
     @EnvironmentObject private var controller: WallpaperSceneController
     @StateObject private var browser = WallpaperBrowserState()
-    @State private var presentsImporter = false
     @State private var presentsAutomation = false
     @State private var presentsNewCollection = false
     @State private var presentsSceneConfiguration = false
@@ -31,18 +30,12 @@ struct ScenesSettingsView: View {
                     title: "Build your wallpaper library",
                     detail: "Import a still image, looping video, or a safe .notchscene package.",
                     actionTitle: "Import Scene",
-                    action: { presentsImporter = true }
+                    action: presentImporter
                 )
             } else {
                 browserContent
             }
         }
-        .fileImporter(
-            isPresented: $presentsImporter,
-            allowedContentTypes: [.image, .movie, .notchLandScene],
-            allowsMultipleSelection: false,
-            onCompletion: handleImport
-        )
         .alert(
             "Wallpapers",
             isPresented: Binding(
@@ -116,12 +109,21 @@ struct ScenesSettingsView: View {
             }
 
             Menu {
-                Picker("Sort", selection: $browser.sort) {
-                    ForEach(WallpaperBrowserSort.allCases) { sort in
-                        Text(sort.title).tag(sort)
+                ForEach(WallpaperBrowserSort.allCases) { sort in
+                    Button {
+                        withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                            browser.sort = sort
+                        }
+                    } label: {
+                        Label(sort.title, systemImage: browser.sort == sort ? "checkmark" : sort.systemImage)
                     }
                 }
-            } label: { Image(systemName: "arrow.up.arrow.down") }
+            } label: {
+                Label(browser.sort.title, systemImage: "arrow.up.arrow.down")
+                    .labelStyle(.iconOnly)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Sort: \(browser.sort.title)")
@@ -162,9 +164,12 @@ struct ScenesSettingsView: View {
             .frame(width: 68)
 
             Button {
-                presentsImporter = true
+                presentImporter()
             } label: {
-                Label("Import", systemImage: "plus")
+                ViewThatFits(in: .horizontal) {
+                    Label("Import", systemImage: "plus")
+                    Image(systemName: "plus")
+                }
             }
             .buttonStyle(.borderedProminent)
             .tint(MacFlowColor.accent)
@@ -239,6 +244,8 @@ struct ScenesSettingsView: View {
                             scalingMode: .fill,
                             dimming: scene.rendering.dimming
                         )
+                        .id(scene.id)
+                        .transition(.opacity)
                         .overlay(alignment: .bottomTrailing) {
                             if scene.kind == .video {
                                 Label("Looping video", systemImage: "play.fill")
@@ -255,6 +262,8 @@ struct ScenesSettingsView: View {
                     }
                     .frame(height: 162)
                 }
+                .id(scene.id)
+                .transition(.opacity)
             } else {
                 MacFlowPanel(.grouped) {
                     MacFlowEmptyState(
@@ -274,10 +283,13 @@ struct ScenesSettingsView: View {
                 Button {
                     controller.togglePaused()
                 } label: {
-                    Label(controller.isPaused ? "Resume" : "Pause", systemImage: controller.isPaused ? "play.fill" : "pause.fill")
+                    Image(systemName: controller.isPaused ? "play.fill" : "pause.fill")
+                        .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(MacFlowColor.accent)
+                .help(controller.isPaused ? "Resume wallpaper" : "Pause wallpaper")
+                .accessibilityLabel(controller.isPaused ? "Resume wallpaper" : "Pause wallpaper")
 
                 Button {
                     controller.deactivate()
@@ -596,20 +608,44 @@ struct ScenesSettingsView: View {
         controller.apply(scene)
     }
 
+    private func presentImporter() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Wallpaper"
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [.image, .movie, .notchLandScene]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            handleImportedURL(url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func handleImportedURL(_ url: URL) {
+        isImporting = true
+        Task {
+            let imported = await controller.importAndApply(from: url)
+            isImporting = false
+            if imported {
+                browser.query = ""
+                browser.scope = .all
+                browser.selectedSceneID = controller.activeSceneID
+            }
+        }
+    }
+
     private func handleImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            isImporting = true
-            Task {
-                let imported = await controller.importAndApply(from: url)
-                isImporting = false
-                if imported {
-                    browser.query = ""
-                    browser.scope = .all
-                    browser.selectedSceneID = controller.activeSceneID
-                }
-            }
+            handleImportedURL(url)
         case .failure(let error):
             controller.errorMessage = error.localizedDescription
         }
@@ -750,49 +786,13 @@ private struct WallpaperThumbnailView: View {
     let scalingMode: WallpaperSceneRenderingConfiguration.ScalingMode
     let dimming: Double
 
-    @State private var image: NSImage?
-
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                Color.black
-                if let image {
-                    imageView(image, size: proxy.size)
-                } else {
-                    Image(systemName: scene.kind.systemImage)
-                        .font(.system(size: 24, weight: .light))
-                        .foregroundStyle(.white.opacity(0.42))
-                }
-                Color.black.opacity(dimming)
-            }
-        }
-        .clipped()
-        .task(id: url) {
-            image = NSImage(contentsOf: url)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(scene.title), \(scene.kind.displayName) wallpaper")
-    }
-
-    @ViewBuilder
-    private func imageView(_ image: NSImage, size: CGSize) -> some View {
-        switch scalingMode {
-        case .fill:
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: size.width, height: size.height)
-                .clipped()
-        case .fit:
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(width: size.width, height: size.height)
-        case .stretch:
-            Image(nsImage: image)
-                .resizable()
-                .frame(width: size.width, height: size.height)
-        }
+        WallpaperPreviewImage(
+            scene: scene,
+            url: url,
+            scalingMode: scalingMode,
+            dimming: dimming
+        )
     }
 }
 

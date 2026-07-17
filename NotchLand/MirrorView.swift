@@ -157,7 +157,7 @@ struct MirrorView: View {
             statusView(
                 symbol: "video.slash.fill",
                 title: "Camera Access Is Off",
-                detail: "Enable NotchLand in Privacy & Security → Camera"
+                detail: "Enable MacFlow in Privacy & Security → Camera"
             )
             Button("Open Camera Settings") {
                 mirror.openCameraPrivacySettings()

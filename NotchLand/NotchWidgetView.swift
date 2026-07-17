@@ -70,7 +70,9 @@ enum NotchWidget: String, CaseIterable, Identifiable {
 
 enum NotchWidgetMetrics {
     nonisolated static let expandedSize = CGSize(width: 580, height: 318)
+    nonisolated static let audioExpandedSize = CGSize(width: 580, height: 252)
     nonisolated static let contentHeight: CGFloat = 244
+    nonisolated static let audioContentHeight: CGFloat = 204
     nonisolated static let railTopInset: CGFloat = 3
     nonisolated static let railHeight: CGFloat = 38
     nonisolated static let railBottomSpacing: CGFloat = 7
@@ -110,7 +112,7 @@ struct ExpandedNotchWidgetHost: View {
                 .id("\(selection.rawValue)-\(isPrivacyLocked)")
                 .transition(reduceMotion ? .opacity : .notchSection)
                 .frame(maxWidth: .infinity)
-                .frame(height: NotchWidgetMetrics.contentHeight, alignment: .top)
+                .frame(height: effectiveContentHeight, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onChange(of: track) { _, _ in
@@ -129,6 +131,12 @@ struct ExpandedNotchWidgetHost: View {
         .onChange(of: timer.remaining) { _, _ in ensureSelectionIsVisible() }
         .onChange(of: wallet.currentContribution) { _, _ in ensureSelectionIsVisible() }
         .onAppear(perform: ensureSelectionIsVisible)
+    }
+
+    private var effectiveContentHeight: CGFloat {
+        selection == .media && track?.videoPresentation == nil
+            ? NotchWidgetMetrics.audioContentHeight
+            : NotchWidgetMetrics.contentHeight
     }
 
     @ViewBuilder

@@ -19,7 +19,11 @@ struct MacFlowHubView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            MacFlowSidebarView(selection: $selection, showsDebug: showsDebug)
+            MacFlowSidebarView(
+                selection: $selection,
+                showsDebug: showsDebug,
+                onHideSidebar: hideSidebar
+            )
                 .navigationSplitViewColumnWidth(
                     min: 168,
                     ideal: MacFlowMetrics.sidebarWidth,
@@ -31,22 +35,9 @@ struct MacFlowHubView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MacFlowColor.canvas)
                 .transition(.opacity)
-                .toolbar(removing: .sidebarToggle)
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
-                        columnVisibility = sidebarIsVisible ? .detailOnly : .all
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                }
-                .help(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
-                .accessibilityLabel(sidebarIsVisible ? "Hide Sidebar" : "Show Sidebar")
-            }
-        }
+        .toolbar(removing: .sidebarToggle)
         .frame(
             minWidth: MacFlowMetrics.minimumWindowWidth,
             idealWidth: MacFlowMetrics.idealWindowWidth,
@@ -56,16 +47,18 @@ struct MacFlowHubView: View {
         .preferredColorScheme(settings.theme.colorScheme)
     }
 
-    private var sidebarIsVisible: Bool {
-        columnVisibility != .detailOnly
-    }
-
     private var showsDebug: Bool {
         #if DEBUG
         debugMenuUnlocked
         #else
         false
         #endif
+    }
+
+    private func hideSidebar() {
+        withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+            columnVisibility = .detailOnly
+        }
     }
 
     @ViewBuilder

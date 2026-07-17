@@ -35,6 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var systemCalls = SystemCallActivitySource(calls: calls, settings: settings)
     lazy var liveActivities = LiveActivityController(settings: settings)
     lazy var systemMessages = SystemMessageActivitySource(activities: liveActivities, settings: settings)
+    lazy var systemActivityMonitor = SystemAccessibilityActivityMonitor(
+        calls: systemCalls,
+        messages: systemMessages,
+        settings: settings
+    )
     lazy var eventCenter = NotchEventCenter()
     lazy var shortcutsBridge = ShortcutsBridgeController(events: eventCenter)
     lazy var dropIntelligence = DropIntelligenceController()
@@ -93,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard !AppRuntime.isXcodePreview else { return }
+        guard AppRuntime.shouldStartApplicationServices else { return }
         NSApp.setActivationPolicy(.accessory)
         NotchIntentRuntime.shared.configure(
             appState: appState,
@@ -108,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         screenLock.start()
         systemCalls.start()
         systemMessages.start()
+        systemActivityMonitor.start()
         calendar.start()
         eventCountdown.start()
         clipboard.startMonitoring()
@@ -126,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         batteryAlerts.stop()
         focusMode.stop()
         screenLock.stop()
+        systemActivityMonitor.stop()
         systemCalls.stop()
         systemMessages.stop()
         calendar.stop()

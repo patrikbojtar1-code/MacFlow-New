@@ -268,7 +268,7 @@ private struct RealNotchMediaPreview: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var accessibilityContrast
 
-    private let hardwareWidth: CGFloat = 184
+    private let hardwareWidth: CGFloat = 179
     private let invertedRadius = FloatingNotchView.musicInvertedRadius
 
     var body: some View {
@@ -283,33 +283,54 @@ private struct RealNotchMediaPreview: View {
                 bottomCornerRadius: NotchLayoutMetrics.bottomRadius(for: size)
             )
 
-            ZStack(alignment: .bottom) {
-                shape.fill(.black)
-                CompactMediaContent(
-                    presentation: presentation,
-                    processedBackground: Self.previewBackground,
-                    backgroundIdentity: "macflow-notch-preview",
-                    hardwareNotchWidth: hardwareWidth,
-                    notchSize: size,
-                    isHovering: false,
-                    revealsContent: true,
-                    accessibilityContrast: accessibilityContrast,
-                    reduceMotion: reduceMotion,
-                    onPlayPause: {}
+            ZStack(alignment: .top) {
+                LinearGradient(
+                    colors: [Color(nsColor: .windowBackgroundColor), MacFlowColor.notch.opacity(0.11)],
+                    startPoint: .bottomLeading,
+                    endPoint: .topTrailing
                 )
-                .frame(width: bodyWidth, height: height)
+
+                Rectangle()
+                    .fill(.black.opacity(0.94))
+                    .frame(height: 18)
+
+                ZStack(alignment: .bottom) {
+                    shape.fill(.black)
+                    CompactMediaContent(
+                        presentation: presentation,
+                        processedBackground: Self.previewBackground,
+                        backgroundIdentity: "macflow-notch-preview",
+                        hardwareNotchWidth: hardwareWidth,
+                        notchSize: size,
+                        isHovering: false,
+                        revealsContent: true,
+                        accessibilityContrast: accessibilityContrast,
+                        reduceMotion: reduceMotion,
+                        onPlayPause: {}
+                    )
+                    .frame(width: bodyWidth, height: height)
+                }
+                .frame(width: outerWidth, height: height)
+                .clipShape(shape)
+                .scaleEffect(previewScale, anchor: .top)
+                .frame(width: outerWidth * previewScale, height: height * previewScale)
+
+                HStack(spacing: 5) {
+                    Image(systemName: "macbook")
+                    Text("13-inch hardware fit · 179 × 32 pt")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .padding(.bottom, MacFlowSpacing.space8)
             }
-            .frame(width: outerWidth, height: height)
-            .clipShape(shape)
-            .scaleEffect(previewScale, anchor: .center)
-            .frame(width: outerWidth * previewScale, height: height * previewScale)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .clipShape(RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
+                    .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+            }
             .animation(AppMotion.emphasized(reduceMotion: reduceMotion), value: size)
         }
-        .background(
-            MacFlowColor.canvas,
-            in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
-        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Real notch media preview")
         .accessibilityValue("\(size.title) content size")

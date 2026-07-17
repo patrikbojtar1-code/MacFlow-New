@@ -33,7 +33,7 @@
 
 /* Begin PBXFileReference section */
 		AB10000000000000000000F2 /* NotchLandTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchLandTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F5F14C4D2FAA36310071784D /* NotchLand.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchLand.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F5F14C4D2FAA36310071784D /* MacFlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacFlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -77,7 +77,7 @@
 		F5F14C4E2FAA36310071784D /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				F5F14C4D2FAA36310071784D /* NotchLand.app */,
+				F5F14C4D2FAA36310071784D /* MacFlow.app */,
 				AB10000000000000000000F2 /* NotchLandTests.xctest */,
 			);
 			name = Products;
@@ -126,7 +126,7 @@
 				AB20000000000000000000E2 /* Sparkle */,
 			);
 			productName = NotchLand;
-			productReference = F5F14C4D2FAA36310071784D /* NotchLand.app */;
+			productReference = F5F14C4D2FAA36310071784D /* MacFlow.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -223,7 +223,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NotchLand.app/Contents/MacOS/NotchLand";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MacFlow.app/Contents/MacOS/MacFlow";
 			};
 			name = Debug;
 		};
@@ -243,7 +243,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NotchLand.app/Contents/MacOS/NotchLand";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MacFlow.app/Contents/MacOS/MacFlow";
 			};
 			name = Release;
 		};
@@ -381,11 +381,11 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacFlow;
 				INFOPLIST_KEY_CFBundleName = MacFlow;
 				INFOPLIST_KEY_LSUIElement = NO;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "NotchLand uses the camera only for Mirror or an explicit local Face Unlock attempt. Camera frames are never uploaded or stored.";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NotchLand reads the current TV episode metadata to show the series, season, and episode in the notch.";
-				INFOPLIST_KEY_NSFocusStatusUsageDescription = "NotchLand uses Focus status to show a notch alert when Focus turns on.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "MacFlow uses the camera only for the Mirror module. Camera frames are never uploaded or stored.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacFlow reads the current TV episode metadata to show the series, season, and episode in the notch.";
+				INFOPLIST_KEY_NSFocusStatusUsageDescription = "MacFlow uses Focus status to show a notch alert when Focus turns on.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Rudra Shah. Licensed under the Apache License 2.0.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -393,7 +393,8 @@
 				);
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rudrashah.NotchLand;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = NotchLand;
+				PRODUCT_NAME = MacFlow;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG NOTCHLAND_ENABLE_DEBUG_UI";
@@ -423,11 +424,11 @@
 				INFOPLIST_KEY_CFBundleDisplayName = MacFlow;
 				INFOPLIST_KEY_CFBundleName = MacFlow;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
-				INFOPLIST_KEY_NSCalendarsUsageDescription = "NotchLand uses Calendar access to show today's events in the notch.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "NotchLand uses the camera only for Mirror or an explicit local Face Unlock attempt. Camera frames are never uploaded or stored.";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "NotchLand reads the current TV episode metadata to show the series, season, and episode in the notch.";
-				INFOPLIST_KEY_NSFocusStatusUsageDescription = "NotchLand uses Focus status to show a notch alert when Focus turns on.";
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
+				INFOPLIST_KEY_NSCalendarsUsageDescription = "MacFlow uses Calendar access to show today's events in the notch.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "MacFlow uses the camera only for the Mirror module. Camera frames are never uploaded or stored.";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacFlow reads the current TV episode metadata to show the series, season, and episode in the notch.";
+				INFOPLIST_KEY_NSFocusStatusUsageDescription = "MacFlow uses Focus status to show a notch alert when Focus turns on.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Rudra Shah. Licensed under the Apache License 2.0.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -435,7 +436,8 @@
 				);
 				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.rudrashah.NotchLand;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = NotchLand;
+				PRODUCT_NAME = MacFlow;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

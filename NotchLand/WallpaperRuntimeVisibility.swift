@@ -31,7 +31,9 @@ nonisolated enum WallpaperFullscreenDetector {
                   window.alpha > 0.01 else { return false }
 
             return displayFrames.contains { display in
-                abs(window.bounds.width - display.width) <= dimensionTolerance
+                abs(window.bounds.minX - display.minX) <= dimensionTolerance
+                    && abs(window.bounds.minY - display.minY) <= dimensionTolerance
+                    && abs(window.bounds.width - display.width) <= dimensionTolerance
                     && abs(window.bounds.height - display.height) <= dimensionTolerance
             }
         }
@@ -47,8 +49,8 @@ nonisolated enum WallpaperFullscreenDetector {
             guard let ownerPID = info[kCGWindowOwnerPID as String] as? NSNumber,
                   let layer = info[kCGWindowLayer as String] as? NSNumber,
                   let alpha = info[kCGWindowAlpha as String] as? NSNumber,
-                  let rawBounds = info[kCGWindowBounds as String],
-                  let bounds = CGRect(dictionaryRepresentation: rawBounds as! CFDictionary) else {
+                  let rawBounds = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: rawBounds as CFDictionary) else {
                 return nil
             }
             return WallpaperWindowSnapshot(

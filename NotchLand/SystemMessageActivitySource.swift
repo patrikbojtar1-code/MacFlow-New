@@ -1,5 +1,3 @@
-import AppKit
-import ApplicationServices
 import Foundation
 
 nonisolated enum SystemMessageWindowClassifier {
@@ -30,12 +28,43 @@ nonisolated enum SystemMessageWindowClassifier {
     }
 }
 
+nonisolated struct SystemMessageFingerprintGate {
+    private let missingSnapshotLimit: Int
+    private(set) var lastFingerprint: String?
+    private var missingSnapshots = 0
+
+    init(missingSnapshotLimit: Int = 2) {
+        self.missingSnapshotLimit = max(1, missingSnapshotLimit)
+    }
+
+    mutating func shouldPublish(_ fingerprint: String?) -> Bool {
+        guard let fingerprint else {
+            guard lastFingerprint != nil else { return false }
+            missingSnapshots += 1
+            if missingSnapshots >= missingSnapshotLimit {
+                lastFingerprint = nil
+                missingSnapshots = 0
+            }
+            return false
+        }
+
+        missingSnapshots = 0
+        guard fingerprint != lastFingerprint else { return false }
+        lastFingerprint = fingerprint
+        return true
+    }
+
+    mutating func reset() {
+        lastFingerprint = nil
+        missingSnapshots = 0
+    }
+}
+
 @MainActor
 final class SystemMessageActivitySource {
     private let activities: LiveActivityController
     private let settings: NotchSettings
-    private var timer: Timer?
-    private var lastFingerprint: String?
+    private var fingerprintGate = SystemMessageFingerprintGate()
     private var dismissTask: Task<Void, Never>?
 
     init(activities: LiveActivityController, settings: NotchSettings) {
@@ -43,33 +72,27 @@ final class SystemMessageActivitySource {
         self.settings = settings
     }
 
-    func start() {
-        guard timer == nil else { return }
-        let timer = Timer(timeInterval: 0.65, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
-        }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
+    func start() {}
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         dismissTask?.cancel()
+        dismissTask = nil
+        fingerprintGate.reset()
     }
 
-    private func poll() {
-        guard settings.systemCallDetectionEnabled, AXIsProcessTrusted() else { return }
-        guard let application = NSWorkspace.shared.runningApplications.first(where: {
-            ($0.bundleIdentifier ?? "").lowercased().contains("notificationcenter")
-        }) else { return }
-        let app = AXUIElementCreateApplication(application.processIdentifier)
-        for window in elements(kAXWindowsAttribute, from: app) {
-            let values = readableText(in: window)
-            guard let result = SystemMessageWindowClassifier.classify(textValues: values) else { continue }
+    func consume(
+        snapshot: SystemAccessibilityActivitySnapshot,
+        isAccessibilityTrusted: Bool
+    ) {
+        guard settings.systemCallDetectionEnabled, isAccessibilityTrusted else {
+            registerMissingSnapshot()
+            return
+        }
+
+        for window in snapshot.windows where window.ownerBundleIdentifier.contains("notificationcenter") {
+            guard let result = SystemMessageWindowClassifier.classify(textValues: window.textValues) else { continue }
             let fingerprint = "\(result.sender)|\(result.body)"
-            guard fingerprint != lastFingerprint else { return }
-            lastFingerprint = fingerprint
+            guard fingerprintGate.shouldPublish(fingerprint) else { return }
             let activity = LiveActivity(
                 kind: .message(sender: result.sender),
                 title: result.sender,
@@ -85,35 +108,10 @@ final class SystemMessageActivitySource {
             }
             return
         }
+        registerMissingSnapshot()
     }
 
-    private func readableText(in root: AXUIElement) -> [String] {
-        var queue: [(AXUIElement, Int)] = [(root, 0)]
-        var result: [String] = []
-        var index = 0
-        while index < queue.count, index < 220 {
-            let (element, depth) = queue[index]
-            index += 1
-            if let role = string(kAXRoleAttribute, from: element),
-               role == kAXStaticTextRole as String || role == kAXHeadingRole as String {
-                for attribute in [kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute] {
-                    if let value = string(attribute, from: element), !result.contains(value) { result.append(value) }
-                }
-            }
-            if depth < 8 { queue.append(contentsOf: elements(kAXChildrenAttribute, from: element).map { ($0, depth + 1) }) }
-        }
-        return result
-    }
-
-    private func string(_ attribute: String, from element: AXUIElement) -> String? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
-        return value as? String
-    }
-
-    private func elements(_ attribute: String, from element: AXUIElement) -> [AXUIElement] {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return [] }
-        return value as? [AXUIElement] ?? []
+    private func registerMissingSnapshot() {
+        _ = fingerprintGate.shouldPublish(nil)
     }
 }

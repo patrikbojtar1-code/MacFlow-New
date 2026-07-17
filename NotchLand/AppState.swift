@@ -26,7 +26,7 @@ nonisolated final class AppState: ObservableObject {
     /// Delay before hover triggers full expansion, so the small "peek" scale is visible first.
     /// Two-stage intent hover: zones appear first, then a sustained hover opens
     /// the full panel. This leaves enough time to choose a side zone.
-    static let hoverExpandDelay: TimeInterval = 0.75
+    static let hoverExpandDelay: TimeInterval = 0.42
 
     @Published var isExpanded: Bool = false
     @Published var isHovering: Bool = false

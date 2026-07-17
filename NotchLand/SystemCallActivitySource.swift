@@ -96,75 +96,74 @@ nonisolated enum SystemCallWindowClassifier {
     }
 }
 
-@MainActor
-protocol SystemCallScanning {
-    func detectCall() -> SystemCallDetection?
+nonisolated struct SystemAccessibilityApplicationDescriptor: Sendable {
+    let processIdentifier: pid_t
+    let bundleIdentifier: String
+    let localizedName: String
 }
 
-@MainActor
-final class AccessibilitySystemCallScanner: SystemCallScanning {
-    private final class ButtonAction {
-        let element: AXUIElement
+/// AXUIElement is an immutable Core Foundation reference. Access is confined to
+/// the background scanner except for the explicit press action, which is
+/// performed on MainActor in response to a user click.
+nonisolated final class SystemAccessibilityPressHandle: @unchecked Sendable {
+    private let element: AXUIElement
 
-        init(element: AXUIElement) {
-            self.element = element
-        }
-
-        func perform() {
-            _ = AXUIElementPerformAction(element, kAXPressAction as CFString)
-        }
+    init(element: AXUIElement) {
+        self.element = element
     }
 
-    private struct WindowSnapshot {
-        var textValues: [String] = []
-        var buttons: [(label: String, element: AXUIElement)] = []
+    @MainActor
+    func perform() {
+        _ = AXUIElementPerformAction(element, kAXPressAction as CFString)
     }
+}
 
-    private static let candidateBundleFragments = [
-        "facetime", "notificationcenter", "usernotification", "continuity", "callui",
-    ]
-    private static let candidateNameFragments = [
-        "facetime", "notification center", "notificationcenter", "continuity",
-    ]
+nonisolated struct SystemAccessibilityButtonSnapshot: Sendable {
+    let label: String
+    let pressHandle: SystemAccessibilityPressHandle
+}
+
+nonisolated struct SystemAccessibilityWindowSnapshot: Sendable {
+    let ownerBundleIdentifier: String
+    let ownerName: String
+    let textValues: [String]
+    let buttons: [SystemAccessibilityButtonSnapshot]
+}
+
+nonisolated struct SystemAccessibilityActivitySnapshot: Sendable {
+    let windows: [SystemAccessibilityWindowSnapshot]
+
+    static let empty = SystemAccessibilityActivitySnapshot(windows: [])
+}
+
+/// Performs the blocking Accessibility traversal away from MainActor. One
+/// snapshot feeds both call and message classification, preventing duplicate
+/// walks over Notification Center's accessibility tree.
+actor SystemAccessibilitySnapshotScanner {
     private static let maximumElementsPerWindow = 260
     private static let maximumTreeDepth = 9
+    private static let maximumWindowsPerApplication = 12
 
-    func detectCall() -> SystemCallDetection? {
-        guard AXIsProcessTrusted() else { return nil }
-
-        for application in NSWorkspace.shared.runningApplications where isCandidate(application) {
+    func scan(
+        applications: [SystemAccessibilityApplicationDescriptor]
+    ) -> SystemAccessibilityActivitySnapshot {
+        var windows: [SystemAccessibilityWindowSnapshot] = []
+        for application in applications {
             let appElement = AXUIElementCreateApplication(application.processIdentifier)
-            let windows = elementArrayAttribute(kAXWindowsAttribute, from: appElement)
-            for window in windows {
-                let snapshot = snapshot(of: window)
-                guard let result = SystemCallWindowClassifier.classify(
-                    textValues: snapshot.textValues,
-                    buttonLabels: snapshot.buttons.map(\.label),
-                    ownerName: application.localizedName ?? ""
-                ) else { continue }
-
-                let answer = result.answerButtonIndex.flatMap { snapshot.buttons[safe: $0]?.element }
-                let decline = result.declineButtonIndex.flatMap { snapshot.buttons[safe: $0]?.element }
-                return SystemCallDetection(
-                    callerName: result.callerName,
-                    serviceName: result.serviceName,
-                    answerAction: answer.map(action(for:)),
-                    declineAction: decline.map(action(for:))
-                )
+            for window in elementArrayAttribute(kAXWindowsAttribute, from: appElement)
+                .prefix(Self.maximumWindowsPerApplication) {
+                windows.append(snapshot(of: window, owner: application))
             }
         }
-        return nil
+        return SystemAccessibilityActivitySnapshot(windows: windows)
     }
 
-    private func isCandidate(_ application: NSRunningApplication) -> Bool {
-        let bundle = application.bundleIdentifier?.lowercased() ?? ""
-        let name = application.localizedName?.lowercased() ?? ""
-        return Self.candidateBundleFragments.contains(where: bundle.contains)
-            || Self.candidateNameFragments.contains(where: name.contains)
-    }
-
-    private func snapshot(of root: AXUIElement) -> WindowSnapshot {
-        var result = WindowSnapshot()
+    private func snapshot(
+        of root: AXUIElement,
+        owner: SystemAccessibilityApplicationDescriptor
+    ) -> SystemAccessibilityWindowSnapshot {
+        var textValues: [String] = []
+        var buttons: [SystemAccessibilityButtonSnapshot] = []
         var queue: [(AXUIElement, Int)] = [(root, 0)]
         var index = 0
 
@@ -175,10 +174,15 @@ final class AccessibilitySystemCallScanner: SystemCallScanning {
             let role = stringAttribute(kAXRoleAttribute, from: element) ?? ""
             let values = readableStrings(from: element)
             if role == kAXStaticTextRole as String || role == kAXHeadingRole as String {
-                result.textValues.append(contentsOf: values)
+                textValues.append(contentsOf: values)
             } else if role == kAXButtonRole as String {
                 let label = values.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-                result.buttons.append((label.isEmpty ? "button" : label, element))
+                buttons.append(
+                    SystemAccessibilityButtonSnapshot(
+                        label: label.isEmpty ? "button" : label,
+                        pressHandle: SystemAccessibilityPressHandle(element: element)
+                    )
+                )
             }
 
             if depth < Self.maximumTreeDepth {
@@ -186,8 +190,12 @@ final class AccessibilitySystemCallScanner: SystemCallScanning {
             }
         }
 
-        result.textValues = result.textValues.uniquedCallStrings()
-        return result
+        return SystemAccessibilityWindowSnapshot(
+            ownerBundleIdentifier: owner.bundleIdentifier,
+            ownerName: owner.localizedName,
+            textValues: textValues.uniquedCallStrings(),
+            buttons: buttons
+        )
     }
 
     private func readableStrings(from element: AXUIElement) -> [String] {
@@ -209,10 +217,105 @@ final class AccessibilitySystemCallScanner: SystemCallScanning {
               let values = value as? [AXUIElement] else { return [] }
         return values
     }
+}
 
-    private func action(for element: AXUIElement) -> @MainActor @Sendable () -> Void {
-        let action = ButtonAction(element: element)
-        return { action.perform() }
+nonisolated enum SystemActivityScanCadence {
+    static let active: TimeInterval = 0.30
+    static let idle: TimeInterval = 0.80
+    static let unavailable: TimeInterval = 2.0
+
+    static func interval(isAvailable: Bool, containsActivity: Bool) -> TimeInterval {
+        guard isAvailable else { return unavailable }
+        return containsActivity ? active : idle
+    }
+}
+
+@MainActor
+final class SystemAccessibilityActivityMonitor {
+    private static let candidateBundleFragments = [
+        "facetime", "notificationcenter", "usernotification", "continuity", "callui",
+    ]
+    private static let candidateNameFragments = [
+        "facetime", "notification center", "notificationcenter", "continuity",
+    ]
+
+    private let calls: SystemCallActivitySource
+    private let messages: SystemMessageActivitySource
+    private let settings: NotchSettings
+    private let scanner: SystemAccessibilitySnapshotScanner
+    private var monitoringTask: Task<Void, Never>?
+
+    init(
+        calls: SystemCallActivitySource,
+        messages: SystemMessageActivitySource,
+        settings: NotchSettings,
+        scanner: SystemAccessibilitySnapshotScanner = SystemAccessibilitySnapshotScanner()
+    ) {
+        self.calls = calls
+        self.messages = messages
+        self.settings = settings
+        self.scanner = scanner
+    }
+
+    func start() {
+        guard monitoringTask == nil else { return }
+        monitoringTask = Task { @MainActor [weak self] in
+            await self?.monitor()
+        }
+    }
+
+    func stop() {
+        monitoringTask?.cancel()
+        monitoringTask = nil
+        calls.consume(snapshot: .empty, isAccessibilityTrusted: AXIsProcessTrusted())
+        messages.consume(snapshot: .empty, isAccessibilityTrusted: AXIsProcessTrusted())
+    }
+
+    private func monitor() async {
+        while !Task.isCancelled {
+            let trusted = AXIsProcessTrusted()
+            let isAvailable = settings.systemCallDetectionEnabled && trusted
+            calls.updatePermissionStatus(isTrusted: trusted)
+
+            let snapshot: SystemAccessibilityActivitySnapshot
+            if isAvailable {
+                snapshot = await scanner.scan(applications: candidateApplications())
+                guard !Task.isCancelled else { return }
+            } else {
+                snapshot = .empty
+            }
+
+            calls.consume(snapshot: snapshot, isAccessibilityTrusted: trusted)
+            messages.consume(snapshot: snapshot, isAccessibilityTrusted: trusted)
+
+            let containsActivity = snapshot.windows.contains { window in
+                SystemCallWindowClassifier.classify(
+                    textValues: window.textValues,
+                    buttonLabels: window.buttons.map(\.label),
+                    ownerName: window.ownerName
+                ) != nil || SystemMessageWindowClassifier.classify(textValues: window.textValues) != nil
+            }
+            let delay = SystemActivityScanCadence.interval(
+                isAvailable: isAvailable,
+                containsActivity: containsActivity
+            )
+            try? await Task.sleep(for: .seconds(delay))
+        }
+    }
+
+    private func candidateApplications() -> [SystemAccessibilityApplicationDescriptor] {
+        NSWorkspace.shared.runningApplications.compactMap { application in
+            let bundle = application.bundleIdentifier?.lowercased() ?? ""
+            let name = application.localizedName?.lowercased() ?? ""
+            let isCandidate = Self.candidateBundleFragments.contains(where: bundle.contains)
+                || Self.candidateNameFragments.contains(where: name.contains)
+            guard isCandidate else { return nil }
+            return SystemAccessibilityApplicationDescriptor(
+                processIdentifier: application.processIdentifier,
+                bundleIdentifier: bundle,
+                localizedName: application.localizedName ?? ""
+            )
+        }
     }
 }
 
@@ -221,47 +324,26 @@ final class SystemCallActivitySource: ObservableObject {
     @Published private(set) var isAccessibilityTrusted = AXIsProcessTrusted()
     @Published private(set) var hasRequestedAccessibilityThisRun = false
 
-    private static let pollInterval: TimeInterval = 0.35
     private static let missingPollLimit = 3
 
     private let calls: CallActivityController
     private let settings: NotchSettings
-    private let scanner: any SystemCallScanning
-    private var timer: Timer?
     private var activeFingerprint: String?
     private var activeCallID: UUID?
     private var missingPolls = 0
 
-    convenience init(calls: CallActivityController, settings: NotchSettings) {
-        self.init(calls: calls, settings: settings, scanner: AccessibilitySystemCallScanner())
-    }
-
-    init(
-        calls: CallActivityController,
-        settings: NotchSettings,
-        scanner: any SystemCallScanning
-    ) {
+    init(calls: CallActivityController, settings: NotchSettings) {
         self.calls = calls
         self.settings = settings
-        self.scanner = scanner
     }
 
     func start() {
-        guard timer == nil else { return }
         // Never show the system consent dialog automatically on launch. The
         // prompt is reserved for an explicit user action in Settings/onboarding.
         refreshPermissionStatus()
-        poll()
-        let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
-        }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         activeFingerprint = nil
         activeCallID = nil
         missingPolls = 0
@@ -279,15 +361,23 @@ final class SystemCallActivitySource: ObservableObject {
         isAccessibilityTrusted = AXIsProcessTrusted()
     }
 
-    private func poll() {
-        let trusted = AXIsProcessTrusted()
-        if trusted != isAccessibilityTrusted { isAccessibilityTrusted = trusted }
+    func updatePermissionStatus(isTrusted: Bool) {
+        if isTrusted != isAccessibilityTrusted {
+            isAccessibilityTrusted = isTrusted
+        }
+    }
+
+    func consume(
+        snapshot: SystemAccessibilityActivitySnapshot,
+        isAccessibilityTrusted trusted: Bool
+    ) {
+        updatePermissionStatus(isTrusted: trusted)
         guard settings.systemCallDetectionEnabled, trusted else {
             resetDetectionState(dismissIncoming: false)
             return
         }
 
-        if let detection = scanner.detectCall() {
+        if let detection = detection(in: snapshot) {
             missingPolls = 0
             guard detection.fingerprint != activeFingerprint else { return }
             activeFingerprint = detection.fingerprint
@@ -308,6 +398,26 @@ final class SystemCallActivitySource: ObservableObject {
                 resetDetectionState(dismissIncoming: false)
             }
         }
+    }
+
+    private func detection(in snapshot: SystemAccessibilityActivitySnapshot) -> SystemCallDetection? {
+        for window in snapshot.windows {
+            guard let result = SystemCallWindowClassifier.classify(
+                textValues: window.textValues,
+                buttonLabels: window.buttons.map(\.label),
+                ownerName: window.ownerName
+            ) else { continue }
+
+            let answer = result.answerButtonIndex.flatMap { window.buttons[safe: $0]?.pressHandle }
+            let decline = result.declineButtonIndex.flatMap { window.buttons[safe: $0]?.pressHandle }
+            return SystemCallDetection(
+                callerName: result.callerName,
+                serviceName: result.serviceName,
+                answerAction: answer.map { handle in { handle.perform() } },
+                declineAction: decline.map { handle in { handle.perform() } }
+            )
+        }
+        return nil
     }
 
     private func resetDetectionState(dismissIncoming: Bool) {

@@ -7,6 +7,7 @@
 
 import AppKit
 import AVFoundation
+import ImageIO
 import QuartzCore
 
 @MainActor
@@ -38,9 +39,15 @@ final class WallpaperSceneWindow: NSWindow {
         scene: WallpaperScene,
         assetURL: URL,
         profile: WallpaperPerformanceProfile,
-        paused: Bool
+        paused: Bool,
+        onReady: (@MainActor () -> Void)? = nil
     ) {
-        rendererView.display(scene: scene, assetURL: assetURL, profile: profile)
+        rendererView.display(
+            scene: scene,
+            assetURL: assetURL,
+            profile: profile,
+            onReady: onReady
+        )
         rendererView.setPaused(paused)
         orderFrontRegardless()
     }
@@ -73,6 +80,7 @@ private final class WallpaperSceneRenderView: NSView {
     private var imageLayer: CALayer?
     private var currentAssetURL: URL?
     private var currentKind: WallpaperScene.Kind?
+    private var imageLoadTask: Task<Void, Never>?
     private var currentRendering = WallpaperSceneRenderingConfiguration.default
     private let dimmingLayer = CALayer()
 
@@ -101,11 +109,13 @@ private final class WallpaperSceneRenderView: NSView {
     func display(
         scene: WallpaperScene,
         assetURL: URL,
-        profile: WallpaperPerformanceProfile
+        profile: WallpaperPerformanceProfile,
+        onReady: (@MainActor () -> Void)? = nil
     ) {
         if currentAssetURL == assetURL, currentKind == scene.kind {
             update(profile: profile)
             update(rendering: scene.rendering)
+            Task { @MainActor in onReady?() }
             return
         }
 
@@ -116,9 +126,10 @@ private final class WallpaperSceneRenderView: NSView {
 
         switch scene.kind {
         case .image:
-            displayImage(at: assetURL)
+            displayImage(at: assetURL, onReady: onReady)
         case .video:
             displayVideo(at: assetURL, profile: profile)
+            Task { @MainActor in onReady?() }
         }
         update(rendering: currentRendering, animated: false)
     }
@@ -150,6 +161,8 @@ private final class WallpaperSceneRenderView: NSView {
     }
 
     func stop() {
+        imageLoadTask?.cancel()
+        imageLoadTask = nil
         player?.pause()
         looper?.disableLooping()
         looper = nil
@@ -162,20 +175,29 @@ private final class WallpaperSceneRenderView: NSView {
         currentKind = nil
     }
 
-    private func displayImage(at url: URL) {
-        guard let image = NSImage(contentsOf: url) else { return }
-        var proposedRect = CGRect(origin: .zero, size: image.size)
-        guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
-            return
-        }
+    private func displayImage(at url: URL, onReady: (@MainActor () -> Void)?) {
+        imageLoadTask?.cancel()
+        imageLoadTask = Task { @MainActor [weak self] in
+            let cgImage: CGImage? = await Task.detached(priority: .userInitiated) {
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+                return CGImageSourceCreateImageAtIndex(
+                    source,
+                    0,
+                    [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+                )
+            }.value
+            guard let self, !Task.isCancelled, self.currentAssetURL == url, let cgImage else { return }
 
-        let imageLayer = CALayer()
-        imageLayer.contents = cgImage
-        imageLayer.contentsGravity = .resizeAspectFill
-        imageLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        imageLayer.frame = bounds
-        layer?.insertSublayer(imageLayer, below: dimmingLayer)
-        self.imageLayer = imageLayer
+            let imageLayer = CALayer()
+            imageLayer.contents = cgImage
+            imageLayer.contentsGravity = .resizeAspectFill
+            imageLayer.contentsScale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            imageLayer.frame = self.bounds
+            self.layer?.insertSublayer(imageLayer, below: self.dimmingLayer)
+            self.imageLayer = imageLayer
+            self.imageLoadTask = nil
+            onReady?()
+        }
     }
 
     private func displayVideo(at url: URL, profile: WallpaperPerformanceProfile) {

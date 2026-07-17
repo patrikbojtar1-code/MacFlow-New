@@ -60,6 +60,8 @@ final class WallpaperSceneController: ObservableObject {
     private var automationTask: Task<Void, Never>?
     private var transitionTask: Task<Void, Never>?
     private var renderingPersistenceTask: Task<Void, Never>?
+    private var transitionGeneration = UUID()
+    private var crossfadeStartedGeneration: UUID?
     private var lastRotationDate = Date.distantPast
     private var cancellables: Set<AnyCancellable> = []
     private var libraryCancellable: AnyCancellable?
@@ -404,38 +406,86 @@ final class WallpaperSceneController: ObservableObject {
         on screensByID: [CGDirectDisplayID: NSScreen]
     ) {
         finishRetiringWindows()
+        transitionGeneration = UUID()
+        let generation = transitionGeneration
+        crossfadeStartedGeneration = nil
 
         let oldWindows = Array(windows.values)
         let assetURL = library.assetURL(for: scene)
         var nextWindows: [CGDirectDisplayID: WallpaperSceneWindow] = [:]
+        var readyDisplayIDs = Set<CGDirectDisplayID>()
 
         for (displayID, screen) in screensByID {
             let window = WallpaperSceneWindow(screen: screen)
             window.alphaValue = 0
+            nextWindows[displayID] = window
+        }
+
+        for (displayID, window) in nextWindows {
             window.display(
                 scene: scene,
                 assetURL: assetURL,
                 profile: performance.effectiveProfile,
-                paused: shouldPause(scene: scene)
+                paused: shouldPause(scene: scene),
+                onReady: { [weak self, weak window] in
+                    guard let self, let window,
+                          self.transitionGeneration == generation,
+                          self.windows[displayID] === window else { return }
+                    readyDisplayIDs.insert(displayID)
+                    guard readyDisplayIDs.count == nextWindows.count else { return }
+                    self.beginCrossfade(
+                        nextWindows: Array(nextWindows.values),
+                        oldWindows: oldWindows,
+                        generation: generation
+                    )
+                }
             )
-            nextWindows[displayID] = window
         }
 
         windows = nextWindows
         retiringWindows = oldWindows
         isRunning = !nextWindows.isEmpty
 
+        // Still images decode off the main actor. The old wallpaper stays fully
+        // visible until every display has a ready frame, avoiding the black flash
+        // and stutter caused by animating an empty replacement window.
+        if nextWindows.isEmpty {
+            finishRetiringWindows()
+        } else {
+            transitionTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(420))
+                guard let self, !Task.isCancelled, self.transitionGeneration == generation else { return }
+                self.beginCrossfade(
+                    nextWindows: Array(nextWindows.values),
+                    oldWindows: oldWindows,
+                    generation: generation
+                )
+            }
+        }
+    }
+
+    private func beginCrossfade(
+        nextWindows: [WallpaperSceneWindow],
+        oldWindows: [WallpaperSceneWindow],
+        generation: UUID
+    ) {
+        guard transitionGeneration == generation,
+              crossfadeStartedGeneration != generation else { return }
+        crossfadeStartedGeneration = generation
+        transitionTask?.cancel()
+        transitionTask = nil
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Timing.crossfadeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
-            nextWindows.values.forEach { $0.animator().alphaValue = 1 }
+            nextWindows.forEach { $0.animator().alphaValue = 1 }
             oldWindows.forEach { $0.animator().alphaValue = 0 }
         }
 
         transitionTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Timing.crossfadeDuration + 0.08))
             guard let self, !Task.isCancelled else { return }
+            guard self.transitionGeneration == generation else { return }
             self.finishRetiringWindows()
         }
     }

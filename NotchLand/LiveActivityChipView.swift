@@ -6,10 +6,10 @@
 import SwiftUI
 
 enum LiveActivityChipMetrics {
-    nonisolated static let flankWidth: CGFloat = 520
-    nonisolated static let compactSize = CGSize(width: 520, height: 50)
-    nonisolated static let mediumSize = CGSize(width: 700, height: 78)
-    nonisolated static let largeSize = CGSize(width: 760, height: 90)
+    nonisolated static let flankWidth: CGFloat = 440
+    nonisolated static let compactSize = CGSize(width: 440, height: 46)
+    nonisolated static let mediumSize = CGSize(width: 620, height: 70)
+    nonisolated static let largeSize = CGSize(width: 720, height: 84)
 
     nonisolated static func size(for notchSize: NotchSize) -> CGSize {
         switch notchSize {

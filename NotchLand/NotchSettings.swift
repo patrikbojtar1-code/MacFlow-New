@@ -40,8 +40,9 @@ nonisolated final class NotchSettings: ObservableObject {
         static let launchAtLogin = false
         static let showMenuBarItem = true
 
-        static let collapsedWidth: Double = 184 // ideal 184
-        static let collapsedHeight: Double = 32 //ideal 32
+        // Measured safe-area exclusion on the 13-inch M4 MacBook Air.
+        static let collapsedWidth: Double = 179
+        static let collapsedHeight: Double = 32
         static let expandedWidth: Double = 520
         static let expandedHeight: Double = 140
         static let notchContentSize: NotchSize = .small

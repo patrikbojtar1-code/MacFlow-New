@@ -9,27 +9,32 @@ import AppKit
 import SwiftUI
 
 enum WallpaperSceneNotchMetrics {
-    nonisolated static let compactSize = CGSize(width: 520, height: 50)
-    nonisolated static let mediumSize = CGSize(width: 700, height: 78)
-    nonisolated static let largeSize = CGSize(width: 760, height: 90)
+    nonisolated static let compactSize = CGSize(width: 440, height: 46)
+    nonisolated static let mediumSize = CGSize(width: 620, height: 70)
+    nonisolated static let largeSize = CGSize(width: 720, height: 84)
     nonisolated static let dropSize = CGSize(width: 360, height: 138)
 
-    nonisolated static func size(for notchSize: NotchSize) -> CGSize {
-        switch notchSize {
+    nonisolated static func size(for notchSize: NotchSize, isHovering: Bool = false) -> CGSize {
+        let base = switch notchSize {
         case .small: compactSize
         case .medium: mediumSize
         case .large: largeSize
         }
+        guard isHovering else { return base }
+        return CGSize(
+            width: base.width + NotchLayoutMetrics.hoverWidthExpansion,
+            height: base.height + NotchLayoutMetrics.hoverHeightExpansion
+        )
     }
 }
 
 struct WallpaperSceneCompactView: View {
     let scene: WallpaperScene
+    let isHovering: Bool
 
     @EnvironmentObject private var settings: NotchSettings
     @EnvironmentObject private var controller: WallpaperSceneController
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var animatesScene = false
 
     private var notchSize: NotchSize {
         settings.notchContentSize
@@ -49,12 +54,7 @@ struct WallpaperSceneCompactView: View {
             controlWing
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(NotchAmbientMotion.pulse(reduceMotion: reduceMotion)) {
-                animatesScene = true
-            }
-        }
+        .animation(AppMotion.interaction(reduceMotion: reduceMotion), value: isHovering)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Wallpaper scene, \(scene.title)")
         .accessibilityValue(accessibilityValue)
@@ -64,8 +64,8 @@ struct WallpaperSceneCompactView: View {
         HStack(spacing: notchSize == .small ? 9 : 12) {
             scenePreview
                 .frame(
-                    width: notchSize == .small ? 30 : 46,
-                    height: notchSize == .small ? 30 : 46
+                    width: notchSize == .small ? 28 : 44,
+                    height: notchSize == .small ? 28 : 44
                 )
                 .clipShape(RoundedRectangle(cornerRadius: notchSize == .small ? 9 : 12, style: .continuous))
 
@@ -75,7 +75,7 @@ struct WallpaperSceneCompactView: View {
                     .foregroundStyle(NotchTheme.primaryText)
                     .lineLimit(1)
 
-                if notchSize != .small {
+                if notchSize != .small || isHovering {
                     Text(
                         controller.suspensionDetail
                             ?? controller.automationReason?.title
@@ -85,6 +85,7 @@ struct WallpaperSceneCompactView: View {
                         .foregroundStyle(NotchTheme.secondaryText)
                         .lineLimit(1)
                         .contentTransition(.opacity)
+                        .transition(.opacity.combined(with: .offset(x: -4)))
                 }
             }
         }
@@ -92,18 +93,12 @@ struct WallpaperSceneCompactView: View {
     }
 
     private var scenePreview: some View {
-        ZStack {
-            Color.white.opacity(0.08)
-            if let image = NSImage(contentsOf: controller.library.previewURL(for: scene)) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(systemName: scene.kind.systemImage)
-                    .foregroundStyle(.white.opacity(0.82))
-            }
-        }
-        .clipped()
+        WallpaperPreviewImage(
+            scene: scene,
+            url: controller.library.previewURL(for: scene),
+            scalingMode: .fill
+        )
+        .scaleEffect(isHovering && !reduceMotion ? 1.035 : 1)
         .overlay {
             RoundedRectangle(cornerRadius: notchSize == .small ? 9 : 12, style: .continuous)
                 .stroke(NotchTheme.subtleStroke, lineWidth: 1)
@@ -122,7 +117,7 @@ struct WallpaperSceneCompactView: View {
                 } else {
                     SceneMotionBars(
                         isActive: !controller.isPaused,
-                        animates: animatesScene
+                        isEmphasized: isHovering
                     )
                 }
 
@@ -131,6 +126,7 @@ struct WallpaperSceneCompactView: View {
                     .foregroundStyle(.white)
                     .frame(width: notchSize == .small ? 30 : 38, height: notchSize == .small ? 30 : 38)
                     .background(.white.opacity(0.08), in: Circle())
+                    .background(isHovering ? .white.opacity(0.06) : .clear, in: Circle())
                     .contentTransition(.symbolEffect(.replace))
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -141,7 +137,9 @@ struct WallpaperSceneCompactView: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.48))
+                    .offset(x: isHovering && !reduceMotion ? 2 : 0)
             }
+            .opacity(isHovering ? 1 : 0.72)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
@@ -155,22 +153,23 @@ struct WallpaperSceneCompactView: View {
 
 private struct SceneMotionBars: View {
     let isActive: Bool
-    let animates: Bool
+    let isEmphasized: Bool
 
-    private let heights: [CGFloat] = [7, 13, 18, 11, 16]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(alignment: .center, spacing: 2.5) {
-            ForEach(Array(heights.enumerated()), id: \.offset) { index, height in
-                Capsule()
-                    .fill(.white.opacity(isActive ? 0.86 : 0.38))
-                    .frame(width: 2.5, height: isActive && animates ? height : 5)
-                    .animation(
-                        isActive
-                            ? .easeInOut(duration: 0.48 + Double(index) * 0.07).repeatForever(autoreverses: true)
-                            : NotchMotion.dismiss,
-                        value: animates && isActive
-                    )
+        TimelineView(.animation(minimumInterval: 0.16, paused: !isActive || reduceMotion)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .center, spacing: 2.5) {
+                ForEach(0..<5, id: \.self) { index in
+                    let amplitude = (sin(phase * 5.2 + Double(index) * 1.17) + 1) / 2
+                    Capsule()
+                        .fill(.white.opacity(isActive ? (isEmphasized ? 0.94 : 0.78) : 0.36))
+                        .frame(
+                            width: 2.5,
+                            height: isActive && !reduceMotion ? 6 + CGFloat(amplitude) * 12 : 6
+                        )
+                }
             }
         }
         .frame(width: 26, height: 22)
@@ -228,6 +227,6 @@ struct WallpaperSceneDropZoneView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Create wallpaper scene drop zone")
-        .accessibilityHint("Drop one image, video, or NotchLand Scene package to import and apply it")
+        .accessibilityHint("Drop one image, video, or MacFlow Scene package to import and apply it")
     }
 }

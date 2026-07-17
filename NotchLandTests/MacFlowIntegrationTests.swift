@@ -22,6 +22,21 @@ struct MacFlowIntegrationTests {
         #expect(MacFlowMetrics.readableContentMaxWidth >= MacFlowMetrics.idealWindowWidth - MacFlowMetrics.sidebarWidth)
     }
 
+    @Test func smallNotchDensityIsActuallyCompact() {
+        #expect(NotchLayoutMetrics.bodySize(for: .small).width <= 460)
+        #expect(NotchLayoutMetrics.bodySize(for: .small).height <= 54)
+        #expect(NowPlayingMetrics.compactHeight(for: .small) <= 54)
+        #expect(WallpaperSceneNotchMetrics.compactSize.width <= 460)
+        #expect(WallpaperSceneNotchMetrics.compactSize.width < WallpaperSceneNotchMetrics.mediumSize.width)
+    }
+
+    @Test func wallpaperHoverOnlyAddsAPreviewEnvelope() {
+        let base = WallpaperSceneNotchMetrics.size(for: .small)
+        let hovered = WallpaperSceneNotchMetrics.size(for: .small, isHovering: true)
+        #expect(hovered.width - base.width == NotchLayoutMetrics.hoverWidthExpansion)
+        #expect(hovered.height - base.height == NotchLayoutMetrics.hoverHeightExpansion)
+    }
+
     @Test func macFlowSpacingUsesTheDocumentedScale() {
         #expect([
             MacFlowSpacing.space4,
@@ -62,6 +77,69 @@ struct MacFlowIntegrationTests {
         #expect(AppMotion.Duration.quick == 0.16)
         #expect(AppMotion.Duration.standard == 0.22)
         #expect(AppMotion.Duration.emphasized == 0.34)
+    }
+
+    @MainActor
+    @Test func notchResolverKeepsEventPriorityConsistentAcrossRenderingAndHitTesting() {
+        var input = presentationInput()
+        input.eventRoute = .call
+        input.hasCall = true
+        input.isSceneDropTargetVisible = true
+        input.isFileDropTargetVisible = true
+        input.hasMedia = true
+
+        #expect(NotchPresentationResolver.branchKey(for: input) == "call")
+
+        input.eventRoute = nil
+        input.hasCall = false
+        #expect(NotchPresentationResolver.branchKey(for: input) == "scene-drop-target")
+
+        input.isSceneDropTargetVisible = false
+        #expect(NotchPresentationResolver.branchKey(for: input) == "file-shelf-drop-target")
+    }
+
+    @MainActor
+    @Test func expandedNotchOwnsPresentationBeforeBackgroundActivities() {
+        var input = presentationInput()
+        input.isExpanded = true
+        input.eventRoute = .liveActivity
+        input.liveActivityBranchKey = "activity"
+        input.hasHUD = true
+
+        #expect(NotchPresentationResolver.branchKey(for: input) == "expanded-widget")
+
+        input.isEventDetailPresented = true
+        input.hasTrackedEvent = true
+        #expect(NotchPresentationResolver.branchKey(for: input) == "expanded-event-detail")
+    }
+
+    @MainActor
+    @Test func walletAndWallpaperDropUseTheirCanonicalShellGeometry() {
+        var input = geometryInput(branchKey: "wallet-contribution")
+        let wallet = NotchLayoutCoordinator.visibleSize(for: input)
+        #expect(wallet.width == max(input.baseBodySize.width, WalletContributionChipMetrics.width) + 22)
+        #expect(wallet.height == WalletContributionChipMetrics.height)
+
+        input.branchKey = "scene-drop-target"
+        let drop = NotchLayoutCoordinator.visibleSize(for: input)
+        #expect(drop.width == max(input.baseBodySize.width, WallpaperSceneNotchMetrics.dropSize.width) + 22)
+        #expect(drop.height == WallpaperSceneNotchMetrics.dropSize.height)
+    }
+
+    @MainActor
+    @Test func compactMediaAndBareHoverUseDifferentShoulderGeometry() {
+        #expect(
+            NotchLayoutCoordinator.invertedRadius(
+                for: "collapsed-music",
+                isHovering: false
+            ) == NotchLayoutCoordinator.musicInvertedRadius
+        )
+        #expect(
+            NotchLayoutCoordinator.invertedRadius(
+                for: "collapsed-bare",
+                isHovering: true
+            ) == NotchLayoutCoordinator.hoverInvertedRadius
+        )
     }
 
     @MainActor
@@ -156,5 +234,47 @@ struct MacFlowIntegrationTests {
             )?.y ?? 0
         }
         return Int(travelled)
+    }
+
+    @MainActor
+    private func presentationInput() -> NotchPresentationResolutionInput {
+        NotchPresentationResolutionInput(
+            hasCompletedOnboarding: true,
+            didRevealOnboarding: true,
+            isExpanded: false,
+            screenLockBranchKey: nil,
+            eventRoute: nil,
+            hasCall: false,
+            isSceneDropTargetVisible: false,
+            isFileDropTargetVisible: false,
+            batteryBranchKey: nil,
+            focusBranchKey: nil,
+            hasWalletContribution: false,
+            hasImportantEvent: false,
+            isEventDetailPresented: false,
+            hasTrackedEvent: false,
+            liveActivityBranchKey: nil,
+            hasHUD: false,
+            hasEvent: false,
+            hasMedia: false,
+            hasScene: false
+        )
+    }
+
+    @MainActor
+    private func geometryInput(branchKey: String) -> NotchContentLayoutRequest {
+        NotchContentLayoutRequest(
+            branchKey: branchKey,
+            baseBodySize: CGSize(width: 304, height: 32),
+            expandedFallbackBodySize: CalendarNotchMetrics.expandedSize,
+            onboardingBodySize: OnboardingMetrics.expandedStepSize,
+            expandedWidgetBodySize: NotchWidgetMetrics.expandedSize,
+            batteryBodyWidth: BatteryAlertMetrics.chargingWidth,
+            callBodySize: CallOverlayMetrics.incomingSize,
+            mediaPreferredWidth: NowPlayingMetrics.collapsedWidth,
+            compactSize: .small,
+            isHovering: false,
+            showsCollapsedMusicMarquee: false
+        )
     }
 }

@@ -6,13 +6,13 @@
 import SwiftUI
 
 enum CallOverlayMetrics {
-    nonisolated static let incomingSize = CGSize(width: 520, height: 50)
+    nonisolated static let incomingSize = CGSize(width: 440, height: 46)
     // Every compact call phase keeps the same shell footprint. Only content
     // changes, so accepting or dismissing never shifts the notch sideways.
-    nonisolated static let activeSize = CGSize(width: 520, height: 50)
-    nonisolated static let endedSize = CGSize(width: 520, height: 50)
-    nonisolated static let mediumSize = CGSize(width: 700, height: 78)
-    nonisolated static let largeSize = CGSize(width: 760, height: 90)
+    nonisolated static let activeSize = CGSize(width: 440, height: 46)
+    nonisolated static let endedSize = CGSize(width: 440, height: 46)
+    nonisolated static let mediumSize = CGSize(width: 620, height: 70)
+    nonisolated static let largeSize = CGSize(width: 720, height: 84)
 
     nonisolated static func size(
         for presentation: CallPresentation,

@@ -23,18 +23,19 @@ enum NowPlayingMetrics {
     /// Width of the collapsed pill when music is playing. Wider than the bare
     /// notch so the artwork (left) and EQ bars (right) flank the hardware notch.
     static let collapsedWidth: CGFloat = 250
-    static let compactHeight: CGFloat = 64
+    static let compactHeight: CGFloat = 48
     static let compactBottomCornerRadius: CGFloat = 22
     static let compactHoverWidthExpansion: CGFloat = 10
     static let compactHorizontalPadding: CGFloat = 15
-    static let compactContentHeight: CGFloat = 32
-    static let compactContentBottomPadding: CGFloat = 18
-    static let compactSurfaceHeight: CGFloat = 58
-    static let compactSurfaceHorizontalInset: CGFloat = 7
-    static let compactSurfaceBottomInset: CGFloat = 4
-    static let compactSurfaceCornerRadius: CGFloat = 20
-    static let compactHardwareBridgeHeight: CGFloat = 25
-    static let compactHardwareBridgeBottomRadius: CGFloat = 9
+    static let compactContentHeight: CGFloat = 28
+    static let compactContentBottomPadding: CGFloat = 7
+    static let compactSurfaceHeight: CGFloat = 46
+    static let compactSurfaceHorizontalInset: CGFloat = 5
+    static let compactSurfaceBottomInset: CGFloat = 2
+    static let compactSurfaceCornerRadius: CGFloat = 18
+    /// Matches the measured 13-inch M4 MacBook Air safe-area cutout.
+    static let compactHardwareBridgeHeight: CGFloat = 32
+    static let compactHardwareBridgeBottomRadius: CGFloat = 8
     /// Height matches the bare collapsed notch — we don't grow vertically.
     static let collapsedExtraHeight: CGFloat = 0
     /// Extra height added under the collapsed pill when the cursor is hovering,
@@ -52,9 +53,9 @@ enum NowPlayingMetrics {
 
     static func compactHeight(for size: NotchSize) -> CGFloat {
         switch size {
-        case .small: 64
-        case .medium: 72
-        case .large: 82
+        case .small: 48
+        case .medium: 62
+        case .large: 74
         }
     }
 
@@ -64,29 +65,29 @@ enum NowPlayingMetrics {
 
     static func sourceSize(for size: NotchSize) -> CGFloat {
         switch size {
-        case .small: 32
-        case .medium: 36
-        case .large: 40
+        case .small: 24
+        case .medium: 32
+        case .large: 38
         }
     }
 
     static func titleSize(for size: NotchSize) -> CGFloat {
         switch size {
-        case .small: 14
+        case .small: 13
         case .medium: 15
         case .large: 16
         }
     }
 
     static func subtitleSize(for size: NotchSize) -> CGFloat {
-        size == .small ? 11 : 12
+        size == .small ? 10 : 12
     }
 
     static func widthAddition(for size: NotchSize) -> CGFloat {
         switch size {
-        case .small: 0
-        case .medium: 60
-        case .large: 120
+        case .small: -80
+        case .medium: 20
+        case .large: 100
         }
     }
 }
@@ -292,10 +293,7 @@ struct NowPlayingCollapsedView: View {
             presentation: presentation,
             processedBackground: backgroundModel.image,
             backgroundIdentity: backgroundModel.identity,
-            hardwareNotchWidth: min(
-                CGFloat(settings.collapsedWidth),
-                presentation.preferredWidth * 0.38
-            ),
+            hardwareNotchWidth: CGFloat(settings.collapsedWidth),
             notchSize: settings.notchContentSize,
             isHovering: isHovering,
             revealsContent: revealsContent,
@@ -1095,10 +1093,6 @@ struct NowPlayingExpandedView: View {
         .overlay {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .stroke(.white.opacity(0.18), lineWidth: 0.8)
-        }
-        .overlay(alignment: .bottomLeading) {
-            platformArtworkBadge(theme: theme)
-                .padding(9)
         }
         .shadow(color: theme.accent.opacity(0.16), radius: 18, y: 7)
         .shadow(color: .black.opacity(0.42), radius: 12, y: 7)

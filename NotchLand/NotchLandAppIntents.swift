@@ -66,7 +66,7 @@ nonisolated enum SiriNotchModule: String, AppEnum {
 
 struct OpenNotchModuleIntent: AppIntent {
     static let title: LocalizedStringResource = "Open Notch Module"
-    static let description = IntentDescription("Opens a selected module inside NotchLand.")
+    static let description = IntentDescription("Opens a selected module inside MacFlow.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Module")
@@ -75,10 +75,10 @@ struct OpenNotchModuleIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let appState = NotchIntentRuntime.shared.appState else {
-            return .result(dialog: "NotchLand is still starting. Please try again.")
+            return .result(dialog: "MacFlow is still starting. Please try again.")
         }
         appState.requestOpenWidget(rawValue: module.rawValue)
-        return .result(dialog: "Opening \(module.rawValue) in NotchLand.")
+        return .result(dialog: "Opening \(module.rawValue) in MacFlow.")
     }
 }
 
@@ -93,17 +93,17 @@ struct StartNotchTimerIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let timer = NotchIntentRuntime.shared.timer else {
-            return .result(dialog: "NotchLand is still starting. Please try again.")
+            return .result(dialog: "MacFlow is still starting. Please try again.")
         }
         let safeMinutes = min(max(minutes, 1), 180)
         timer.start(minutes: safeMinutes)
-        return .result(dialog: "Started a \(safeMinutes)-minute NotchLand timer.")
+        return .result(dialog: "Started a \(safeMinutes)-minute MacFlow timer.")
     }
 }
 
 struct CreateNotchNoteIntent: AppIntent {
     static let title: LocalizedStringResource = "Create Notch Note"
-    static let description = IntentDescription("Creates a local note in NotchLand.")
+    static let description = IntentDescription("Creates a local note in MacFlow.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Text")
@@ -112,23 +112,23 @@ struct CreateNotchNoteIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let notes = NotchIntentRuntime.shared.notes else {
-            return .result(dialog: "NotchLand is still starting. Please try again.")
+            return .result(dialog: "MacFlow is still starting. Please try again.")
         }
         let note = notes.createNote()
         notes.updateContent(id: note.id, content: text)
         NotchIntentRuntime.shared.appState?.requestOpenWidget(rawValue: NotchWidget.notes.rawValue)
-        return .result(dialog: "Your note was saved locally in NotchLand.")
+        return .result(dialog: "Your note was saved locally in MacFlow.")
     }
 }
 
 struct LockNotchPrivacyIntent: AppIntent {
     static let title: LocalizedStringResource = "Lock Private Notch Widgets"
-    static let description = IntentDescription("Immediately locks all private NotchLand modules.")
+    static let description = IntentDescription("Immediately locks all private MacFlow modules.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         NotchIntentRuntime.shared.biometrics?.lock()
-        return .result(dialog: "Private NotchLand widgets are locked.")
+        return .result(dialog: "Private MacFlow widgets are locked.")
     }
 }
 

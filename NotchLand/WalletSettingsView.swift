@@ -48,7 +48,7 @@ struct WalletSettingsView: View {
             } header: {
                 Text("Public Address Monitoring")
             } footer: {
-                Text("Paste only public receive addresses from Exodus. They are queried read-only through network-specific blockchain providers. NotchLand never asks for a seed phrase, private key, password, or sync QR code.")
+                Text("Paste only public receive addresses from Exodus. They are queried read-only through network-specific blockchain providers. MacFlow never asks for a seed phrase, private key, password, or sync QR code.")
             }
 
             Section("Monitored Wallets") {

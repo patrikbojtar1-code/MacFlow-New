@@ -14,9 +14,9 @@ import SwiftUI
 enum ImportantEventReminderMetrics {
     nonisolated static func size(for notchSize: NotchSize) -> CGSize {
         switch notchSize {
-        case .small: CGSize(width: 620, height: 58)
-        case .medium: CGSize(width: 720, height: 78)
-        case .large: CGSize(width: 780, height: 90)
+        case .small: CGSize(width: 520, height: 54)
+        case .medium: CGSize(width: 680, height: 74)
+        case .large: CGSize(width: 760, height: 86)
         }
     }
 }

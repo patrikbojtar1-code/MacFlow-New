@@ -87,31 +87,35 @@ struct OnboardingWelcomeStepView: View {
     }
 
     var body: some View {
-        VStack(spacing: 9) {
-            VStack(spacing: 2) {
+        VStack(spacing: MacFlowSpacing.space12) {
+            VStack(spacing: MacFlowSpacing.space4) {
                 Text("Hello, \(firstName)")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.title2.weight(.semibold))
                     .foregroundStyle(NotchTheme.primaryText)
-                Text("Meet the space around your notch.")
-                    .font(.system(size: 11, weight: .regular))
+                Text("Your Mac, coordinated around the notch.")
+                    .font(.callout)
                     .foregroundStyle(NotchTheme.secondaryText)
             }
 
             HStack(spacing: 0) {
-                HStack(spacing: 7) {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Now Playing")
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
+                HStack(spacing: MacFlowSpacing.space8) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.pink.opacity(0.18))
+                        .frame(width: 28, height: 28)
+                        .overlay(Image(systemName: "music.note").font(.caption.weight(.semibold)).foregroundStyle(.pink))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Now Playing").font(.caption.weight(.semibold))
+                        Text("Midnight Drive").font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Color.black
-                    .frame(width: 92)
+                    .frame(width: 104)
                     .accessibilityHidden(true)
 
-                HStack(spacing: 3) {
+                HStack(spacing: MacFlowSpacing.space8) {
+                    HStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { index in
                         Capsule()
                             .fill(Color.white.opacity(0.78))
@@ -120,27 +124,36 @@ struct OnboardingWelcomeStepView: View {
                                 height: CGFloat([11, 7, 14, 9, 12][index])
                             )
                     }
+                    }
                     Image(systemName: "pause.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .padding(.leading, 7)
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 28, height: 28)
+                        .background(.white.opacity(0.08), in: Circle())
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .foregroundStyle(.white.opacity(0.9))
-            .padding(.horizontal, 12)
-            .frame(height: 42)
-            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .padding(.horizontal, MacFlowSpacing.space12)
+            .frame(height: 52)
+            .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(NotchTheme.subtleStroke, lineWidth: 1)
             }
 
-            Text("Media, calls, devices and reminders stay outside the camera cutout.")
-                .font(.system(size: 9.5, weight: .regular))
-                .foregroundStyle(.white.opacity(0.42))
-                .lineLimit(1)
+            HStack(spacing: MacFlowSpacing.space16) {
+                welcomeFeature("phone.fill", "Calls")
+                welcomeFeature("airpodsmax", "Devices")
+                welcomeFeature("calendar", "Reminders")
+            }
+            .foregroundStyle(.white.opacity(0.58))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func welcomeFeature(_ symbol: String, _ title: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.caption2.weight(.medium))
     }
 }
 
@@ -270,7 +283,7 @@ struct OnboardingShowcaseStepView: View {
                     .overlay(Image(systemName: "music.note").font(.title2.bold()))
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Midnight Drive").font(.system(size: 12, weight: .semibold, design: .rounded))
-                    Text("NotchLand Sessions").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("MacFlow Sessions").font(.system(size: 9)).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         Image(systemName: "backward.fill")
                         Image(systemName: "pause.fill")

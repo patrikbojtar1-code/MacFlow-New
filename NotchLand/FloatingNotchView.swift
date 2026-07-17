@@ -218,8 +218,10 @@ struct FloatingNotchView: View {
         .onChange(of: appState.requestedWidgetRawValue) { _, rawValue in
             guard let rawValue, let widget = NotchWidget(rawValue: rawValue) else { return }
             widgetPreferences.setMode(.pinned, for: widget)
-            selectedWidgetRaw = widget.rawValue
-            fileShelf.isPresented = widget == .files
+            withAnimation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion)) {
+                selectedWidgetRaw = widget.rawValue
+                fileShelf.isPresented = widget == .files
+            }
             countdown.clearDetail()
             appState.expand()
             appState.consumeRequestedWidget()
@@ -297,41 +299,14 @@ struct FloatingNotchView: View {
     /// curves. The value animates on the expansion spring along with the
     /// rest of the path.
     private func invertedCornerRadius(for key: String) -> CGFloat {
-        if key == Self.hardwareNotchBranchKey {
-            return Self.bareInvertedRadius
-        }
-        if key == "expanded-onboarding" {
-            return Self.bareInvertedRadius
-        }
-        if isCompactAlertBranch(key) {
-            return Self.musicInvertedRadius
-        }
-
-        return Self.invertedRadius(
-            isExpanded: isExpandedBranch(key),
-            hasMusic: isMusicBranch(key),
-            isHovering: appState.isHovering
-        )
+        NotchLayoutCoordinator.invertedRadius(for: key, isHovering: appState.isHovering)
     }
 
-    static let collapsedCornerRadius: CGFloat = 10
-    static let expandedInvertedRadius: CGFloat = 12
-    static let musicInvertedRadius: CGFloat = 11
-    static let hoverInvertedRadius: CGFloat = 7
-    static let alertInvertedRadius: CGFloat = 8
-    static let bareInvertedRadius: CGFloat = 5
-    private static let hardwareNotchBranchKey = "hardware-notch"
-
-    /// Per-state inverted-corner radius. Exposed as a static so `WindowManager`
-    /// computes the same envelope dimensions as the rendered shape. Hover on the
-    /// bare collapsed pill grows ears too — gives the "peek" a consistent shape
-    /// with the music pill instead of staying a plain capsule.
-    static func invertedRadius(isExpanded: Bool, hasMusic: Bool, isHovering: Bool) -> CGFloat {
-        if isExpanded { return expandedInvertedRadius }
-        if hasMusic { return musicInvertedRadius }
-        if isHovering { return hoverInvertedRadius }
-        return bareInvertedRadius
-    }
+    static let collapsedCornerRadius = NotchLayoutCoordinator.collapsedCornerRadius
+    static let expandedInvertedRadius = NotchLayoutCoordinator.expandedInvertedRadius
+    static let musicInvertedRadius = NotchLayoutCoordinator.musicInvertedRadius
+    static let bareInvertedRadius = NotchLayoutCoordinator.bareInvertedRadius
+    private static let hardwareNotchBranchKey = NotchLayoutCoordinator.hardwareNotchBranchKey
 
     @ViewBuilder
     private func notchBody(size: CGSize, branchKey key: String) -> some View {
@@ -1046,7 +1021,12 @@ struct FloatingNotchView: View {
             }
         case "scene":
             if let scene = scenes.activeScene {
-                WallpaperSceneCompactView(scene: scene)
+                ZStack {
+                    WallpaperSceneCompactView(scene: scene, isHovering: appState.isHovering)
+                        .id(scene.id)
+                        .transition(.opacity)
+                }
+                .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: scene.id)
             } else {
                 CollapsedNotchContent(isHovering: appState.isHovering)
                     .padding(.horizontal, 14)
@@ -1112,59 +1092,31 @@ struct FloatingNotchView: View {
     /// Hover doesn't change the branch — only state transitions do — so the
     /// marquee fading in/out under music is handled inside the branch itself.
     private var branchKey: String {
-        // First-launch onboarding takes precedence over everything else.
-        // We stay collapsed until the launch task explicitly expands AppState,
-        // then the branch change triggers the standard growing spring.
-        if !settings.hasCompletedOnboarding {
-            return didRevealOnboarding && appState.isExpanded
-                ? "expanded-onboarding"
-                : "onboarding-lock"
-        }
-        if let presentation = screenLock.currentPresentation {
-            return presentation.branchKey
-        }
-        if eventPresentationRoute == .call, calls.current != nil {
-            return "call"
-        }
-        if scenes.isDropTargetVisible {
-            return "scene-drop-target"
-        }
-        if fileShelf.isDropTargetVisible {
-            return "file-shelf-drop-target"
-        }
-        if eventPresentationRoute == .battery,
-           let presentation = batteryAlerts.currentPresentation {
-            return presentation.branchKey
-        }
-        if eventPresentationRoute == .focus,
-           let presentation = focusMode.currentPresentation {
-            return presentation.branchKey
-        }
-        if eventPresentationRoute == .wallet,
-           wallet.currentContribution != nil {
-            return "wallet-contribution"
-        }
-        if countdown.importantReminderEvent != nil {
-            return "important-event"
-        }
-        if appState.isExpanded {
-            if countdown.isDetailPresented, countdown.trackedEvent != nil {
-                return "expanded-event-detail"
-            }
-            return "expanded-widget"
-        }
-        if eventPresentationRoute == .liveActivity,
-           let activity = liveActivities.current {
-            return activity.branchKey
-        }
-        if hud.current != nil { return "hud" }
-        let hasEvent = countdown.presentation != nil
-        if nowPlaying.track != nil {
-            return hasEvent ? "collapsed-music-event" : "collapsed-music"
-        }
-        if hasEvent { return "event-collapsed" }
-        if scenes.activeScene != nil { return "scene" }
-        return "collapsed-bare"
+        NotchPresentationResolver.branchKey(for: presentationResolutionInput)
+    }
+
+    private var presentationResolutionInput: NotchPresentationResolutionInput {
+        NotchPresentationResolutionInput(
+            hasCompletedOnboarding: settings.hasCompletedOnboarding,
+            didRevealOnboarding: didRevealOnboarding,
+            isExpanded: appState.isExpanded,
+            screenLockBranchKey: screenLock.currentPresentation?.branchKey,
+            eventRoute: eventPresentationRoute,
+            hasCall: calls.current != nil,
+            isSceneDropTargetVisible: scenes.isDropTargetVisible,
+            isFileDropTargetVisible: fileShelf.isDropTargetVisible,
+            batteryBranchKey: batteryAlerts.currentPresentation?.branchKey,
+            focusBranchKey: focusMode.currentPresentation?.branchKey,
+            hasWalletContribution: wallet.currentContribution != nil,
+            hasImportantEvent: countdown.importantReminderEvent != nil,
+            isEventDetailPresented: countdown.isDetailPresented,
+            hasTrackedEvent: countdown.trackedEvent != nil,
+            liveActivityBranchKey: liveActivities.current?.branchKey,
+            hasHUD: hud.current != nil,
+            hasEvent: countdown.presentation != nil,
+            hasMedia: nowPlaying.track != nil,
+            hasScene: scenes.activeScene != nil
+        )
     }
 
     private var eventPresentationRoute: NotchEventPresentationRoute? {
@@ -1180,7 +1132,7 @@ struct FloatingNotchView: View {
     }
 
     private func isExpandedBranch(_ key: String) -> Bool {
-        key.hasPrefix("expanded")
+        NotchPresentationResolver.isExpandedBranch(key)
     }
 
     private func isOnboardingBranch(_ key: String) -> Bool {
@@ -1188,27 +1140,27 @@ struct FloatingNotchView: View {
     }
 
     private func isMusicBranch(_ key: String) -> Bool {
-        key.contains("music")
+        NotchPresentationResolver.isMusicBranch(key)
     }
 
     private func isBatteryAlertBranch(_ key: String) -> Bool {
-        key.hasPrefix("battery-")
+        NotchPresentationResolver.isBatteryBranch(key)
     }
 
     private func isFocusModeBranch(_ key: String) -> Bool {
-        key == "focus-mode"
+        NotchPresentationResolver.isFocusBranch(key)
     }
 
     private func isScreenLockBranch(_ key: String) -> Bool {
-        key == "screen-lock"
+        NotchPresentationResolver.isScreenLockBranch(key)
     }
 
     private func isCallBranch(_ key: String) -> Bool {
-        key == "call"
+        NotchPresentationResolver.isCallBranch(key)
     }
 
     private func isWalletContributionBranch(_ key: String) -> Bool {
-        key == "wallet-contribution"
+        NotchPresentationResolver.isWalletBranch(key)
     }
 
     private func isCalendarCountdownBranch(_ key: String) -> Bool {
@@ -1222,18 +1174,15 @@ struct FloatingNotchView: View {
     }
 
     private func isFileShelfDropBranch(_ key: String) -> Bool {
-        key == "file-shelf-drop-target"
+        NotchPresentationResolver.isFileDropBranch(key)
     }
 
     private func isSceneDropBranch(_ key: String) -> Bool {
-        key == "scene-drop-target"
+        NotchPresentationResolver.isSceneDropBranch(key)
     }
 
     private func isCompactAlertBranch(_ key: String) -> Bool {
-        isBatteryAlertBranch(key) || isFocusModeBranch(key) || isScreenLockBranch(key)
-            || isFileShelfDropBranch(key) || isSceneDropBranch(key) || isCallBranch(key)
-            || isWalletContributionBranch(key) || key == "activity" || key == "important-event"
-            || key == "scene"
+        NotchPresentationResolver.isCompactAlertBranch(key)
     }
 
     private func isCollapsedMusicMarqueeBranch(_ key: String) -> Bool {
@@ -1257,140 +1206,39 @@ struct FloatingNotchView: View {
     }
 
     private func currentVisibleSize(for key: String) -> CGSize {
-        let baseWidth = CGFloat(settings.collapsedWidth)
-        let baseHeight = CGFloat(settings.collapsedHeight)
-        let hasMusic = isMusicBranch(key)
-
-        // Outer width adds `invertedCornerRadius * 2` for the ears. Per-state
-        // values interpolate via the expansion spring, so the outer width
-        // morphs smoothly across transitions instead of stepping.
-        let extra = invertedCornerRadius(for: key) * 2
-
-        if isExpandedBranch(key) {
-            if key == "expanded-onboarding" {
-                let stepSize = OnboardingMetrics.size(for: onboardingWizardStep)
-                return CGSize(width: stepSize.width + extra, height: stepSize.height)
-            }
-            if key == "expanded-event-detail" {
-                return CGSize(
-                    width: EventDetailMetrics.eventOnlySize.width + extra,
-                    height: EventDetailMetrics.eventOnlySize.height
-                )
-            }
-            if key == "expanded-widget" {
-                return CGSize(
-                    width: NotchWidgetMetrics.expandedSize.width + extra,
-                    height: NotchWidgetMetrics.expandedSize.height
-                )
-            }
-            if hasMusic {
-                return CGSize(
-                    width: NowPlayingMetrics.expandedSize.width + extra,
-                    height: NowPlayingMetrics.expandedSize.height
-                )
-            }
-            return CGSize(
-                width: max(CGFloat(settings.expandedWidth), CalendarNotchMetrics.expandedSize.width) + extra,
-                height: CalendarNotchMetrics.expandedSize.height
+        let callPresentation = calls.current ?? renderedCallPresentation
+        let callSize = callPresentation.map {
+            CallOverlayMetrics.size(for: $0, notchSize: effectiveCompactNotchSize)
+        } ?? (effectiveCompactNotchSize == .small
+            ? CallOverlayMetrics.incomingSize
+            : CallOverlayMetrics.mediumSize)
+        let widgetSize = effectiveWidgetSelection == .media
+            && nowPlaying.track?.videoPresentation == nil
+            ? NotchWidgetMetrics.audioExpandedSize
+            : NotchWidgetMetrics.expandedSize
+        return NotchLayoutCoordinator.visibleSize(
+            for: NotchContentLayoutRequest(
+                branchKey: key,
+                baseBodySize: CGSize(
+                    width: CGFloat(settings.collapsedWidth),
+                    height: CGFloat(settings.collapsedHeight)
+                ),
+                expandedFallbackBodySize: CGSize(
+                    width: max(CGFloat(settings.expandedWidth), CalendarNotchMetrics.expandedSize.width),
+                    height: CalendarNotchMetrics.expandedSize.height
+                ),
+                onboardingBodySize: OnboardingMetrics.size(for: onboardingWizardStep),
+                expandedWidgetBodySize: widgetSize,
+                batteryBodyWidth: (batteryAlerts.currentPresentation ?? renderedBatteryPresentation)
+                    .map(BatteryAlertMetrics.width(for:)) ?? BatteryAlertMetrics.chargingWidth,
+                callBodySize: callSize,
+                mediaPreferredWidth: nowPlaying.track?.compactPresentation.preferredWidth
+                    ?? NowPlayingMetrics.collapsedWidth,
+                compactSize: effectiveCompactNotchSize,
+                isHovering: appState.isHovering,
+                showsCollapsedMusicMarquee: shouldShowCollapsedMusicMarquee(for: key)
             )
-        }
-        if key == "hud" {
-            let bodyW = max(baseWidth, HUDController.drawerMinWidth)
-            return CGSize(width: bodyW + extra, height: baseHeight + HUDController.drawerHeight)
-        }
-        if key == "onboarding-lock" {
-            let bodyW = max(baseWidth, OnboardingLockNotchMetrics.bodyWidth)
-            return CGSize(width: bodyW + extra, height: OnboardingLockNotchMetrics.height)
-        }
-        if isBatteryAlertBranch(key) {
-            let batteryWidth = (batteryAlerts.currentPresentation ?? renderedBatteryPresentation)
-                .map(BatteryAlertMetrics.width(for:)) ?? BatteryAlertMetrics.chargingWidth
-            let bodyW = max(baseWidth, batteryWidth)
-            return CGSize(width: bodyW + extra, height: baseHeight)
-        }
-        if isFocusModeBranch(key) {
-            let bodyW = max(baseWidth, FocusModeAlertMetrics.width)
-            return CGSize(width: bodyW + extra, height: baseHeight)
-        }
-        if isScreenLockBranch(key) {
-            let bodyW = max(baseWidth, LockScreenAlertMetrics.width)
-            return CGSize(width: bodyW + extra, height: LockScreenAlertMetrics.fallbackHeight)
-        }
-        if isCallBranch(key) {
-            let presentation = calls.current ?? renderedCallPresentation
-            let callSize = presentation.map {
-                CallOverlayMetrics.size(for: $0, notchSize: effectiveCompactNotchSize)
-            } ?? (effectiveCompactNotchSize == .small
-                ? CallOverlayMetrics.incomingSize
-                : CallOverlayMetrics.mediumSize)
-            let bodyW = max(baseWidth, callSize.width)
-            return CGSize(width: bodyW + extra, height: callSize.height)
-        }
-        if key == "important-event" {
-            let reminderSize = ImportantEventReminderMetrics.size(for: effectiveCompactNotchSize)
-            return CGSize(
-                width: max(baseWidth, reminderSize.width) + extra,
-                height: max(baseHeight, reminderSize.height)
-            )
-        }
-        if isWalletContributionBranch(key) {
-            let bodyW = max(baseWidth, WalletContributionChipMetrics.width)
-            return CGSize(width: bodyW + extra, height: WalletContributionChipMetrics.height)
-        }
-        if isFileShelfDropBranch(key) {
-            let bodyW = max(baseWidth, FileShelfMetrics.dropSize.width)
-            return CGSize(width: bodyW + extra, height: FileShelfMetrics.dropSize.height)
-        }
-        if isSceneDropBranch(key) {
-            let bodyW = max(baseWidth, WallpaperSceneNotchMetrics.dropSize.width)
-            return CGSize(width: bodyW + extra, height: WallpaperSceneNotchMetrics.dropSize.height)
-        }
-        if key == "activity" {
-            let activitySize = LiveActivityChipMetrics.size(for: effectiveCompactNotchSize)
-            let bodyW = max(baseWidth, activitySize.width)
-            return CGSize(width: bodyW + extra, height: max(baseHeight, activitySize.height))
-        }
-        if key == "scene" {
-            let sceneSize = WallpaperSceneNotchMetrics.size(for: effectiveCompactNotchSize)
-            return CGSize(
-                width: max(baseWidth, sceneSize.width) + extra,
-                height: max(baseHeight, sceneSize.height)
-            )
-        }
-        if key == Self.hardwareNotchBranchKey {
-            return CGSize(width: baseWidth + extra, height: baseHeight)
-        }
-        if key == "collapsed-music-event" {
-            let bodyW = EventCountdownChipMetrics.musicComboContainerBodyWidth(baseWidth: baseWidth)
-            let extraH = shouldShowCollapsedMusicMarquee(for: key)
-                ? NowPlayingMetrics.hoverExtraHeight
-                : NowPlayingMetrics.collapsedExtraHeight
-            return CGSize(width: bodyW + extra, height: baseHeight + extraH)
-        }
-        if hasMusic {
-            let presentation = nowPlaying.track?.compactPresentation
-            let preferredWidth = presentation?.preferredWidth ?? NowPlayingMetrics.collapsedWidth
-            let densityWidth = NowPlayingMetrics.widthAddition(for: effectiveCompactNotchSize)
-            let hoverExpansion = appState.isHovering
-                ? NowPlayingMetrics.compactHoverWidthExpansion
-                : 0
-            let bodyW = max(baseWidth, preferredWidth + densityWidth + hoverExpansion)
-            return CGSize(
-                width: bodyW + extra,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight(for: effectiveCompactNotchSize))
-            )
-        }
-        if key == "event-collapsed" {
-            let bodyW = EventCountdownChipMetrics.eventOnlyContainerBodyWidth(baseWidth: baseWidth)
-            return CGSize(width: bodyW + extra, height: baseHeight)
-        }
-        if appState.isHovering {
-            return CGSize(
-                width: baseWidth + extra + NotchZoneLayout.hoverSideExpansion,
-                height: baseHeight + 10
-            )
-        }
-        return CGSize(width: baseWidth + extra, height: baseHeight)
+        )
     }
 
     private var effectiveWidgetSelection: NotchWidget {

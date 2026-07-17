@@ -26,12 +26,12 @@ enum OnboardingMetrics {
     /// Inner body width × total height of the expanded notch during the
     /// welcome step. Width excludes the inverted-corner ears; height
     /// includes the full top-to-bottom envelope.
-    static let notchSize = CGSize(width: 420, height: 250)
+    static let notchSize = CGSize(width: 460, height: 278)
 
     /// Card size for the features/permissions wizard steps — bigger than
     /// the welcome step to fit icons, copy, and navigation chrome.
-    static let expandedStepSize = CGSize(width: 520, height: 360)
-    static let readyStepSize = CGSize(width: 460, height: 300)
+    static let expandedStepSize = CGSize(width: 540, height: 372)
+    static let readyStepSize = CGSize(width: 480, height: 312)
 
     static func size(for step: OnboardingWizardStep) -> CGSize {
         switch step {
@@ -103,7 +103,7 @@ struct OnboardingView: View {
             footer
         }
         .padding(.horizontal, MacFlowSpacing.space24)
-        .padding(.top, MacFlowSpacing.space48)
+        .padding(.top, MacFlowSpacing.space32 + MacFlowSpacing.space8)
         .padding(.bottom, MacFlowSpacing.space16)
         .opacity(hasAppeared ? 1 : 0)
         .offset(y: hasAppeared || reduceMotion ? 0 : -8)
@@ -210,6 +210,7 @@ struct OnboardingView: View {
 
 private struct OnboardingNotchPreview: View {
     @State private var previewStep: OnboardingWizardStep = .welcome
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let invertedRadius = FloatingNotchView.expandedInvertedRadius
 
@@ -243,7 +244,7 @@ private struct OnboardingNotchPreview: View {
                 .shadow(color: Color.black.opacity(0.42), radius: 18, x: 0, y: 8)
                 .padding(.top, 18)
             }
-            .animation(AppMotion.stateChange(reduceMotion: false), value: previewStep)
+            .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: previewStep)
         }
         .frame(width: 520, height: 320)
     }

@@ -13,28 +13,41 @@ import SwiftUI
 
 struct HUDBarView: View {
     let kind: HUDController.Kind
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: iconName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 14, alignment: .center)
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(accent.opacity(0.16))
+                Image(systemName: iconName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 28, height: 28)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.18))
+                    Capsule().fill(Color.white.opacity(0.13))
                     Capsule()
-                        .fill(Color.white)
+                        .fill(accent)
                         .frame(width: max(0, geo.size.width * clampedLevel))
-                        .animation(NotchMotionGraph.animation(for: .hover), value: clampedLevel)
+                        .shadow(color: accent.opacity(0.28), radius: 3)
+                        .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: clampedLevel)
                 }
             }
-            .frame(height: 4)
+            .frame(height: 6)
+
+            Text(valueLabel)
+                .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.white.opacity(0.68))
+                .frame(width: 36, alignment: .trailing)
         }
-        .padding(.top, 12)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .frame(height: HUDController.drawerHeight)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityTitle)
+        .accessibilityValue(valueLabel)
     }
 
     private var iconName: String {
@@ -61,6 +74,29 @@ struct HUDBarView: View {
 
     private var clampedLevel: Double {
         min(max(level, 0), 1)
+    }
+
+    private var accent: Color {
+        switch kind {
+        case .volume(_, let muted): muted ? .secondary : Color(red: 0.34, green: 0.68, blue: 1)
+        case .brightness: Color(red: 1, green: 0.72, blue: 0.24)
+        case .keyboardBrightness: Color(red: 0.68, green: 0.58, blue: 1)
+        case .contrast: .white
+        }
+    }
+
+    private var valueLabel: String {
+        if case .volume(_, let muted) = kind, muted { return "Muted" }
+        return "\(Int((clampedLevel * 100).rounded()))%"
+    }
+
+    private var accessibilityTitle: String {
+        switch kind {
+        case .volume: "Volume"
+        case .brightness: "Display brightness"
+        case .keyboardBrightness: "Keyboard brightness"
+        case .contrast: "Contrast"
+        }
     }
 }
 

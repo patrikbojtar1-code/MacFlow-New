@@ -86,9 +86,9 @@ nonisolated enum NotchLayoutMetrics {
 
     static func bodySize(for size: NotchSize) -> CGSize {
         switch size {
-        case .small: CGSize(width: 520, height: 50)
-        case .medium: CGSize(width: 700, height: 78)
-        case .large: CGSize(width: 760, height: 90)
+        case .small: CGSize(width: 440, height: 46)
+        case .medium: CGSize(width: 620, height: 70)
+        case .large: CGSize(width: 720, height: 84)
         }
     }
 
@@ -154,6 +154,234 @@ nonisolated enum NotchAnimationProfile {
         case .idle, .compact:
             spring(duration: collapseDuration, reduceMotion: reduceMotion)
         }
+    }
+}
+
+// MARK: - Canonical presentation and geometry resolver
+
+/// Everything that can affect which activity owns the notch. Keeping this
+/// decision outside the SwiftUI view is important: AppKit uses the same result
+/// for hover, click and drag hit testing, so the visible shell and its
+/// interactive region cannot drift apart.
+struct NotchPresentationResolutionInput {
+    var hasCompletedOnboarding: Bool
+    var didRevealOnboarding: Bool
+    var isExpanded: Bool
+    var screenLockBranchKey: String?
+    var eventRoute: NotchEventPresentationRoute?
+    var hasCall: Bool
+    var isSceneDropTargetVisible: Bool
+    var isFileDropTargetVisible: Bool
+    var batteryBranchKey: String?
+    var focusBranchKey: String?
+    var hasWalletContribution: Bool
+    var hasImportantEvent: Bool
+    var isEventDetailPresented: Bool
+    var hasTrackedEvent: Bool
+    var liveActivityBranchKey: String?
+    var hasHUD: Bool
+    var hasEvent: Bool
+    var hasMedia: Bool
+    var hasScene: Bool
+}
+
+/// Semantic content request supplied by activity modules. Feature views can
+/// describe their preferred content footprint, but they never calculate the
+/// final shell frame, shoulders or hardware attachment geometry.
+struct NotchContentLayoutRequest {
+    var branchKey: String
+    var baseBodySize: CGSize
+    var expandedFallbackBodySize: CGSize
+    var onboardingBodySize: CGSize
+    var expandedWidgetBodySize: CGSize
+    var batteryBodyWidth: CGFloat
+    var callBodySize: CGSize
+    var mediaPreferredWidth: CGFloat
+    var compactSize: NotchSize
+    var isHovering: Bool
+    var showsCollapsedMusicMarquee: Bool
+}
+
+/// Selects which activity owns the notch. It intentionally does not calculate
+/// geometry; layout ownership belongs exclusively to `NotchLayoutCoordinator`.
+enum NotchPresentationResolver {
+    static func branchKey(for input: NotchPresentationResolutionInput) -> String {
+        guard input.hasCompletedOnboarding else {
+            return input.didRevealOnboarding && input.isExpanded
+                ? "expanded-onboarding"
+                : "onboarding-lock"
+        }
+        if let key = input.screenLockBranchKey { return key }
+        if input.eventRoute == .call, input.hasCall { return "call" }
+        if input.isSceneDropTargetVisible { return "scene-drop-target" }
+        if input.isFileDropTargetVisible { return "file-shelf-drop-target" }
+        if input.eventRoute == .battery, let key = input.batteryBranchKey { return key }
+        if input.eventRoute == .focus, let key = input.focusBranchKey { return key }
+        if input.eventRoute == .wallet, input.hasWalletContribution { return "wallet-contribution" }
+        if input.hasImportantEvent { return "important-event" }
+        if input.isExpanded {
+            return input.isEventDetailPresented && input.hasTrackedEvent
+                ? "expanded-event-detail"
+                : "expanded-widget"
+        }
+        if input.eventRoute == .liveActivity, let key = input.liveActivityBranchKey { return key }
+        if input.hasHUD { return "hud" }
+        if input.hasMedia { return input.hasEvent ? "collapsed-music-event" : "collapsed-music" }
+        if input.hasEvent { return "event-collapsed" }
+        if input.hasScene { return "scene" }
+        return "collapsed-bare"
+    }
+
+    static func isExpandedBranch(_ key: String) -> Bool { key.hasPrefix("expanded") }
+    static func isMusicBranch(_ key: String) -> Bool { key.contains("music") }
+    static func isBatteryBranch(_ key: String) -> Bool { key.hasPrefix("battery-") }
+    static func isFocusBranch(_ key: String) -> Bool { key == "focus-mode" }
+    static func isScreenLockBranch(_ key: String) -> Bool { key == "screen-lock" }
+    static func isCallBranch(_ key: String) -> Bool { key == "call" }
+    static func isWalletBranch(_ key: String) -> Bool { key == "wallet-contribution" }
+    static func isFileDropBranch(_ key: String) -> Bool { key == "file-shelf-drop-target" }
+    static func isSceneDropBranch(_ key: String) -> Bool { key == "scene-drop-target" }
+
+    static func isCompactAlertBranch(_ key: String) -> Bool {
+        isBatteryBranch(key) || isFocusBranch(key) || isScreenLockBranch(key)
+            || isFileDropBranch(key) || isSceneDropBranch(key) || isCallBranch(key)
+            || isWalletBranch(key) || key == "activity" || key == "important-event"
+            || key == "scene"
+    }
+}
+
+/// The only type allowed to turn an activity content request into final notch
+/// geometry. Both SwiftUI rendering and AppKit hit testing consume this result.
+enum NotchLayoutCoordinator {
+    static let collapsedCornerRadius: CGFloat = 10
+    static let expandedInvertedRadius: CGFloat = 12
+    static let musicInvertedRadius: CGFloat = 11
+    static let hoverInvertedRadius: CGFloat = 7
+    static let bareInvertedRadius: CGFloat = 5
+    static let hardwareNotchBranchKey = "hardware-notch"
+
+    static func invertedRadius(for key: String, isHovering: Bool) -> CGFloat {
+        if key == hardwareNotchBranchKey || key == "expanded-onboarding" {
+            return bareInvertedRadius
+        }
+        if NotchPresentationResolver.isCompactAlertBranch(key) { return musicInvertedRadius }
+        if NotchPresentationResolver.isExpandedBranch(key) { return expandedInvertedRadius }
+        if NotchPresentationResolver.isMusicBranch(key) { return musicInvertedRadius }
+        if isHovering { return hoverInvertedRadius }
+        return bareInvertedRadius
+    }
+
+    static func visibleSize(for input: NotchContentLayoutRequest) -> CGSize {
+        let key = input.branchKey
+        let baseWidth = input.baseBodySize.width
+        let baseHeight = input.baseBodySize.height
+        let extra = invertedRadius(for: key, isHovering: input.isHovering) * 2
+
+        func shellSize(bodyWidth: CGFloat, height: CGFloat) -> CGSize {
+            CGSize(width: max(baseWidth, bodyWidth) + extra, height: height)
+        }
+
+        if NotchPresentationResolver.isExpandedBranch(key) {
+            let bodySize: CGSize
+            switch key {
+            case "expanded-onboarding": bodySize = input.onboardingBodySize
+            case "expanded-event-detail": bodySize = EventDetailMetrics.eventOnlySize
+            case "expanded-widget": bodySize = input.expandedWidgetBodySize
+            default:
+                bodySize = NotchPresentationResolver.isMusicBranch(key)
+                    ? NowPlayingMetrics.expandedSize
+                    : input.expandedFallbackBodySize
+            }
+            return CGSize(width: bodySize.width + extra, height: bodySize.height)
+        }
+        if key == "hud" {
+            return shellSize(
+                bodyWidth: HUDController.drawerMinWidth,
+                height: baseHeight + HUDController.drawerHeight
+            )
+        }
+        if key == "onboarding-lock" {
+            return shellSize(
+                bodyWidth: OnboardingLockNotchMetrics.bodyWidth,
+                height: OnboardingLockNotchMetrics.height
+            )
+        }
+        if NotchPresentationResolver.isBatteryBranch(key) {
+            return shellSize(bodyWidth: input.batteryBodyWidth, height: baseHeight)
+        }
+        if NotchPresentationResolver.isFocusBranch(key) {
+            return shellSize(bodyWidth: FocusModeAlertMetrics.width, height: baseHeight)
+        }
+        if NotchPresentationResolver.isScreenLockBranch(key) {
+            return shellSize(
+                bodyWidth: LockScreenAlertMetrics.width,
+                height: LockScreenAlertMetrics.fallbackHeight
+            )
+        }
+        if NotchPresentationResolver.isCallBranch(key) {
+            return shellSize(bodyWidth: input.callBodySize.width, height: input.callBodySize.height)
+        }
+        if key == "important-event" {
+            let size = ImportantEventReminderMetrics.size(for: input.compactSize)
+            return shellSize(bodyWidth: size.width, height: max(baseHeight, size.height))
+        }
+        if NotchPresentationResolver.isWalletBranch(key) {
+            return shellSize(
+                bodyWidth: WalletContributionChipMetrics.width,
+                height: WalletContributionChipMetrics.height
+            )
+        }
+        if NotchPresentationResolver.isFileDropBranch(key) {
+            return shellSize(bodyWidth: FileShelfMetrics.dropSize.width, height: FileShelfMetrics.dropSize.height)
+        }
+        if NotchPresentationResolver.isSceneDropBranch(key) {
+            return shellSize(
+                bodyWidth: WallpaperSceneNotchMetrics.dropSize.width,
+                height: WallpaperSceneNotchMetrics.dropSize.height
+            )
+        }
+        if key == "activity" {
+            let size = LiveActivityChipMetrics.size(for: input.compactSize)
+            return shellSize(bodyWidth: size.width, height: max(baseHeight, size.height))
+        }
+        if key == "scene" {
+            let size = WallpaperSceneNotchMetrics.size(
+                for: input.compactSize,
+                isHovering: input.isHovering
+            )
+            return shellSize(bodyWidth: size.width, height: max(baseHeight, size.height))
+        }
+        if key == hardwareNotchBranchKey {
+            return CGSize(width: baseWidth + extra, height: baseHeight)
+        }
+        if key == "collapsed-music-event" {
+            let bodyWidth = EventCountdownChipMetrics.musicComboContainerBodyWidth(baseWidth: baseWidth)
+            let extraHeight = input.showsCollapsedMusicMarquee
+                ? NowPlayingMetrics.hoverExtraHeight
+                : NowPlayingMetrics.collapsedExtraHeight
+            return CGSize(width: bodyWidth + extra, height: baseHeight + extraHeight)
+        }
+        if NotchPresentationResolver.isMusicBranch(key) {
+            let densityWidth = NowPlayingMetrics.widthAddition(for: input.compactSize)
+            let hoverWidth = input.isHovering ? NowPlayingMetrics.compactHoverWidthExpansion : 0
+            return shellSize(
+                bodyWidth: input.mediaPreferredWidth + densityWidth + hoverWidth,
+                height: max(baseHeight, NowPlayingMetrics.compactHeight(for: input.compactSize))
+            )
+        }
+        if key == "event-collapsed" {
+            return CGSize(
+                width: EventCountdownChipMetrics.eventOnlyContainerBodyWidth(baseWidth: baseWidth) + extra,
+                height: baseHeight
+            )
+        }
+        if input.isHovering {
+            return CGSize(
+                width: baseWidth + extra + NotchZoneLayout.hoverSideExpansion,
+                height: baseHeight + 10
+            )
+        }
+        return CGSize(width: baseWidth + extra, height: baseHeight)
     }
 }
 

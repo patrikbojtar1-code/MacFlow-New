@@ -12,6 +12,10 @@
 import Foundation
 
 enum AppRuntime {
+    static var shouldStartApplicationServices: Bool {
+        !isXcodePreview && !isUnitTest
+    }
+
     static var isXcodePreview: Bool {
         let environment = ProcessInfo.processInfo.environment
 
@@ -33,6 +37,24 @@ enum AppRuntime {
             key.hasPrefix("XCODE_PREVIEW")
                 || containsPreviewMarker(value)
         }
+    }
+
+    static var isUnitTest: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil {
+            return true
+        }
+
+        if CommandLine.arguments.contains(where: {
+            $0.localizedCaseInsensitiveContains("xctest")
+                || $0.localizedCaseInsensitiveContains("XCTest")
+        }) {
+            return true
+        }
+
+        return NSClassFromString("XCTestCase") != nil
+            || NSClassFromString("XCTest.XCTestCase") != nil
     }
 
     private static func isEnabled(_ value: String?) -> Bool {

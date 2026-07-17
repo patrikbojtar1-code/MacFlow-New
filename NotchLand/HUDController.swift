@@ -33,9 +33,9 @@ final class HUDController: ObservableObject {
     /// Visible duration after the last change before the HUD auto-hides.
     static let dismissDelay: TimeInterval = 1.5
     /// Minimum visible width of the HUD drawer.
-    static let drawerMinWidth: CGFloat = 260
+    static let drawerMinWidth: CGFloat = 280
     /// Height of the HUD drawer below the collapsed notch.
-    static let drawerHeight: CGFloat = 28
+    static let drawerHeight: CGFloat = 42
     private static let brightnessRampDuration: TimeInterval = 0.14
     private static let brightnessRampFrameInterval: TimeInterval = 1.0 / 60.0
     private static let volumeStep = 1.0 / 16.0

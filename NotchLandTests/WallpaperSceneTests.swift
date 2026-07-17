@@ -183,6 +183,18 @@ struct WallpaperSceneTests {
             windows: [fullscreen],
             displayFrames: [display]
         ))
+
+        let sameSizeOnAnotherDisplay = WallpaperWindowSnapshot(
+            ownerPID: 42,
+            layer: 0,
+            bounds: display.offsetBy(dx: display.width, dy: 0),
+            alpha: 1
+        )
+        #expect(!WallpaperFullscreenDetector.isFullscreen(
+            frontmostPID: 42,
+            windows: [sameSizeOnAnotherDisplay],
+            displayFrames: [display]
+        ))
     }
 
     @MainActor

@@ -55,7 +55,7 @@ struct OnboardingFeaturesStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("What NotchLand does")
+            Text("What MacFlow does")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
 

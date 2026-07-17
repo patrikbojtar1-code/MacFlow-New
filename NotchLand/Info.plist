@@ -20,7 +20,7 @@
 				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>NotchLand Scene</string>
+			<string>MacFlow Scene</string>
 			<key>UTTypeIdentifier</key>
 			<string>com.rudrashah.notchland.scene</string>
 			<key>UTTypeTagSpecification</key>
@@ -36,7 +36,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>NotchLand Scene</string>
+			<string>MacFlow Scene</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>

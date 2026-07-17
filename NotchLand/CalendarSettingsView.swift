@@ -90,7 +90,7 @@ struct CalendarSettingsView: View {
                         }
                     }
                 } else {
-                    Text("Connect Calendar to let NotchLand show the date and today's events in the expanded notch.")
+                    Text("Connect Calendar to let MacFlow show the date and today's events in the expanded notch.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -153,12 +153,12 @@ struct CalendarSettingsView: View {
 
     private var connectionDescription: String {
         if calendar.isDisconnected {
-            return "Calendar is disconnected in NotchLand. System permission is unchanged."
+            return "Calendar is disconnected in MacFlow. System permission is unchanged."
         }
 
         switch calendar.authorizationStatus {
         case .authorized, .fullAccess:
-            return "NotchLand can read today's events and show them in the expanded notch."
+            return "MacFlow can read today's events and show them in the expanded notch."
         case .notDetermined:
             return "Allow Calendar access to replace the placeholder notch content."
         case .denied:
@@ -166,7 +166,7 @@ struct CalendarSettingsView: View {
         case .restricted:
             return "Calendar access is restricted by this Mac."
         case .writeOnly:
-            return "NotchLand needs full access to read today's events."
+            return "MacFlow needs full access to read today's events."
         @unknown default:
             return "Calendar status is unavailable."
         }

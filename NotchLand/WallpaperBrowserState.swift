@@ -24,6 +24,7 @@ nonisolated enum WallpaperBrowserScope: Hashable, Sendable {
         case .collection: "Collection"
         }
     }
+
 }
 
 nonisolated enum WallpaperBrowserSort: String, CaseIterable, Identifiable, Sendable {
@@ -38,6 +39,14 @@ nonisolated enum WallpaperBrowserSort: String, CaseIterable, Identifiable, Senda
         case .recent: "Recent"
         case .title: "Name"
         case .kind: "Type"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .recent: "clock"
+        case .title: "textformat"
+        case .kind: "square.stack.3d.up"
         }
     }
 }
