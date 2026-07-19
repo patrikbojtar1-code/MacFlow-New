@@ -29,6 +29,7 @@ struct MacFlowHubView: View {
                 onToggleSidebar: toggleSidebar
             )
             .frame(width: isSidebarCollapsed ? 52 : MacFlowMetrics.sidebarWidth)
+            .clipped()
 
             Divider()
 
@@ -39,6 +40,7 @@ struct MacFlowHubView: View {
                 .transition(.opacity)
         }
         .preferredColorScheme(settings.theme.colorScheme)
+        .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: isSidebarCollapsed)
         .motionDebugProbe("App Shell")
         .onChange(of: selection) { oldSection, newSection in
             MotionDebug.record(

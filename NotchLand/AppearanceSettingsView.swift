@@ -28,7 +28,7 @@ struct AppearanceSettingsView: View {
             }
 
             Section("Notch Content") {
-                Picker("Notch content size", selection: $settings.notchContentSize) {
+                Picker("Notch content size", selection: globalContentSize) {
                     ForEach(NotchSize.allCases) { size in
                         Text(size.title).tag(size)
                     }
@@ -109,6 +109,13 @@ struct AppearanceSettingsView: View {
         }
         .formStyle(.grouped)
         .accessibilityIdentifier("notch.appearance.form")
+    }
+
+    private var globalContentSize: Binding<NotchSize> {
+        Binding(
+            get: { settings.notchContentSize },
+            set: { settings.setGlobalContentSize($0) }
+        )
     }
 }
 

@@ -9,9 +9,9 @@ import AppKit
 import SwiftUI
 
 enum WallpaperSceneNotchMetrics {
-    nonisolated static let compactSize = CGSize(width: 440, height: 46)
-    nonisolated static let mediumSize = CGSize(width: 620, height: 70)
-    nonisolated static let largeSize = CGSize(width: 720, height: 84)
+    nonisolated static let compactSize = NotchLayoutMetrics.bodySize(for: .small)
+    nonisolated static let mediumSize = NotchLayoutMetrics.bodySize(for: .medium)
+    nonisolated static let largeSize = NotchLayoutMetrics.bodySize(for: .large)
     nonisolated static let dropSize = CGSize(width: 360, height: 138)
 
     nonisolated static func size(for notchSize: NotchSize, isHovering: Bool = false) -> CGSize {
@@ -34,11 +34,8 @@ struct WallpaperSceneCompactView: View {
 
     @EnvironmentObject private var settings: NotchSettings
     @EnvironmentObject private var controller: WallpaperSceneController
+    @Environment(\.effectiveNotchSize) private var notchSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var notchSize: NotchSize {
-        settings.notchContentSize
-    }
 
     private var exclusionWidth: CGFloat {
         NotchLayoutMetrics.exclusionWidth(
@@ -69,13 +66,14 @@ struct WallpaperSceneCompactView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: notchSize == .small ? 9 : 12, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(scene.title)
-                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                    .foregroundStyle(NotchTheme.primaryText)
-                    .lineLimit(1)
+            if notchSize != .small {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(scene.title)
+                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                        .foregroundStyle(NotchTheme.primaryText)
+                        .lineLimit(1)
 
-                if notchSize != .small || isHovering {
+                    if notchSize == .large || isHovering {
                     Text(
                         controller.suspensionDetail
                             ?? controller.automationReason?.title
@@ -86,6 +84,7 @@ struct WallpaperSceneCompactView: View {
                         .lineLimit(1)
                         .contentTransition(.opacity)
                         .transition(.opacity.combined(with: .offset(x: -4)))
+                    }
                 }
             }
         }
@@ -114,7 +113,7 @@ struct WallpaperSceneCompactView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.green)
                         .contentTransition(.symbolEffect(.replace))
-                } else {
+                } else if notchSize != .small {
                     SceneMotionBars(
                         isActive: !controller.isPaused,
                         isEmphasized: isHovering

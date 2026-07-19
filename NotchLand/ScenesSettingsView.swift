@@ -17,10 +17,6 @@ struct ScenesSettingsView: View {
     @State private var presentsSceneConfiguration = false
     @State private var newCollectionName = ""
     @State private var isImporting = false
-    @State private var presentsImporter = false
-    @State private var showsCompactSearch = false
-    @State private var showsSortOptions = false
-    @State private var showsSceneOptions = false
     @State private var activationTask: Task<Void, Never>?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -74,12 +70,6 @@ struct ScenesSettingsView: View {
                 sceneConfigurationSheet(scene)
             }
         }
-        .fileImporter(
-            isPresented: $presentsImporter,
-            allowedContentTypes: [.image, .movie, .notchLandScene],
-            allowsMultipleSelection: false,
-            onCompletion: handleImport
-        )
         .onAppear { synchronizeSelection() }
         .onDisappear {
             activationTask?.cancel()
@@ -99,269 +89,48 @@ struct ScenesSettingsView: View {
 
             Spacer(minLength: MacFlowSpacing.space16)
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: MacFlowSpacing.space8) {
-                    searchField
-                    sortControl
-                    sceneOptionsControl
-                    layoutControl
-                    importControl(showsTitle: true)
-                }
+            HStack(spacing: MacFlowSpacing.space8) {
+                WallpaperNativeSearchField(text: $browser.query)
+                    .frame(minWidth: 180, idealWidth: 260, maxWidth: 320, minHeight: 30, maxHeight: 30)
+                    .layoutPriority(1)
+                    .accessibilityIdentifier("wallpapers.search")
 
-                HStack(spacing: MacFlowSpacing.space8) {
-                    compactSearchControl
-                    sortControl
-                    sceneOptionsControl
-                    layoutControl
-                    importControl(showsTitle: false)
+                WallpaperNativeMenuButton(
+                    systemImage: "arrow.up.arrow.down",
+                    accessibilityLabel: "Sort scenes",
+                    items: WallpaperBrowserSort.allCases.map(\.title)
+                ) { index in
+                    guard WallpaperBrowserSort.allCases.indices.contains(index) else { return }
+                    selectSort(WallpaperBrowserSort.allCases[index])
                 }
+                .frame(width: 34, height: 30)
+                .accessibilityIdentifier("wallpapers.sort")
+
+                WallpaperNativeMenuButton(
+                    systemImage: "ellipsis.circle",
+                    accessibilityLabel: "Scene and automation options",
+                    items: sceneOptionTitles
+                ) { index in
+                    handleSceneOption(at: index)
+                }
+                .frame(width: 34, height: 30)
+                .accessibilityIdentifier("wallpapers.options")
+
+                WallpaperNativeLayoutControl(selection: $browser.layout)
+                    .frame(width: 76, height: 30)
+
+                WallpaperNativeActionButton(
+                    title: "Import",
+                    systemImage: "plus",
+                    isEnabled: !isImporting,
+                    action: presentImporter
+                )
+                .frame(width: 92, height: 30)
+                .accessibilityIdentifier("wallpapers.import")
             }
         }
         .padding(.horizontal, MacFlowSpacing.space16)
         .frame(minHeight: 62)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: MacFlowSpacing.space8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(MacFlowColor.textTertiary)
-            TextField("Search scenes", text: $browser.query)
-                .textFieldStyle(.plain)
-            if !browser.query.isEmpty {
-                Button {
-                    browser.query = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(MacFlowColor.textTertiary)
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, MacFlowSpacing.space12)
-        .frame(width: 168, height: 30)
-        .background(
-            MacFlowColor.surface2,
-            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
-        }
-    }
-
-    private var compactSearchControl: some View {
-        Button {
-            showsCompactSearch.toggle()
-        } label: {
-            Image(systemName: "magnifyingglass")
-                .frame(width: 30, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .help("Search scenes")
-        .accessibilityLabel("Search scenes")
-        .popover(isPresented: $showsCompactSearch, arrowEdge: .bottom) {
-            searchField
-                .padding(MacFlowSpacing.space12)
-        }
-    }
-
-    private var sortControl: some View {
-        Button {
-            showsSortOptions.toggle()
-        } label: {
-            Image(systemName: "arrow.up.arrow.down")
-                .frame(width: 30, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(
-            MacFlowColor.surface2,
-            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
-        }
-        .fixedSize()
-        .help("Sort: \(browser.sort.title)")
-        .accessibilityLabel("Sort scenes")
-        .accessibilityValue(browser.sort.title)
-        .accessibilityIdentifier("wallpapers.sort")
-        .popover(isPresented: $showsSortOptions, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                ForEach(WallpaperBrowserSort.allCases) { sort in
-                    Button {
-                        showsSortOptions = false
-                        selectSort(sort)
-                    } label: {
-                        HStack(spacing: MacFlowSpacing.space8) {
-                            Image(systemName: sort.systemImage)
-                                .frame(width: 16)
-                            Text(sort.title)
-                            Spacer(minLength: MacFlowSpacing.space16)
-                            if browser.sort == sort {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(MacFlowColor.accent)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, MacFlowSpacing.space8)
-                    .frame(height: 28)
-                    .accessibilityIdentifier("wallpapers.sort.\(sort.rawValue)")
-                }
-            }
-            .padding(MacFlowSpacing.space8)
-            .frame(width: 164)
-        }
-    }
-
-    private var sceneOptionsControl: some View {
-        Button {
-            showsSceneOptions.toggle()
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .frame(width: 30, height: 28)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(
-            MacFlowColor.surface2,
-            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
-        }
-        .fixedSize()
-        .help("Scene and automation options")
-        .accessibilityLabel("Scene and automation options")
-        .accessibilityIdentifier("wallpapers.options")
-        .popover(isPresented: $showsSceneOptions, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                sceneOptionButton(
-                    title: "Automation…",
-                    systemImage: "clock.arrow.2.circlepath",
-                    identifier: "wallpapers.options.automation"
-                ) {
-                    showsSceneOptions = false
-                    presentsAutomation = true
-                }
-
-                Divider()
-
-                sceneOptionButton(
-                    title: "New Collection…",
-                    systemImage: "folder.badge.plus",
-                    identifier: "wallpapers.options.newCollection"
-                ) {
-                    showsSceneOptions = false
-                    presentsNewCollection = true
-                }
-
-                ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
-                    sceneOptionButton(
-                        title: collection.title,
-                        systemImage: "folder",
-                        identifier: "wallpapers.options.collection.\(collection.id.uuidString)"
-                    ) {
-                        showsSceneOptions = false
-                        selectScope(.collection(collection.id))
-                    }
-                }
-            }
-            .padding(MacFlowSpacing.space8)
-            .frame(width: 200)
-        }
-    }
-
-    private func sceneOptionButton(
-        title: String,
-        systemImage: String,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: MacFlowSpacing.space8) {
-                Image(systemName: systemImage)
-                    .frame(width: 16)
-                Text(title)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, MacFlowSpacing.space8)
-        .frame(height: 28)
-        .accessibilityIdentifier(identifier)
-    }
-
-    private var layoutControl: some View {
-        HStack(spacing: MacFlowSpacing.space4) {
-            layoutButton(.grid, systemImage: "square.grid.2x2", title: "Grid")
-            layoutButton(.list, systemImage: "list.bullet", title: "List")
-        }
-        .padding(MacFlowSpacing.space4)
-        .background(
-            MacFlowColor.surface2,
-            in: RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: MacFlowRadius.control, style: .continuous)
-                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
-        }
-    }
-
-    private func layoutButton(
-        _ layout: WallpaperBrowserLayout,
-        systemImage: String,
-        title: String
-    ) -> some View {
-        let isSelected = browser.layout == layout
-        return Button {
-            selectLayout(layout)
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(isSelected ? .primary : MacFlowColor.textSecondary)
-                .frame(width: 24, height: 22)
-                .background(
-                    isSelected ? MacFlowColor.surface3 : .clear,
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(title)
-        .accessibilityLabel(title)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier("wallpapers.layout.\(layout.rawValue)")
-    }
-
-    @ViewBuilder
-    private func importControl(showsTitle: Bool) -> some View {
-        Button {
-            presentImporter()
-        } label: {
-            if showsTitle {
-                Label("Import", systemImage: "plus")
-            } else {
-                Image(systemName: "plus")
-                    .frame(width: 14, height: 14)
-            }
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(MacFlowColor.accent)
-        .controlSize(.small)
-        .disabled(isImporting)
-        .help("Import wallpaper")
-        .accessibilityLabel("Import wallpaper")
-        .accessibilityIdentifier("wallpapers.import")
     }
 
     private var browserContent: some View {
@@ -768,6 +537,27 @@ struct ScenesSettingsView: View {
         return collection.title
     }
 
+    private var sceneOptionTitles: [String] {
+        ["Automation…", "New Collection…"]
+            + controller.library.collections
+                .filter { $0.kind == .custom }
+                .map(\.title)
+    }
+
+    private func handleSceneOption(at index: Int) {
+        switch index {
+        case 0:
+            presentsAutomation = true
+        case 1:
+            presentsNewCollection = true
+        default:
+            let collections = controller.library.collections.filter { $0.kind == .custom }
+            let collectionIndex = index - 2
+            guard collections.indices.contains(collectionIndex) else { return }
+            selectScope(.collection(collections[collectionIndex].id))
+        }
+    }
+
     private func synchronizeSelection() {
         browser.ensureSelection(in: controller.library.scenes, preferredID: controller.activeSceneID)
     }
@@ -795,39 +585,36 @@ struct ScenesSettingsView: View {
 
     private func selectLayout(_ layout: WallpaperBrowserLayout) {
         guard browser.layout != layout else { return }
-        Task { @MainActor in
-            // AppKit's segmented/menu controls are still completing their
-            // action here. Rebuilding the large library on the next turn
-            // avoids constraint invalidation re-entrancy in NSHostingView.
-            await Task.yield()
-            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
-                browser.layout = layout
-            }
+        withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+            browser.layout = layout
         }
     }
 
     private func selectSort(_ sort: WallpaperBrowserSort) {
         guard browser.sort != sort else { return }
-        Task { @MainActor in
-            await Task.yield()
-            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
-                browser.sort = sort
-            }
+        withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+            browser.sort = sort
         }
     }
 
     private func selectScope(_ scope: WallpaperBrowserScope) {
         guard browser.scope != scope else { return }
-        Task { @MainActor in
-            await Task.yield()
-            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
-                browser.scope = scope
-            }
+        withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+            browser.scope = scope
         }
     }
 
     private func presentImporter() {
-        presentsImporter = true
+        let panel = NSOpenPanel()
+        panel.title = "Import Wallpaper Scene"
+        panel.prompt = "Import"
+        panel.allowedContentTypes = [.image, .movie, .notchLandScene]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in handleImportedURL(url) }
+        }
     }
 
     private func handleImportedURL(_ url: URL) {
@@ -840,16 +627,6 @@ struct ScenesSettingsView: View {
                 selectScope(.all)
                 browser.selectedSceneID = controller.activeSceneID
             }
-        }
-    }
-
-    private func handleImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            handleImportedURL(url)
-        case .failure(let error):
-            controller.errorMessage = error.localizedDescription
         }
     }
 
@@ -872,6 +649,170 @@ struct ScenesSettingsView: View {
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return sanitized.isEmpty ? "MacFlow Scene" : sanitized
+    }
+}
+
+private struct WallpaperNativeSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = "Search scenes"
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = true
+        field.delegate = context.coordinator
+        field.focusRingType = .default
+        field.setAccessibilityLabel("Search scenes")
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.text = $text
+        guard field.stringValue != text else { return }
+        field.stringValue = text
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            text.wrappedValue = field.stringValue
+        }
+    }
+}
+
+private struct WallpaperNativeMenuButton: NSViewRepresentable {
+    let systemImage: String
+    let accessibilityLabel: String
+    let items: [String]
+    let onSelect: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onSelect: onSelect) }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: true)
+        button.bezelStyle = .texturedRounded
+        button.imagePosition = .imageOnly
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectItem(_:))
+        button.setAccessibilityLabel(accessibilityLabel)
+        configure(button)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.onSelect = onSelect
+        guard context.coordinator.items != items else { return }
+        configure(button)
+    }
+
+    private func configure(_ button: NSPopUpButton) {
+        button.removeAllItems()
+        button.addItem(withTitle: accessibilityLabel)
+        button.item(at: 0)?.image = NSImage(
+            systemSymbolName: systemImage,
+            accessibilityDescription: accessibilityLabel
+        )
+        items.forEach { button.addItem(withTitle: $0) }
+        button.selectItem(at: 0)
+        (button.target as? Coordinator)?.items = items
+    }
+
+    final class Coordinator: NSObject {
+        var items: [String] = []
+        var onSelect: (Int) -> Void
+
+        init(onSelect: @escaping (Int) -> Void) {
+            self.onSelect = onSelect
+        }
+
+        @objc func selectItem(_ sender: NSPopUpButton) {
+            let index = sender.indexOfSelectedItem - 1
+            sender.selectItem(at: 0)
+            guard items.indices.contains(index) else { return }
+            onSelect(index)
+        }
+    }
+}
+
+private struct WallpaperNativeLayoutControl: NSViewRepresentable {
+    @Binding var selection: WallpaperBrowserLayout
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.segmentCount = 2
+        control.trackingMode = .selectOne
+        control.segmentStyle = .rounded
+        control.setImage(NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Grid"), forSegment: 0)
+        control.setImage(NSImage(systemSymbolName: "list.bullet", accessibilityDescription: "List"), forSegment: 1)
+        control.setWidth(34, forSegment: 0)
+        control.setWidth(34, forSegment: 1)
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.changeLayout(_:))
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        control.selectedSegment = selection == .grid ? 0 : 1
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<WallpaperBrowserLayout>
+
+        init(selection: Binding<WallpaperBrowserLayout>) {
+            self.selection = selection
+        }
+
+        @objc func changeLayout(_ sender: NSSegmentedControl) {
+            selection.wrappedValue = sender.selectedSegment == 0 ? .grid : .list
+        }
+    }
+}
+
+private struct WallpaperNativeActionButton: NSViewRepresentable {
+    let title: String
+    let systemImage: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: title, target: context.coordinator, action: #selector(Coordinator.performAction))
+        button.bezelStyle = .rounded
+        button.bezelColor = .controlAccentColor
+        button.contentTintColor = .white
+        button.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)
+        button.imagePosition = .imageLeading
+        button.setAccessibilityLabel("Import wallpaper")
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.action = action
+        button.isEnabled = isEnabled
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func performAction() {
+            action()
+        }
     }
 }
 

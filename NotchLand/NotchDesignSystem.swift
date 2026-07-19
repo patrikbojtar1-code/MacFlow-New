@@ -29,6 +29,20 @@ nonisolated enum NotchSize: String, CaseIterable, Identifiable, Codable, Sendabl
     }
 }
 
+private struct EffectiveNotchSizeKey: EnvironmentKey {
+    static let defaultValue: NotchSize = .small
+}
+
+extension EnvironmentValues {
+    /// The density resolved for the display that owns the current notch panel.
+    /// Compact feature views consume this instead of reading the global setting,
+    /// keeping their content and the shell geometry in sync on every display.
+    var effectiveNotchSize: NotchSize {
+        get { self[EffectiveNotchSizeKey.self] }
+        set { self[EffectiveNotchSizeKey.self] = newValue }
+    }
+}
+
 nonisolated enum NotchPresentationState: String, Equatable, Sendable {
     case idle
     case hover
@@ -86,17 +100,17 @@ nonisolated enum NotchLayoutMetrics {
 
     static func bodySize(for size: NotchSize) -> CGSize {
         switch size {
-        case .small: CGSize(width: 440, height: 46)
-        case .medium: CGSize(width: 620, height: 70)
-        case .large: CGSize(width: 720, height: 84)
+        case .small: CGSize(width: 320, height: 42)
+        case .medium: CGSize(width: 440, height: 54)
+        case .large: CGSize(width: 540, height: 66)
         }
     }
 
     static func horizontalPadding(for size: NotchSize) -> CGFloat {
         switch size {
-        case .small: compactHorizontalPadding
-        case .medium: mediumHorizontalPadding
-        case .large: largeHorizontalPadding
+        case .small: 12
+        case .medium: 16
+        case .large: 18
         }
     }
 
@@ -474,11 +488,11 @@ enum NotchLayoutCoordinator {
             return CGSize(width: bodyWidth + extra, height: baseHeight + extraHeight)
         }
         if NotchPresentationResolver.isMusicBranch(key) {
-            let densityWidth = NowPlayingMetrics.widthAddition(for: input.compactSize)
             let hoverWidth = input.isHovering ? NowPlayingMetrics.compactHoverWidthExpansion : 0
+            let densitySize = NotchLayoutMetrics.bodySize(for: input.compactSize)
             return shellSize(
-                bodyWidth: input.mediaPreferredWidth + densityWidth + hoverWidth,
-                height: max(baseHeight, NowPlayingMetrics.compactHeight(for: input.compactSize))
+                bodyWidth: densitySize.width + hoverWidth,
+                height: max(baseHeight, densitySize.height)
             )
         }
         if key == "event-collapsed" {

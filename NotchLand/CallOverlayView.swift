@@ -6,13 +6,13 @@
 import SwiftUI
 
 enum CallOverlayMetrics {
-    nonisolated static let incomingSize = CGSize(width: 440, height: 46)
+    nonisolated static let incomingSize = NotchLayoutMetrics.bodySize(for: .small)
     // Every compact call phase keeps the same shell footprint. Only content
     // changes, so accepting or dismissing never shifts the notch sideways.
-    nonisolated static let activeSize = CGSize(width: 440, height: 46)
-    nonisolated static let endedSize = CGSize(width: 440, height: 46)
-    nonisolated static let mediumSize = CGSize(width: 620, height: 70)
-    nonisolated static let largeSize = CGSize(width: 720, height: 84)
+    nonisolated static let activeSize = NotchLayoutMetrics.bodySize(for: .small)
+    nonisolated static let endedSize = NotchLayoutMetrics.bodySize(for: .small)
+    nonisolated static let mediumSize = NotchLayoutMetrics.bodySize(for: .medium)
+    nonisolated static let largeSize = NotchLayoutMetrics.bodySize(for: .large)
 
     nonisolated static func size(
         for presentation: CallPresentation,
@@ -36,12 +36,10 @@ struct CallOverlayView: View {
 
     @EnvironmentObject private var calls: CallActivityController
     @EnvironmentObject private var settings: NotchSettings
+    @Environment(\.effectiveNotchSize) private var notchSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isRinging = false
 
-    private var notchSize: NotchSize {
-        settings.notchContentSize
-    }
 
     private var exclusionWidth: CGFloat {
         NotchLayoutMetrics.exclusionWidth(
@@ -96,7 +94,7 @@ struct CallOverlayView: View {
     private var rightWing: some View {
         switch presentation.phase {
         case .incoming:
-            HStack(spacing: notchSize == .small ? 8 : 12) {
+            HStack(spacing: notchSize == .small ? 4 : 12) {
                 if presentation.supportsCallControl {
                     actionButton(
                         symbol: "phone.down.fill",
@@ -129,7 +127,7 @@ struct CallOverlayView: View {
                 actionButton(symbol: "phone.down.fill", title: "End", color: .red, action: calls.end)
             }
         case .active:
-            HStack(spacing: notchSize == .small ? 8 : 12) {
+            HStack(spacing: notchSize == .small ? 4 : 12) {
                 actionButton(
                     symbol: presentation.isMuted ? "mic.slash.fill" : "mic.fill",
                     title: presentation.isMuted ? "Unmute" : "Mute",
@@ -148,16 +146,20 @@ struct CallOverlayView: View {
     private func identityWing(status: String, showsPulse: Bool) -> some View {
         HStack(spacing: notchSize == .small ? 9 : 12) {
             avatar(size: notchSize == .small ? 30 : 42, showsPulse: showsPulse)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(presentation.callerName)
-                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                    .foregroundStyle(NotchTheme.primaryText)
-                    .lineLimit(1)
-                Text(status)
-                    .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
-                    .foregroundStyle(NotchTheme.secondaryText)
-                    .lineLimit(1)
-                    .contentTransition(.numericText())
+            if notchSize != .small {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(presentation.callerName)
+                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                        .foregroundStyle(NotchTheme.primaryText)
+                        .lineLimit(1)
+                    if notchSize == .large {
+                        Text(status)
+                            .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
+                            .foregroundStyle(NotchTheme.secondaryText)
+                            .lineLimit(1)
+                            .contentTransition(.numericText())
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,10 +173,12 @@ struct CallOverlayView: View {
                 .foregroundStyle(.white.opacity(0.72))
                 .frame(width: 28, height: 28)
                 .background(NotchTheme.interactiveSurface, in: Circle())
-            Text(presentation.callerName)
-                .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                .foregroundStyle(NotchTheme.primaryText)
-                .lineLimit(1)
+            if notchSize != .small {
+                Text(presentation.callerName)
+                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -211,7 +215,7 @@ struct CallOverlayView: View {
         color: Color,
         action: @escaping () -> Void
     ) -> some View {
-        let dimension: CGFloat = notchSize == .small ? 29 : 36
+        let dimension: CGFloat = notchSize == .small ? 26 : 36
         return Button {
             NotchHaptics.perform(.navigation)
             action()

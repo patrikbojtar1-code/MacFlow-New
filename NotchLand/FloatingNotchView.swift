@@ -171,6 +171,7 @@ struct FloatingNotchView: View {
             notchBody(size: size, branchKey: displayKey)
                 .frame(width: size.width, height: size.height, alignment: .top)
         }
+        .environment(\.effectiveNotchSize, effectiveCompactNotchSize)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(
             NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion),

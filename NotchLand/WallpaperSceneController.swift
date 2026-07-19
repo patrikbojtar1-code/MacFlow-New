@@ -27,6 +27,8 @@ final class WallpaperSceneController: ObservableObject {
         static let automationPollingInterval: Duration = .seconds(30)
         static let manualOverrideDuration: TimeInterval = 2 * 60 * 60
         static let renderingPersistenceDelay: Duration = .milliseconds(280)
+        static let videoVisibilityPollingInterval: Duration = .seconds(2)
+        static let idleVisibilityPollingInterval: Duration = .seconds(8)
     }
 
     @Published private(set) var activeSceneID: UUID?
@@ -752,6 +754,14 @@ final class WallpaperSceneController: ObservableObject {
         visibilityTask?.cancel()
         visibilityTask = Task { @MainActor [weak self] in
             while let self, !Task.isCancelled {
+                guard self.activeScene?.kind == .video, self.isSessionActive else {
+                    if self.isFullscreenApplicationActive {
+                        self.isFullscreenApplicationActive = false
+                        self.updatePlaybackState()
+                    }
+                    try? await Task.sleep(for: Timing.idleVisibilityPollingInterval)
+                    continue
+                }
                 let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
                 let displayFrames = self.displayCoordinator.displays.map(\.frame)
                 let isFullscreen = await Task.detached(priority: .utility) {
@@ -767,7 +777,7 @@ final class WallpaperSceneController: ObservableObject {
                     self.isFullscreenApplicationActive = isFullscreen
                     self.updatePlaybackState()
                 }
-                try? await Task.sleep(for: .seconds(1.25))
+                try? await Task.sleep(for: Timing.videoVisibilityPollingInterval)
             }
         }
     }

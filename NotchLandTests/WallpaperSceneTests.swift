@@ -63,6 +63,37 @@ struct WallpaperSceneTests {
         #expect(WallpaperPerformanceProfile.cinematic.targetFramesPerSecond == 60)
     }
 
+    @Test func automaticWallpaperProfilePrioritizesThermalEfficiency() {
+        #expect(WallpaperPerformanceMonitor.resolvedProfile(
+            selected: .automatic,
+            isLowPowerModeEnabled: false,
+            thermalState: .nominal
+        ) == .balanced)
+        #expect(WallpaperPerformanceMonitor.resolvedProfile(
+            selected: .automatic,
+            isLowPowerModeEnabled: true,
+            thermalState: .nominal
+        ) == .eco)
+        #expect(WallpaperPerformanceMonitor.shouldSuspendVideo(for: .serious))
+        #expect(WallpaperPerformanceMonitor.shouldSuspendVideo(for: .critical))
+    }
+
+    @Test func globalNotchSizeKeepsDisplayOffsetsAndSynchronizesDensity() {
+        let configurations: [UInt32: DisplayNotchConfiguration] = [
+            1: DisplayNotchConfiguration(contentSize: .small, horizontalOffset: -24),
+            2: DisplayNotchConfiguration(contentSize: .medium, horizontalOffset: 32),
+        ]
+
+        let updated = NotchSettings.configurations(
+            applyingGlobalContentSize: .large,
+            to: configurations
+        )
+
+        #expect(updated.values.allSatisfy { $0.contentSize == .large })
+        #expect(updated[1]?.horizontalOffset == -24)
+        #expect(updated[2]?.horizontalOffset == 32)
+    }
+
     @Test func renderingProfilesClampToEngineBudgets() {
         let configuration = WallpaperSceneRenderingConfiguration(
             scalingMode: .fit,

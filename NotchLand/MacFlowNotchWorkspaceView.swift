@@ -205,7 +205,7 @@ struct MacFlowNotchWorkspaceView: View {
                     title: "Content size",
                     subtitle: nil
                 ) {
-                    Picker("Content size", selection: $settings.notchContentSize) {
+                    Picker("Content size", selection: globalContentSize) {
                         ForEach(NotchSize.allCases) { size in
                             Text(size.title).tag(size)
                         }
@@ -221,6 +221,13 @@ struct MacFlowNotchWorkspaceView: View {
                 )
             }
         }
+    }
+
+    private var globalContentSize: Binding<NotchSize> {
+        Binding(
+            get: { settings.notchContentSize },
+            set: { settings.setGlobalContentSize($0) }
+        )
     }
 
     private var integrations: some View {
@@ -274,7 +281,7 @@ private struct RealNotchMediaPreview: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let bodyWidth = presentation.preferredWidth + NowPlayingMetrics.widthAddition(for: size)
+            let bodyWidth = NowPlayingMetrics.compactBodyWidth(for: size)
             let outerWidth = bodyWidth + invertedRadius * 2
             let height = NowPlayingMetrics.compactHeight(for: size)
             let availableWidth = max(1, proxy.size.width - MacFlowSpacing.space16)

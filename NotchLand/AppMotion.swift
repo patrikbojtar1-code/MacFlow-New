@@ -24,7 +24,9 @@ nonisolated enum AppMotion {
     }
 
     static func stateChange(reduceMotion: Bool) -> Animation {
-        .easeInOut(duration: reduceMotion ? Duration.instant : Duration.standard)
+        reduceMotion
+            ? .easeOut(duration: Duration.instant)
+            : .spring(response: Duration.emphasized, dampingFraction: 0.86, blendDuration: 0)
     }
 
     static func insertion(reduceMotion: Bool) -> Animation {

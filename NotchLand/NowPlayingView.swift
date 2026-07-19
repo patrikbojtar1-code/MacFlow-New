@@ -23,7 +23,7 @@ enum NowPlayingMetrics {
     /// Width of the collapsed pill when music is playing. Wider than the bare
     /// notch so the artwork (left) and EQ bars (right) flank the hardware notch.
     static let collapsedWidth: CGFloat = 250
-    static let compactHeight: CGFloat = 48
+    static let compactHeight: CGFloat = NotchLayoutMetrics.bodySize(for: .small).height
     static let compactBottomCornerRadius: CGFloat = 22
     static let compactHoverWidthExpansion: CGFloat = 10
     static let compactHorizontalPadding: CGFloat = 15
@@ -52,11 +52,7 @@ enum NowPlayingMetrics {
     static let collapsedBarsSize = CGSize(width: 22, height: 14)
 
     static func compactHeight(for size: NotchSize) -> CGFloat {
-        switch size {
-        case .small: 48
-        case .medium: 62
-        case .large: 74
-        }
+        NotchLayoutMetrics.bodySize(for: size).height
     }
 
     static func surfaceHeight(for size: NotchSize) -> CGFloat {
@@ -83,12 +79,8 @@ enum NowPlayingMetrics {
         size == .small ? 10 : 12
     }
 
-    static func widthAddition(for size: NotchSize) -> CGFloat {
-        switch size {
-        case .small: -80
-        case .medium: 20
-        case .large: 100
-        }
+    static func compactBodyWidth(for size: NotchSize) -> CGFloat {
+        NotchLayoutMetrics.bodySize(for: size).width
     }
 }
 
@@ -276,6 +268,7 @@ private enum ExpandedMediaTokens {
 struct NowPlayingCollapsedView: View {
     @EnvironmentObject private var nowPlaying: NowPlayingService
     @EnvironmentObject private var settings: NotchSettings
+    @Environment(\.effectiveNotchSize) private var effectiveNotchSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var accessibilityContrast
     let track: NowPlayingService.Track
@@ -294,7 +287,7 @@ struct NowPlayingCollapsedView: View {
             processedBackground: backgroundModel.image,
             backgroundIdentity: backgroundModel.identity,
             hardwareNotchWidth: CGFloat(settings.collapsedWidth),
-            notchSize: settings.notchContentSize,
+            notchSize: effectiveNotchSize,
             isHovering: isHovering,
             revealsContent: revealsContent,
             accessibilityContrast: accessibilityContrast,
@@ -411,28 +404,32 @@ struct CompactMediaContent: View {
                         .opacity(revealsContent ? 1 : 0)
                         .animation(entranceAnimation(delay: 0), value: revealsContent)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(presentation.primaryTitle)
-                            .font(.system(size: NowPlayingMetrics.titleSize(for: notchSize), weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .contentTransition(.interpolate)
-                        Text(presentation.secondaryTitle)
-                            .font(.system(size: NowPlayingMetrics.subtitleSize(for: notchSize), weight: .regular))
-                            .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .contentTransition(.interpolate)
+                    if notchSize != .small {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(presentation.primaryTitle)
+                                .font(.system(size: NowPlayingMetrics.titleSize(for: notchSize), weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .contentTransition(.interpolate)
+                            if notchSize == .large {
+                                Text(presentation.secondaryTitle)
+                                    .font(.system(size: NowPlayingMetrics.subtitleSize(for: notchSize), weight: .regular))
+                                    .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .contentTransition(.interpolate)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .offset(x: revealsContent || reduceMotion ? 0 : -7)
+                        .opacity(revealsContent ? 1 : 0)
+                        .animation(entranceAnimation(delay: 0.035), value: revealsContent)
+                        .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: presentation.primaryTitle)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(presentation.source.displayName), \(presentation.primaryTitle)")
+                        .accessibilityValue(presentation.secondaryTitle)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .offset(x: revealsContent || reduceMotion ? 0 : -7)
-                    .opacity(revealsContent ? 1 : 0)
-                    .animation(entranceAnimation(delay: 0.035), value: revealsContent)
-                    .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: presentation.primaryTitle)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(presentation.source.displayName), \(presentation.primaryTitle)")
-                    .accessibilityValue(presentation.secondaryTitle)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -441,16 +438,18 @@ struct CompactMediaContent: View {
                     .accessibilityHidden(true)
 
                 HStack(spacing: 11) {
-                    CompactMediaWaveform(
-                        isPlaying: presentation.isPlaying,
-                        color: accent,
-                        isEmphasized: isHovering
-                    )
-                    .frame(width: 42, height: 17)
-                    .matchedGeometry(id: "music-eq", in: morphNamespace)
-                    .opacity(revealsContent ? (isHovering ? 1 : 0.88) : 0)
-                    .animation(entranceAnimation(delay: 0.07), value: revealsContent)
-                    .accessibilityHidden(true)
+                    if notchSize != .small {
+                        CompactMediaWaveform(
+                            isPlaying: presentation.isPlaying,
+                            color: accent,
+                            isEmphasized: isHovering
+                        )
+                        .frame(width: 42, height: 17)
+                        .matchedGeometry(id: "music-eq", in: morphNamespace)
+                        .opacity(revealsContent ? (isHovering ? 1 : 0.88) : 0)
+                        .animation(entranceAnimation(delay: 0.07), value: revealsContent)
+                        .accessibilityHidden(true)
+                    }
 
                     Button(action: onPlayPause) {
                         Image(systemName: presentation.isPlaying ? "pause.fill" : "play.fill")

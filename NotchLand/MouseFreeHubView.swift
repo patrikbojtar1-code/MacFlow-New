@@ -64,27 +64,25 @@ struct MouseFreeHubView: View {
                     .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
                 VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                    Text(permissionTitle)
+                    Text("Allow MouseFree in Accessibility")
                         .font(.system(size: 13, weight: .medium))
+                    Text("macOS requires this permission to customize external mouse scrolling.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
                 }
 
                 Spacer(minLength: MacFlowSpacing.space16)
 
-                if controller.isStableApplicationLocation {
-                    Button(controller.hasRequestedAccessibilityThisRun ? "Open Settings" : "Allow") {
-                        if controller.hasRequestedAccessibilityThisRun {
-                            openAccessibilitySettings()
-                        } else {
-                            controller.requestAccessibilityPermission()
-                        }
+                Button(controller.hasRequestedAccessibilityThisRun ? "Open Settings" : "Allow Access") {
+                    if controller.hasRequestedAccessibilityThisRun {
+                        openAccessibilitySettings()
+                    } else {
+                        controller.requestAccessibilityPermission()
                     }
-                        .buttonStyle(.borderedProminent)
-                        .tint(MacFlowColor.accent)
-                } else {
-                    Button("Show Build") { revealCurrentApplication() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(MacFlowColor.accent)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(MacFlowColor.accent)
+                .accessibilityIdentifier("mouseFree.allowAccessibility")
                 Button { openAccessibilitySettings() } label: {
                     Image(systemName: "gearshape")
                 }
@@ -270,16 +268,6 @@ struct MouseFreeHubView: View {
         case .disabled: MacFlowColor.textSecondary
         case .unavailable: .red
         }
-    }
-
-    private var permissionTitle: String {
-        controller.isStableApplicationLocation
-            ? "Accessibility permission required"
-            : "Install this MacFlow build first"
-    }
-
-    private func revealCurrentApplication() {
-        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
     }
 
     private func openAccessibilitySettings() {

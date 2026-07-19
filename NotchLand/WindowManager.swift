@@ -257,11 +257,15 @@ final class WindowManager: NSObject {
             settings.$collapsedHeight.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$expandedWidth.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$expandedHeight.dropFirst().map { _ in () }.eraseToAnyPublisher(),
-            settings.$notchContentSize.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$virtualNotchEnabled.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$displayPolicy.dropFirst().map { _ in () }.eraseToAnyPublisher(),
             settings.$selectedDisplayIDs.dropFirst().map { _ in () }.eraseToAnyPublisher(),
-            settings.$displayConfigurations.dropFirst().map { _ in () }.eraseToAnyPublisher()
+            settings.$displayConfigurations
+                .map { configurations in configurations.mapValues(\.horizontalOffset) }
+                .removeDuplicates()
+                .dropFirst()
+                .map { _ in () }
+                .eraseToAnyPublisher()
         )
         .sink { [weak self] _ in
             MainActor.assumeIsolated { self?.updateNotchFrame(animated: false) }
@@ -975,7 +979,7 @@ final class WindowManager: NSObject {
     }
 
     private func makeCompanionWindow() -> NSWindow {
-        let hosting = NSHostingView(
+        let hosting = MacFlowHostingView(
             rootView: SettingsView()
                 .environmentObject(settings)
                 .environmentObject(displayCoordinator)
@@ -1022,7 +1026,10 @@ final class WindowManager: NSObject {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        window.isMovableByWindowBackground = true
+        // The content starts immediately below a transparent titlebar. Treating
+        // the entire hosting view as a drag region steals mouse-down events from
+        // borderless SwiftUI controls (notably the wallpaper toolbar).
+        window.isMovableByWindowBackground = false
         // MacFlow owns this companion window and centers it explicitly. Opting
         // out of AppKit state restoration prevents WindowScene from replaying
         // a server-side frame while the SwiftUI hierarchy is mid-layout.
@@ -1400,6 +1407,11 @@ final class WindowManager: NSObject {
 private final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+}
+
+private final class MacFlowHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
 }
 
 private final class NotchHostingView<Content: View>: NSHostingView<Content> {

@@ -57,18 +57,31 @@ final class WallpaperPerformanceMonitor: ObservableObject {
         isLowPowerModeEnabled = processInfo.isLowPowerModeEnabled
         thermalState = processInfo.thermalState
 
-        shouldSuspendVideo = thermalState == .critical
-        guard selectedProfile == .automatic else {
-            effectiveProfile = selectedProfile
-            return
-        }
+        shouldSuspendVideo = Self.shouldSuspendVideo(for: thermalState)
+        effectiveProfile = Self.resolvedProfile(
+            selected: selectedProfile,
+            isLowPowerModeEnabled: isLowPowerModeEnabled,
+            thermalState: thermalState
+        )
+    }
 
-        if isLowPowerModeEnabled || thermalState == .serious {
-            effectiveProfile = .eco
-        } else if thermalState == .fair {
-            effectiveProfile = .balanced
-        } else {
-            effectiveProfile = .cinematic
+    nonisolated static func shouldSuspendVideo(for thermalState: ProcessInfo.ThermalState) -> Bool {
+        // A wallpaper is decorative work and should yield before macOS reaches
+        // the critical thermal state.
+        thermalState == .serious || thermalState == .critical
+    }
+
+    nonisolated static func resolvedProfile(
+        selected: WallpaperPerformanceProfile,
+        isLowPowerModeEnabled: Bool,
+        thermalState: ProcessInfo.ThermalState
+    ) -> WallpaperPerformanceProfile {
+        guard selected == .automatic else { return selected }
+        if isLowPowerModeEnabled || thermalState == .serious || thermalState == .critical {
+            return .eco
         }
+        // Automatic intentionally tops out at the efficient 1080p/30 FPS
+        // budget. Users can still opt into Cinematic explicitly.
+        return .balanced
     }
 }

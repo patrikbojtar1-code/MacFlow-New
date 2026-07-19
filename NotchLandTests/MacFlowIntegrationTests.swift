@@ -56,11 +56,15 @@ struct MacFlowIntegrationTests {
     }
 
     @Test func notchContentSizesProduceThreeDistinctCompactGeometries() {
+        #expect(NotchLayoutMetrics.bodySize(for: .small) == CGSize(width: 320, height: 42))
+        #expect(NotchLayoutMetrics.bodySize(for: .medium) == CGSize(width: 440, height: 54))
+        #expect(NotchLayoutMetrics.bodySize(for: .large) == CGSize(width: 540, height: 66))
+
         let sizes = NotchSize.allCases.map {
             (
                 NotchLayoutMetrics.bodySize(for: $0),
                 NowPlayingMetrics.compactHeight(for: $0),
-                NowPlayingMetrics.widthAddition(for: $0)
+                NowPlayingMetrics.compactBodyWidth(for: $0)
             )
         }
 
@@ -70,6 +74,14 @@ struct MacFlowIntegrationTests {
         #expect(sizes[1].1 < sizes[2].1)
         #expect(sizes[0].2 < sizes[1].2)
         #expect(sizes[1].2 < sizes[2].2)
+        #expect(sizes.allSatisfy { $0.0.width == $0.2 })
+        #expect(sizes.allSatisfy { $0.0.height == $0.1 })
+        #expect(LiveActivityChipMetrics.compactSize == sizes[0].0)
+        #expect(LiveActivityChipMetrics.mediumSize == sizes[1].0)
+        #expect(LiveActivityChipMetrics.largeSize == sizes[2].0)
+        #expect(WallpaperSceneNotchMetrics.compactSize == sizes[0].0)
+        #expect(WallpaperSceneNotchMetrics.mediumSize == sizes[1].0)
+        #expect(WallpaperSceneNotchMetrics.largeSize == sizes[2].0)
     }
 
     @Test func appMotionUsesTheDocumentedDurationScale() {

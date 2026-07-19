@@ -325,6 +325,29 @@ nonisolated final class NotchSettings: ObservableObject {
         return displayConfigurations[displayID]?.contentSize ?? notchContentSize
     }
 
+    /// Applies the shared density to every currently customized display while
+    /// preserving display-specific offsets. This makes the primary Content size
+    /// control authoritative instead of being silently masked by an old override.
+    func setGlobalContentSize(_ size: NotchSize) {
+        notchContentSize = size
+        guard !displayConfigurations.isEmpty else { return }
+        displayConfigurations = Self.configurations(
+            applyingGlobalContentSize: size,
+            to: displayConfigurations
+        )
+    }
+
+    nonisolated static func configurations(
+        applyingGlobalContentSize size: NotchSize,
+        to configurations: [UInt32: DisplayNotchConfiguration]
+    ) -> [UInt32: DisplayNotchConfiguration] {
+        configurations.mapValues { configuration in
+            var updated = configuration
+            updated.contentSize = size
+            return updated
+        }
+    }
+
     func horizontalOffset(for displayID: UInt32) -> CGFloat {
         CGFloat(displayConfigurations[displayID]?.horizontalOffset ?? 0)
     }

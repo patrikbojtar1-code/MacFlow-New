@@ -26,11 +26,9 @@ struct ImportantEventReminderView: View {
 
     @EnvironmentObject private var countdown: EventCountdownController
     @EnvironmentObject private var settings: NotchSettings
+    @Environment(\.effectiveNotchSize) private var notchSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var notchSize: NotchSize {
-        settings.notchContentSize
-    }
 
     var body: some View {
         NotchHardwareLayout(

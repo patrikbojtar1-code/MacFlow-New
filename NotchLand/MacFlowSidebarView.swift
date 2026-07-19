@@ -18,98 +18,130 @@ struct MacFlowSidebarView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Group {
-            if isCollapsed {
-                collapsedRail
-                    .transition(.opacity)
-            } else {
-                expandedSidebar
-                    .transition(.opacity)
+        VStack(spacing: 0) {
+            brandHeader
+                .padding(.horizontal, isCollapsed ? 0 : MacFlowSpacing.space16)
+                .padding(.vertical, MacFlowSpacing.space16)
+
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space16) {
+                sidebarGroup(title: "Workspace", sections: [.home, .notch, .mouseFree, .wallpaperEngine])
+                sidebarGroup(title: "MacFlow", sections: utilitySections)
             }
+            .padding(.vertical, MacFlowSpacing.space8)
+
+            Spacer()
+
+            Divider()
+                .padding(.horizontal, isCollapsed ? MacFlowSpacing.space4 : MacFlowSpacing.space12)
+
+            MacFlowProfileControl(isCollapsed: isCollapsed)
+                .padding(isCollapsed ? 0 : MacFlowSpacing.space12)
+                .padding(.vertical, isCollapsed ? MacFlowSpacing.space12 : 0)
         }
         .background(MacFlowColor.sidebar)
         .clipped()
+        .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: isCollapsed)
     }
 
-    private var selectionBinding: Binding<MacFlowSection?> {
-        Binding(
-            get: { selection },
-            set: { newSelection in
-                guard let newSelection, newSelection != selection else { return }
-                NotchHaptics.perform(.navigation)
-                withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
-                    selection = newSelection
+    private var brandHeader: some View {
+        HStack(spacing: 0) {
+            if isCollapsed {
+                Spacer(minLength: 0)
+                sidebarToggle
+                Spacer(minLength: 0)
+            } else {
+                sidebarToggle
+                Text("MacFlow")
+                    .font(.title3.weight(.semibold))
+                    .padding(.leading, MacFlowSpacing.space8)
+                    .transition(.opacity)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarGroup(title: String, sections: [MacFlowSection]) -> some View {
+        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+            if !isCollapsed {
+                Text(title.uppercased())
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(MacFlowColor.textTertiary)
+                    .tracking(0.85)
+                    .padding(.horizontal, MacFlowSpacing.space16)
+                    .padding(.bottom, MacFlowSpacing.space4)
+                    .transition(.opacity)
+            }
+
+            ForEach(sections) { section in
+                sidebarRow(for: section)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sidebarRow(for section: MacFlowSection) -> some View {
+        let isSelected = selection == section
+        Button {
+            NotchHaptics.perform(.navigation)
+            withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
+                selection = section
+            }
+        } label: {
+            HStack(spacing: 0) {
+                if !isCollapsed {
+                    Rectangle()
+                        .fill(isSelected ? Color.accentColor : Color.clear)
+                        .frame(width: 1.5, height: 16)
+                        .cornerRadius(0.75)
+                        .padding(.trailing, 8)
+                }
+
+                HStack(spacing: isCollapsed ? 0 : MacFlowSpacing.space8) {
+                    Image(systemName: section.systemImage)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : MacFlowColor.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            isSelected ? MacFlowColor.surface3 : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                        .frame(maxWidth: isCollapsed ? .infinity : nil)
+
+                    if !isCollapsed {
+                        Text(section.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isSelected ? .primary : MacFlowColor.textSecondary)
+                            .lineLimit(1)
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.leading, isCollapsed ? 0 : 8)
+
+                if !isCollapsed {
+                    Spacer(minLength: 0)
                 }
             }
-        )
-    }
-
-    private var brand: some View {
-        HStack(spacing: MacFlowSpacing.space8) {
-            sidebarToggle
-            Text("MacFlow")
-                .font(.title3.weight(.semibold))
-            Spacer(minLength: 0)
+            .contentShape(Rectangle())
         }
-    }
-
-    private var expandedSidebar: some View {
-        VStack(spacing: 0) {
-            brand
-                .padding(.horizontal, MacFlowSpacing.space16)
-                .padding(.vertical, MacFlowSpacing.space16)
-
-            List(selection: selectionBinding) {
-                Section("Workspace") {
-                    rows([.home, .notch, .mouseFree, .wallpaperEngine])
-                }
-
-                Section("MacFlow") {
-                    rows(utilitySections)
-                }
-            }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-
-            Divider()
-                .padding(.horizontal, MacFlowSpacing.space12)
-
-            MacFlowProfileControl()
-                .padding(MacFlowSpacing.space12)
-        }
-    }
-
-    private var collapsedRail: some View {
-        VStack(spacing: 0) {
-            sidebarToggle
-                .padding(.top, MacFlowSpacing.space16)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .buttonStyle(SidebarRowButtonStyle(isSelected: isSelected, isCollapsed: isCollapsed))
+        .help(section.detail)
+        .accessibilityLabel(section.title)
+        .accessibilityHint(section.detail)
+        .accessibilityIdentifier("sidebar.\(section.rawValue)")
     }
 
     private var sidebarToggle: some View {
         Button(action: onToggleSidebar) {
             Image(systemName: isCollapsed ? "sidebar.right" : "sidebar.left")
                 .frame(width: 24, height: 24)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .help(isCollapsed ? "Show Sidebar" : "Hide Sidebar")
         .accessibilityLabel(isCollapsed ? "Show Sidebar" : "Hide Sidebar")
         .accessibilityIdentifier("sidebar.toggle")
-    }
-
-    @ViewBuilder
-    private func rows(_ sections: [MacFlowSection]) -> some View {
-        ForEach(sections) { section in
-            Label(section.title, systemImage: section.systemImage)
-                .symbolRenderingMode(.hierarchical)
-                .tag(section)
-                .help(section.detail)
-                .accessibilityHint(section.detail)
-                .accessibilityIdentifier("sidebar.\(section.rawValue)")
-        }
     }
 
     private var utilitySections: [MacFlowSection] {
@@ -121,7 +153,39 @@ struct MacFlowSidebarView: View {
     }
 }
 
+struct SidebarRowButtonStyle: ButtonStyle {
+    let isSelected: Bool
+    let isCollapsed: Bool
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        let backgroundColor: Color = {
+            if isSelected {
+                return Color.clear
+            } else if configuration.isPressed {
+                return Color.secondary.opacity(0.12)
+            } else if isHovered {
+                return Color.secondary.opacity(0.06)
+            } else {
+                return Color.clear
+            }
+        }()
+
+        return configuration.label
+            .background(
+                backgroundColor,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+            .padding(.horizontal, isCollapsed ? 4 : 8)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
 private struct MacFlowProfileControl: View {
+    let isCollapsed: Bool
+
     @AppStorage("macflow.profile.isSignedIn", store: AppDefaults.store)
     private var isSignedIn = false
     @AppStorage("macflow.profile.displayName", store: AppDefaults.store)
@@ -140,32 +204,46 @@ private struct MacFlowProfileControl: View {
             draftEmail = email
             showsProfile.toggle()
         } label: {
-            HStack(spacing: MacFlowSpacing.space8) {
-                avatar
+            HStack(spacing: isCollapsed ? 0 : MacFlowSpacing.space8) {
+                if isCollapsed {
+                    Spacer(minLength: 0)
+                    avatar
+                    Spacer(minLength: 0)
+                } else {
+                    avatar
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(isSignedIn ? resolvedName : "Local profile")
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    Text(isSignedIn ? "Signed in on this Mac" : "Sign in")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(isSignedIn ? resolvedName : "Local profile")
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Text(isSignedIn ? "Signed in on this Mac" : "Sign in")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .transition(.opacity)
+
+                    Spacer(minLength: MacFlowSpacing.space4)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .transition(.opacity)
                 }
-
-                Spacer(minLength: MacFlowSpacing.space4)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
             }
-            .padding(MacFlowSpacing.space8)
+            .padding(isCollapsed ? 0 : MacFlowSpacing.space8)
+            .frame(height: isCollapsed ? 36 : nil)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
+        .background(
+            isCollapsed ? Color.clear : MacFlowColor.surface1,
+            in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
-                .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+            if !isCollapsed {
+                RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous)
+                    .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
+            }
         }
         .popover(isPresented: $showsProfile, arrowEdge: .trailing) {
             profilePopover

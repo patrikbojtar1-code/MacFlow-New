@@ -6,10 +6,10 @@
 import SwiftUI
 
 enum LiveActivityChipMetrics {
-    nonisolated static let flankWidth: CGFloat = 440
-    nonisolated static let compactSize = CGSize(width: 440, height: 46)
-    nonisolated static let mediumSize = CGSize(width: 620, height: 70)
-    nonisolated static let largeSize = CGSize(width: 720, height: 84)
+    nonisolated static let flankWidth: CGFloat = NotchLayoutMetrics.bodySize(for: .small).width
+    nonisolated static let compactSize = NotchLayoutMetrics.bodySize(for: .small)
+    nonisolated static let mediumSize = NotchLayoutMetrics.bodySize(for: .medium)
+    nonisolated static let largeSize = NotchLayoutMetrics.bodySize(for: .large)
 
     nonisolated static func size(for notchSize: NotchSize) -> CGSize {
         switch notchSize {
@@ -26,12 +26,9 @@ struct LiveActivityChipView: View {
     let activity: LiveActivity
 
     @EnvironmentObject private var settings: NotchSettings
+    @Environment(\.effectiveNotchSize) private var notchSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var animatesStatus = false
-
-    private var notchSize: NotchSize {
-        settings.notchContentSize
-    }
 
     private var exclusionWidth: CGFloat {
         NotchLayoutMetrics.exclusionWidth(
@@ -67,19 +64,21 @@ struct LiveActivityChipView: View {
             accessoryIcon
                 .frame(width: notchSize == .small ? 30 : 42, height: notchSize == .small ? 30 : 42)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(activity.title)
-                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                    .foregroundStyle(NotchTheme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            if notchSize != .small {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(activity.title)
+                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                        .foregroundStyle(NotchTheme.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                if notchSize != .small, let detail = activity.detail {
+                    if notchSize == .large, let detail = activity.detail {
                     Text(detail)
                         .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
                         .foregroundStyle(NotchTheme.secondaryText)
                         .lineLimit(1)
                         .transition(.opacity)
+                    }
                 }
             }
         }
@@ -117,7 +116,7 @@ struct LiveActivityChipView: View {
                     compactAccessoryStatus(phase: phase)
                 }
 
-                if let batteryPercent {
+                if notchSize != .small, let batteryPercent {
                     Label("\(batteryPercent)%", systemImage: "battery.100percent")
                         .font(.system(size: 11, weight: .medium).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.72))
@@ -175,7 +174,7 @@ struct LiveActivityChipView: View {
 
     private func detailStatus(symbol: String, tint: Color) -> some View {
         HStack(spacing: 7) {
-            if let detail = activity.detail {
+            if notchSize != .small, let detail = activity.detail {
                 Text(detail)
                     .font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(NotchTheme.secondaryText)
