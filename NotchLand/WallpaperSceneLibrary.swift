@@ -145,8 +145,8 @@ final class WallpaperSceneLibrary: ObservableObject {
     }
 
     func scenes(in collection: WallpaperSceneCollection) -> [WallpaperScene] {
-        let membership = Set(collection.sceneIDs)
-        return scenes.filter { membership.contains($0.id) }
+        let scenesByID = Dictionary(uniqueKeysWithValues: scenes.map { ($0.id, $0) })
+        return collection.sceneIDs.compactMap { scenesByID[$0] }
     }
 
     func toggleFavorite(_ scene: WallpaperScene) {
@@ -157,6 +157,37 @@ final class WallpaperSceneLibrary: ObservableObject {
     func toggle(_ scene: WallpaperScene, in collection: WallpaperSceneCollection) {
         guard let index = collections.firstIndex(where: { $0.id == collection.id }) else { return }
         toggleSceneID(scene.id, inCollectionAt: index)
+    }
+
+    func add(_ scene: WallpaperScene, to collection: WallpaperSceneCollection) {
+        guard let index = collections.firstIndex(where: { $0.id == collection.id }),
+              !collections[index].sceneIDs.contains(scene.id) else { return }
+        collections[index].sceneIDs.append(scene.id)
+        try? persistIndex()
+    }
+
+    func remove(_ scene: WallpaperScene, from collection: WallpaperSceneCollection) {
+        guard let index = collections.firstIndex(where: { $0.id == collection.id }) else { return }
+        collections[index].sceneIDs.removeAll { $0 == scene.id }
+        try? persistIndex()
+    }
+
+    func moveScenes(
+        in collection: WallpaperSceneCollection,
+        fromOffsets: IndexSet,
+        toOffset: Int
+    ) {
+        guard let index = collections.firstIndex(where: { $0.id == collection.id }) else { return }
+        var sceneIDs = collections[index].sceneIDs
+        let moving = fromOffsets.compactMap { sceneIDs.indices.contains($0) ? sceneIDs[$0] : nil }
+        for sourceIndex in fromOffsets.sorted(by: >) where sceneIDs.indices.contains(sourceIndex) {
+            sceneIDs.remove(at: sourceIndex)
+        }
+        let removedBeforeDestination = fromOffsets.filter { $0 < toOffset }.count
+        let destination = min(max(0, toOffset - removedBeforeDestination), sceneIDs.count)
+        sceneIDs.insert(contentsOf: moving, at: destination)
+        collections[index].sceneIDs = sceneIDs
+        try? persistIndex()
     }
 
     @discardableResult

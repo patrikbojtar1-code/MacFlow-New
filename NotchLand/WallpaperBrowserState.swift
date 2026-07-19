@@ -31,6 +31,7 @@ nonisolated enum WallpaperBrowserSort: String, CaseIterable, Identifiable, Senda
     case recent
     case title
     case kind
+    case playlist
 
     var id: String { rawValue }
 
@@ -39,6 +40,7 @@ nonisolated enum WallpaperBrowserSort: String, CaseIterable, Identifiable, Senda
         case .recent: "Recent"
         case .title: "Name"
         case .kind: "Type"
+        case .playlist: "Playlist Order"
         }
     }
 
@@ -47,6 +49,7 @@ nonisolated enum WallpaperBrowserSort: String, CaseIterable, Identifiable, Senda
         case .recent: "clock"
         case .title: "textformat"
         case .kind: "square.stack.3d.up"
+        case .playlist: "line.3.horizontal"
         }
     }
 }
@@ -69,11 +72,14 @@ final class WallpaperBrowserState: ObservableObject {
     func visibleScenes(in library: WallpaperSceneLibrary) -> [WallpaperScene] {
         let favoriteIDs = Set(library.favorites.sceneIDs)
         let collectionIDs: Set<UUID>
+        let collectionOrder: [UUID]
         if case .collection(let collectionID) = scope,
            let collection = library.collections.first(where: { $0.id == collectionID }) {
             collectionIDs = Set(collection.sceneIDs)
+            collectionOrder = collection.sceneIDs
         } else {
             collectionIDs = []
+            collectionOrder = []
         }
         return Self.filteredScenes(
             library.scenes,
@@ -81,7 +87,8 @@ final class WallpaperBrowserState: ObservableObject {
             scope: scope,
             sort: sort,
             favoriteIDs: favoriteIDs,
-            collectionIDs: collectionIDs
+            collectionIDs: collectionIDs,
+            collectionOrder: collectionOrder
         )
     }
 
@@ -102,7 +109,8 @@ final class WallpaperBrowserState: ObservableObject {
         scope: WallpaperBrowserScope,
         sort: WallpaperBrowserSort,
         favoriteIDs: Set<UUID> = [],
-        collectionIDs: Set<UUID> = []
+        collectionIDs: Set<UUID> = [],
+        collectionOrder: [UUID] = []
     ) -> [WallpaperScene] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -127,6 +135,9 @@ final class WallpaperBrowserState: ObservableObject {
             return matchesQuery && matchesScope
         }
 
+        let collectionPositions = Dictionary(
+            uniqueKeysWithValues: collectionOrder.enumerated().map { ($1, $0) }
+        )
         return filtered.sorted { lhs, rhs in
             switch sort {
             case .recent:
@@ -137,6 +148,9 @@ final class WallpaperBrowserState: ObservableObject {
             case .kind:
                 if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
                 return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            case .playlist:
+                return collectionPositions[lhs.id, default: .max]
+                    < collectionPositions[rhs.id, default: .max]
             }
         }
     }

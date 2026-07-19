@@ -14,7 +14,7 @@ struct ScenesSettingsView: View {
     @StateObject private var browser = WallpaperBrowserState()
     @State private var presentsAutomation = false
     @State private var presentsNewCollection = false
-    @State private var presentsSceneConfiguration = false
+    @State private var presentsPlaylistEditor = false
     @State private var newCollectionName = ""
     @State private var isImporting = false
     @State private var activationTask: Task<Void, Never>?
@@ -49,8 +49,8 @@ struct ScenesSettingsView: View {
         } message: {
             Text(controller.errorMessage ?? "Unknown error")
         }
-        .alert("New Collection", isPresented: $presentsNewCollection) {
-            TextField("Collection name", text: $newCollectionName)
+        .alert("New Playlist", isPresented: $presentsNewCollection) {
+            TextField("Playlist name", text: $newCollectionName)
             Button("Cancel", role: .cancel) { newCollectionName = "" }
             Button("Create") {
                 if let collection = controller.library.createCollection(named: newCollectionName) {
@@ -60,16 +60,15 @@ struct ScenesSettingsView: View {
             }
             .disabled(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            Text("Collections organize scenes without copying their files.")
+            Text("Playlists keep an ordered set of scenes without copying their files.")
         }
         .sheet(isPresented: $presentsAutomation) {
             WallpaperAutomationEditor()
                 .environmentObject(controller)
         }
-        .sheet(isPresented: $presentsSceneConfiguration) {
-            if let scene = selectedScene {
-                sceneConfigurationSheet(scene)
-            }
+        .sheet(isPresented: $presentsPlaylistEditor) {
+            WallpaperPlaylistEditor()
+                .environmentObject(controller)
         }
         .onAppear { synchronizeSelection() }
         .onDisappear {
@@ -175,8 +174,11 @@ struct ScenesSettingsView: View {
             Button("Automation…", systemImage: "clock.arrow.2.circlepath") {
                 presentsAutomation = true
             }
-            Button("New Collection…", systemImage: "folder.badge.plus") {
+            Button("New Playlist…", systemImage: "rectangle.stack.badge.plus") {
                 presentsNewCollection = true
+            }
+            Button("Manage Playlists…", systemImage: "music.note.list") {
+                presentsPlaylistEditor = true
             }
             if !controller.library.collections.filter({ $0.kind == .custom }).isEmpty {
                 Divider()
@@ -270,55 +272,14 @@ struct ScenesSettingsView: View {
             if let scene = selectedScene {
                 MacFlowPanel(.elevated) {
                     HStack(spacing: 0) {
-                        VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
-                            HStack(spacing: MacFlowSpacing.space8) {
-                                Circle()
-                                    .fill(scene.id == controller.activeSceneID ? Color.green : MacFlowColor.textTertiary)
-                                    .frame(width: 7, height: 7)
-                                Text(scene.id == controller.activeSceneID ? "ACTIVE SCENE" : "SELECTED SCENE")
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundStyle(MacFlowColor.textSecondary)
-                                    .tracking(0.85)
-                            }
+                        selectedSceneStage(scene)
 
-                            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                                Text(scene.title)
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .lineLimit(2)
-                            }
+                        Divider().overlay(MacFlowColor.borderSubtle)
 
-                            Label(scene.kind.displayName, systemImage: scene.kind.systemImage)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(MacFlowColor.textSecondary)
-
-                            Spacer(minLength: 0)
-
-                            previewActions(for: scene)
-                        }
-                        .padding(MacFlowSpacing.space12)
-                        .frame(width: 180, alignment: .leading)
-
-                        WallpaperThumbnailView(
-                            scene: scene,
-                            url: controller.library.previewURL(for: scene),
-                            scalingMode: .fill,
-                            dimming: scene.rendering.dimming
-                        )
-                        .overlay(alignment: .bottomTrailing) {
-                            if scene.kind == .video {
-                                Label("Looping video", systemImage: "play.fill")
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, MacFlowSpacing.space8)
-                                    .padding(.vertical, MacFlowSpacing.space8)
-                                    .background(.black.opacity(0.60), in: Capsule())
-                                    .padding(MacFlowSpacing.space12)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
+                        selectedSceneInspector(scene)
+                            .frame(width: 282)
                     }
-                    .frame(height: 162)
+                    .frame(height: 264)
                 }
             } else {
                 MacFlowPanel(.grouped) {
@@ -327,82 +288,202 @@ struct ScenesSettingsView: View {
                         title: "No scene matches",
                         detail: "Clear the search or choose another filter."
                     )
-                    .frame(height: 162)
+                    .frame(height: 264)
                 }
             }
         }
     }
 
-    private func previewActions(for scene: WallpaperScene) -> some View {
-        HStack(spacing: MacFlowSpacing.space8) {
-            if scene.id == controller.activeSceneID {
-                Button {
-                    controller.togglePaused()
-                } label: {
-                    Image(systemName: controller.isPaused ? "play.fill" : "pause.fill")
-                        .frame(width: 14, height: 14)
+    private func selectedSceneStage(_ scene: WallpaperScene) -> some View {
+        WallpaperThumbnailView(
+            scene: scene,
+            url: controller.library.previewURL(for: scene),
+            scalingMode: scene.rendering.scalingMode,
+            dimming: scene.rendering.dimming
+        )
+        .overlay {
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.08), .black.opacity(0.76)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .allowsHitTesting(false)
+        }
+        .overlay(alignment: .topLeading) {
+            HStack(spacing: MacFlowSpacing.space8) {
+                statusBadge(for: scene)
+                if scene.kind == .video {
+                    Label("LOOP", systemImage: "repeat")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .padding(.horizontal, MacFlowSpacing.space8)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.48), in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MacFlowColor.accent)
-                .help(controller.isPaused ? "Resume wallpaper" : "Pause wallpaper")
-                .accessibilityLabel(controller.isPaused ? "Resume wallpaper" : "Pause wallpaper")
-
-                Button {
-                    controller.deactivate()
-                } label: {
-                    Image(systemName: "stop.fill")
-                }
-                .buttonStyle(.bordered)
-                .help("Stop wallpaper")
-                .accessibilityLabel("Stop wallpaper")
             }
-
+            .padding(MacFlowSpacing.space12)
+        }
+        .overlay(alignment: .topTrailing) {
             Button {
-                presentsSceneConfiguration = true
+                controller.library.toggleFavorite(scene)
+                NotchHaptics.perform(.navigation)
             } label: {
-                Label("Configure", systemImage: "slider.horizontal.3")
+                Image(systemName: controller.library.isFavorite(scene) ? "star.fill" : "star")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(controller.library.isFavorite(scene) ? .yellow : .white)
+                    .frame(width: 32, height: 32)
+                    .background(.black.opacity(0.48), in: Circle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
+            .padding(MacFlowSpacing.space12)
+            .accessibilityLabel(controller.library.isFavorite(scene) ? "Remove from Favorites" : "Add to Favorites")
+        }
+        .overlay(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                Text(scene.title)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                HStack(spacing: MacFlowSpacing.space8) {
+                    Text("by \(scene.author)")
+                    Text("•")
+                    Label(scene.kind.displayName, systemImage: scene.kind.systemImage)
+                    Text("•")
+                    Text(scene.createdAt, format: .dateTime.month(.abbreviated).day())
+                }
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+            }
+            .padding(MacFlowSpacing.space16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+    }
 
-            Menu {
-                Button {
-                    controller.library.toggleFavorite(scene)
-                } label: {
-                    Label(
-                        controller.library.isFavorite(scene) ? "Remove from Favorites" : "Add to Favorites",
-                        systemImage: controller.library.isFavorite(scene) ? "star.slash" : "star"
-                    )
+    private func selectedSceneInspector(_ scene: WallpaperScene) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: MacFlowSpacing.space8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("CUSTOMIZE")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                        .tracking(0.85)
+                    Text(scene.id == controller.activeSceneID ? "Applied to desktop" : "Preview before applying")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(MacFlowColor.textTertiary)
                 }
-                Button {
-                    exportScene(scene)
-                } label: {
-                    Label("Export Scene…", systemImage: "square.and.arrow.up")
+                Spacer()
+                sceneActionsMenu(scene)
+            }
+            .padding(.horizontal, MacFlowSpacing.space12)
+            .padding(.vertical, MacFlowSpacing.space8)
+
+            Divider().overlay(MacFlowColor.borderSubtle)
+
+            ScrollView {
+                inspectorSettings(scene)
+            }
+            .scrollIndicators(.hidden)
+
+            Divider().overlay(MacFlowColor.borderSubtle)
+
+            HStack(spacing: MacFlowSpacing.space8) {
+                if scene.id == controller.activeSceneID {
+                    Button {
+                        controller.togglePaused()
+                    } label: {
+                        Label(controller.isPaused ? "Resume" : "Pause", systemImage: controller.isPaused ? "play.fill" : "pause.fill")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        controller.deactivate()
+                    } label: {
+                        Image(systemName: "stop.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Stop wallpaper")
+                } else {
+                    Button {
+                        apply(scene)
+                    } label: {
+                        Label("Apply to Desktop", systemImage: "display")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MacFlowColor.wallpaper)
+                    .accessibilityIdentifier("wallpapers.apply")
                 }
-                Menu("Add to Collection") {
-                    ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
-                        Button {
-                            controller.library.toggle(scene, in: collection)
-                        } label: {
-                            Label(
-                                collection.title,
-                                systemImage: controller.library.contains(scene, in: collection)
-                                    ? "checkmark.circle.fill"
-                                    : "circle"
-                            )
-                        }
+            }
+            .controlSize(.regular)
+            .padding(MacFlowSpacing.space12)
+        }
+        .background(MacFlowColor.surface1)
+    }
+
+    private func statusBadge(for scene: WallpaperScene) -> some View {
+        Label(
+            scene.id == controller.activeSceneID ? "ACTIVE" : "PREVIEW",
+            systemImage: scene.id == controller.activeSceneID ? "checkmark.circle.fill" : "eye.fill"
+        )
+        .font(.system(size: 9, weight: .bold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, MacFlowSpacing.space8)
+        .padding(.vertical, 5)
+        .background(scene.id == controller.activeSceneID ? Color.green.opacity(0.78) : .black.opacity(0.48), in: Capsule())
+        .accessibilityIdentifier(
+            scene.id == controller.activeSceneID
+                ? "wallpapers.status.active"
+                : "wallpapers.status.preview"
+        )
+    }
+
+    private func sceneActionsMenu(_ scene: WallpaperScene) -> some View {
+        Menu {
+            Button {
+                controller.library.toggleFavorite(scene)
+            } label: {
+                Label(
+                    controller.library.isFavorite(scene) ? "Remove from Favorites" : "Add to Favorites",
+                    systemImage: controller.library.isFavorite(scene) ? "star.slash" : "star"
+                )
+            }
+            Button {
+                exportScene(scene)
+            } label: {
+                Label("Export Scene…", systemImage: "square.and.arrow.up")
+            }
+            Menu("Add to Playlist") {
+                ForEach(controller.library.collections.filter { $0.kind == .custom }) { collection in
+                    Button {
+                        controller.library.toggle(scene, in: collection)
+                    } label: {
+                        Label(
+                            collection.title,
+                            systemImage: controller.library.contains(scene, in: collection)
+                                ? "checkmark.circle.fill"
+                                : "circle"
+                        )
                     }
                 }
-                Divider()
-                Button("Remove Scene", role: .destructive) {
-                    controller.remove(scene)
-                    synchronizeSelection()
+                if controller.library.collections.allSatisfy({ $0.kind != .custom }) {
+                    Button("Create Playlist…") { presentsNewCollection = true }
                 }
-            } label: {
-                Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
-            .help("Scene actions")
+            Divider()
+            Button("Remove Scene", role: .destructive) {
+                controller.remove(scene)
+                synchronizeSelection()
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 28, height: 28)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("Scene actions")
     }
 
     private var libraryHeader: some View {
@@ -427,7 +508,7 @@ struct ScenesSettingsView: View {
                     Text("No custom collections")
                 }
             } label: {
-                Label(collectionFilterTitle, systemImage: "folder")
+                Label(collectionFilterTitle, systemImage: "rectangle.stack")
                     .font(.system(size: 10.5, weight: .medium))
             }
             .menuStyle(.borderlessButton)
@@ -489,7 +570,7 @@ struct ScenesSettingsView: View {
                                 isSelected: scene.id == browser.selectedSceneID,
                                 isActive: scene.id == controller.activeSceneID,
                                 isFavorite: controller.library.isFavorite(scene),
-                                select: { activate(scene) },
+                                select: { selectScene(scene) },
                                 toggleFavorite: { controller.library.toggleFavorite(scene) }
                             )
                         }
@@ -502,7 +583,7 @@ struct ScenesSettingsView: View {
                                 previewURL: controller.library.previewURL(for: scene),
                                 isSelected: scene.id == browser.selectedSceneID,
                                 isActive: scene.id == controller.activeSceneID,
-                                select: { activate(scene) }
+                                select: { selectScene(scene) }
                             )
                         }
                     }
@@ -516,6 +597,55 @@ struct ScenesSettingsView: View {
 
     private func inspectorSettings(_ scene: WallpaperScene) -> some View {
         VStack(spacing: 0) {
+            MacFlowInspectorSection("Displays") {
+                Picker(
+                    "Target",
+                    selection: Binding(
+                        get: { controller.displayPolicy },
+                        set: { controller.setDisplayPolicy($0) }
+                    )
+                ) {
+                    ForEach(NotchDisplayPolicy.allCases) { policy in
+                        Text(policy.title).tag(policy)
+                    }
+                }
+                .labelsHidden()
+
+                if controller.displayPolicy == .selectedDisplays {
+                    VStack(spacing: MacFlowSpacing.space4) {
+                        ForEach(controller.availableDisplays) { display in
+                            Button {
+                                controller.toggleTargetDisplay(display.id)
+                            } label: {
+                                HStack(spacing: MacFlowSpacing.space8) {
+                                    Image(systemName: display.isBuiltIn ? "laptopcomputer" : "display")
+                                    Text(display.name)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Image(
+                                        systemName: controller.selectedDisplayIDs.contains(display.id)
+                                            ? "checkmark.circle.fill"
+                                            : "circle"
+                                    )
+                                    .foregroundStyle(
+                                        controller.selectedDisplayIDs.contains(display.id)
+                                            ? MacFlowColor.wallpaper
+                                            : MacFlowColor.textTertiary
+                                    )
+                                }
+                                .font(.system(size: 10.5, weight: .medium))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Text(displayTargetSummary)
+                    .font(.system(size: 10))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+            }
+            Divider().overlay(MacFlowColor.borderSubtle)
             MacFlowInspectorSection("Performance") {
                 Picker(
                     "Profile",
@@ -581,34 +711,6 @@ struct ScenesSettingsView: View {
         }
     }
 
-    private func sceneConfigurationSheet(_ scene: WallpaperScene) -> some View {
-        VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                    Text(scene.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text("Wallpaper settings")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Done") { presentsSceneConfiguration = false }
-                    .keyboardShortcut(.defaultAction)
-            }
-            .padding(MacFlowSpacing.space16)
-
-            Divider()
-
-            ScrollView {
-                inspectorSettings(scene)
-                    .padding(.vertical, MacFlowSpacing.space8)
-            }
-        }
-        .frame(minWidth: 380, idealWidth: 420, minHeight: 360, idealHeight: 440)
-        .background(MacFlowColor.canvas)
-    }
-
     private func renderingBinding<Value>(
         for scene: WallpaperScene,
         keyPath: WritableKeyPath<WallpaperSceneRenderingConfiguration, Value>
@@ -639,10 +741,16 @@ struct ScenesSettingsView: View {
         controller.library.scenes.map(\.id)
     }
 
+    private var displayTargetSummary: String {
+        let count = controller.targetDisplayIDs.count
+        guard count > 0 else { return "No display selected" }
+        return count == 1 ? "1 display will update" : "\(count) displays will update together"
+    }
+
     private var collectionFilterTitle: String {
         guard case .collection(let collectionID) = browser.scope,
               let collection = controller.library.collections.first(where: { $0.id == collectionID }) else {
-            return "Collections"
+            return "Playlists"
         }
         return collection.title
     }
@@ -655,7 +763,14 @@ struct ScenesSettingsView: View {
         browser.ensureSelection(in: visibleScenes, preferredID: controller.activeSceneID)
     }
 
-    private func activate(_ scene: WallpaperScene) {
+    private func selectScene(_ scene: WallpaperScene) {
+        withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
+            browser.selectedSceneID = scene.id
+        }
+        NotchHaptics.perform(.navigation)
+    }
+
+    private func apply(_ scene: WallpaperScene) {
         withAnimation(AppMotion.interaction(reduceMotion: reduceMotion)) {
             browser.selectedSceneID = scene.id
         }
@@ -690,31 +805,44 @@ struct ScenesSettingsView: View {
         guard browser.scope != scope else { return }
         withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
             browser.scope = scope
+            if case .collection = scope {
+                browser.sort = .playlist
+            } else if browser.sort == .playlist {
+                browser.sort = .recent
+            }
         }
     }
 
     private func presentImporter() {
         let panel = NSOpenPanel()
         panel.title = "Import Wallpaper Scene"
-        panel.prompt = "Import"
+        panel.prompt = "Import Selected"
         panel.allowedContentTypes = [.image, .movie, .notchLandScene]
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            Task { @MainActor in handleImportedURL(url) }
+            guard response == .OK, !panel.urls.isEmpty else { return }
+            Task { @MainActor in handleImportedURLs(panel.urls) }
         }
     }
 
-    private func handleImportedURL(_ url: URL) {
+    private func handleImportedURLs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         isImporting = true
-        Task {
-            let imported = await controller.importAndApply(from: url)
+        Task { @MainActor in
+            var importedScenes: [WallpaperScene] = []
+            for url in urls {
+                guard !Task.isCancelled else { break }
+                if let scene = await controller.importScene(from: url) {
+                    importedScenes.append(scene)
+                }
+            }
             isImporting = false
-            if imported {
+            if let lastImported = importedScenes.last {
                 browser.query = ""
                 selectScope(.all)
-                browser.selectedSceneID = controller.activeSceneID
+                browser.selectedSceneID = lastImported.id
+                NotchHaptics.perform(.confirmation)
             }
         }
     }
@@ -887,6 +1015,277 @@ private struct WallpaperImportSkeleton: View {
         }
         .padding(MacFlowSpacing.space12)
         .background(MacFlowColor.surface1, in: RoundedRectangle(cornerRadius: MacFlowRadius.compact, style: .continuous))
+    }
+}
+
+private struct WallpaperPlaylistEditor: View {
+    @EnvironmentObject private var controller: WallpaperSceneController
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPlaylistID: UUID?
+    @State private var presentsNewPlaylist = false
+    @State private var presentsDeleteConfirmation = false
+    @State private var newPlaylistName = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+                    Text("Playlists")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Build an ordered rotation from your wallpaper library.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(MacFlowSpacing.space16)
+
+            Divider().overlay(MacFlowColor.borderSubtle)
+
+            HSplitView {
+                playlistSidebar
+                    .frame(minWidth: 190, idealWidth: 210, maxWidth: 240)
+
+                playlistContents
+                    .frame(minWidth: 430, maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 720, idealWidth: 760, minHeight: 470, idealHeight: 520)
+        .background(MacFlowColor.canvas)
+        .alert("New Playlist", isPresented: $presentsNewPlaylist) {
+            TextField("Playlist name", text: $newPlaylistName)
+            Button("Cancel", role: .cancel) { newPlaylistName = "" }
+            Button("Create") { createPlaylist() }
+                .disabled(newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("You can add scenes and drag them into any order.")
+        }
+        .confirmationDialog(
+            "Delete this playlist?",
+            isPresented: $presentsDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Playlist", role: .destructive) { deleteSelectedPlaylist() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Wallpaper files remain safely in your library.")
+        }
+        .onAppear {
+            if selectedPlaylistID == nil {
+                selectedPlaylistID = playlists.first?.id
+            }
+        }
+        .onChange(of: playlistIDs) { _, ids in
+            if let selectedPlaylistID, ids.contains(selectedPlaylistID) { return }
+            selectedPlaylistID = ids.first
+        }
+    }
+
+    private var playlistSidebar: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("PLAYLISTS")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+                    .tracking(0.85)
+                Spacer()
+                Button {
+                    presentsNewPlaylist = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Playlist")
+            }
+            .padding(MacFlowSpacing.space12)
+
+            Divider().overlay(MacFlowColor.borderSubtle)
+
+            if playlists.isEmpty {
+                MacFlowEmptyState(
+                    systemImage: "music.note.list",
+                    title: "No playlists yet",
+                    detail: "Create one to arrange wallpaper rotations.",
+                    actionTitle: "New Playlist",
+                    action: { presentsNewPlaylist = true }
+                )
+            } else {
+                List(selection: $selectedPlaylistID) {
+                    ForEach(playlists) { playlist in
+                        HStack(spacing: MacFlowSpacing.space8) {
+                            Image(systemName: "rectangle.stack.fill")
+                                .foregroundStyle(MacFlowColor.wallpaper)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(playlist.title)
+                                    .lineLimit(1)
+                                Text("\(playlist.sceneIDs.count) scenes")
+                                    .font(.caption2)
+                                    .foregroundStyle(MacFlowColor.textSecondary)
+                            }
+                        }
+                        .tag(playlist.id)
+                    }
+                }
+                .listStyle(.sidebar)
+            }
+
+            Divider().overlay(MacFlowColor.borderSubtle)
+
+            HStack {
+                Button {
+                    presentsNewPlaylist = true
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+                Button(role: .destructive) {
+                    presentsDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .disabled(selectedPlaylist == nil)
+                .accessibilityLabel("Delete Playlist")
+            }
+            .padding(MacFlowSpacing.space12)
+        }
+        .background(MacFlowColor.surface1)
+    }
+
+    @ViewBuilder
+    private var playlistContents: some View {
+        if let playlist = selectedPlaylist {
+            VStack(spacing: 0) {
+                HStack(spacing: MacFlowSpacing.space12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(playlist.title)
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("Drag scenes to define the playback order")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(MacFlowColor.textSecondary)
+                    }
+                    Spacer()
+                    Menu {
+                        ForEach(availableScenes(for: playlist)) { scene in
+                            Button {
+                                controller.library.add(scene, to: playlist)
+                            } label: {
+                                Label(scene.title, systemImage: scene.kind.systemImage)
+                            }
+                        }
+                        if availableScenes(for: playlist).isEmpty {
+                            Text("Every scene is already included")
+                        }
+                    } label: {
+                        Label("Add Scenes", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MacFlowColor.wallpaper)
+                    .disabled(controller.library.scenes.isEmpty)
+                }
+                .padding(MacFlowSpacing.space16)
+
+                Divider().overlay(MacFlowColor.borderSubtle)
+
+                if playlistScenes.isEmpty {
+                    MacFlowEmptyState(
+                        systemImage: "rectangle.stack.badge.plus",
+                        title: "This playlist is empty",
+                        detail: "Add scenes, then drag them into the order you want."
+                    )
+                } else {
+                    List {
+                        ForEach(Array(playlistScenes.enumerated()), id: \.element.id) { index, scene in
+                            HStack(spacing: MacFlowSpacing.space12) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 10).monospacedDigit())
+                                    .foregroundStyle(MacFlowColor.textTertiary)
+                                    .frame(width: 18)
+                                WallpaperThumbnailView(
+                                    scene: scene,
+                                    url: controller.library.previewURL(for: scene),
+                                    scalingMode: .fill,
+                                    dimming: 0
+                                )
+                                .frame(width: 76, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(scene.title)
+                                        .font(.system(size: 11.5, weight: .medium))
+                                        .lineLimit(1)
+                                    Text(scene.kind.displayName)
+                                        .font(.system(size: 9.5))
+                                        .foregroundStyle(MacFlowColor.textSecondary)
+                                }
+                                Spacer()
+                                Image(systemName: "line.3.horizontal")
+                                    .foregroundStyle(MacFlowColor.textTertiary)
+                            }
+                            .padding(.vertical, MacFlowSpacing.space4)
+                        }
+                        .onDelete { offsets in
+                            for offset in offsets where playlistScenes.indices.contains(offset) {
+                                controller.library.remove(playlistScenes[offset], from: playlist)
+                            }
+                        }
+                        .onMove { offsets, destination in
+                            controller.library.moveScenes(
+                                in: playlist,
+                                fromOffsets: offsets,
+                                toOffset: destination
+                            )
+                        }
+                    }
+                    .listStyle(.inset)
+                }
+            }
+        } else {
+            MacFlowEmptyState(
+                systemImage: "music.note.list",
+                title: "Choose a playlist",
+                detail: "Select a playlist or create a new one."
+            )
+        }
+    }
+
+    private var playlists: [WallpaperSceneCollection] {
+        controller.library.collections.filter { $0.kind == .custom }
+    }
+
+    private var playlistIDs: [UUID] {
+        playlists.map(\.id)
+    }
+
+    private var selectedPlaylist: WallpaperSceneCollection? {
+        guard let selectedPlaylistID else { return nil }
+        return playlists.first { $0.id == selectedPlaylistID }
+    }
+
+    private var playlistScenes: [WallpaperScene] {
+        guard let selectedPlaylist else { return [] }
+        return controller.library.scenes(in: selectedPlaylist)
+    }
+
+    private func availableScenes(for playlist: WallpaperSceneCollection) -> [WallpaperScene] {
+        let membership = Set(playlist.sceneIDs)
+        return controller.library.scenes.filter { !membership.contains($0.id) }
+    }
+
+    private func createPlaylist() {
+        if let playlist = controller.library.createCollection(named: newPlaylistName) {
+            selectedPlaylistID = playlist.id
+            NotchHaptics.perform(.confirmation)
+        }
+        newPlaylistName = ""
+    }
+
+    private func deleteSelectedPlaylist() {
+        guard let selectedPlaylist else { return }
+        controller.library.remove(selectedPlaylist)
+        selectedPlaylistID = playlists.first?.id
     }
 }
 

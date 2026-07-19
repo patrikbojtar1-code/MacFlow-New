@@ -53,6 +53,10 @@ final class MacFlowInteractionTests: XCTestCase {
             XCTAssertTrue(control.isHittable)
         }
 
+        let apply = element("wallpapers.apply")
+        XCTAssertTrue(apply.waitForExistence(timeout: 3))
+        XCTAssertTrue(element("wallpapers.status.preview").exists)
+
         search.click()
         search.typeText("mountain")
         XCTAssertEqual(search.value as? String, "mountain")
@@ -75,6 +79,9 @@ final class MacFlowInteractionTests: XCTestCase {
         XCTAssertTrue(options.exists)
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(options.exists)
+
+        apply.click()
+        XCTAssertTrue(element("wallpapers.status.active").waitForExistence(timeout: 4))
 
         importButton.click()
         XCTAssertNotEqual(app.state, .notRunning)

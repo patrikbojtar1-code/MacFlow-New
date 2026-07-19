@@ -3,7 +3,9 @@
 //  NotchLandTests
 //
 
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import NotchLand
 
@@ -35,6 +37,188 @@ struct WallpaperSceneTests {
 
         #expect(WallpaperBrowserState.filteredScenes([earlier, later], query: "", scope: .all, sort: .recent).map(\.id) == [later.id, earlier.id])
         #expect(WallpaperBrowserState.filteredScenes([earlier, later], query: "", scope: .all, sort: .title).map(\.id) == [later.id, earlier.id])
+    }
+
+    @Test func browserPreservesManualPlaylistOrder() {
+        let first = WallpaperScene(title: "First", kind: .image, assetFilename: "first.png")
+        let second = WallpaperScene(title: "Second", kind: .image, assetFilename: "second.png")
+        let third = WallpaperScene(title: "Third", kind: .video, assetFilename: "third.mov")
+        let order = [third.id, first.id, second.id]
+
+        let result = WallpaperBrowserState.filteredScenes(
+            [first, second, third],
+            query: "",
+            scope: .collection(UUID()),
+            sort: .playlist,
+            collectionIDs: Set(order),
+            collectionOrder: order
+        )
+
+        #expect(result.map(\.id) == order)
+    }
+
+    @Test func playlistLibrarySupportsOrderedMoves() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("MacFlowPlaylistTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let firstURL = root.appendingPathComponent("First.png")
+        let secondURL = root.appendingPathComponent("Second.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: firstURL)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: secondURL)
+
+        let library = WallpaperSceneLibrary(
+            rootDirectory: root.appendingPathComponent("Library", isDirectory: true)
+        )
+        let first = try await library.importScene(from: firstURL)
+        let second = try await library.importScene(from: secondURL)
+        let playlist = try #require(library.createCollection(named: "Evening"))
+        library.add(first, to: playlist)
+        library.add(second, to: playlist)
+
+        var latest = try #require(library.collections.first { $0.id == playlist.id })
+        #expect(library.scenes(in: latest).map(\.id) == [first.id, second.id])
+
+        library.moveScenes(in: latest, fromOffsets: IndexSet(integer: 1), toOffset: 0)
+        latest = try #require(library.collections.first { $0.id == playlist.id })
+        #expect(library.scenes(in: latest).map(\.id) == [second.id, first.id])
+    }
+
+    @MainActor
+    @Test func wallpaperHubRendersAtCompanionWindowSize() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("MacFlowHubSnapshot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let fixtures: [(String, NSColor, NSColor)] = [
+            ("Midnight Summit", .systemIndigo, .black),
+            ("Emerald Valley", .systemGreen, .darkGray),
+            ("Solar Dunes", .systemOrange, .systemBrown),
+            ("Pacific Motion", .systemTeal, .systemBlue),
+        ]
+        let library = WallpaperSceneLibrary(
+            rootDirectory: root.appendingPathComponent("Library", isDirectory: true)
+        )
+        for fixture in fixtures {
+            let url = root.appendingPathComponent("\(fixture.0).png")
+            try Self.writeGradientPNG(to: url, colors: [fixture.1, fixture.2])
+            _ = try await library.importScene(from: url)
+        }
+
+        let defaults = try #require(UserDefaults(suiteName: "MacFlowHubSnapshot.\(UUID().uuidString)"))
+        let controller = WallpaperSceneController(
+            library: library,
+            performance: WallpaperPerformanceMonitor(defaults: defaults),
+            displayCoordinator: DisplayCoordinator(),
+            defaults: defaults
+        )
+        let rootView = ScenesSettingsView()
+            .environmentObject(controller)
+            .frame(width: 1_040, height: 680)
+            .background(MacFlowColor.canvas)
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1_040, height: 680)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(300))
+        hostingView.layoutSubtreeIfNeeded()
+
+        let bitmap = try #require(
+            hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds)
+        )
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        let outputDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".build/WallpaperHubScreenshots", isDirectory: true)
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let outputURL = outputDirectory.appendingPathComponent("wallpaper-hub.png")
+        try png.write(to: outputURL, options: .atomic)
+        #expect(fileManager.fileExists(atPath: outputURL.path))
+    }
+
+    @MainActor
+    @Test func importingForPreviewDoesNotApplyTheScene() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("MacFlowPreviewImport-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("Preview.png")
+        try Self.writeGradientPNG(to: source, colors: [.systemPurple, .black])
+
+        let suiteName = "MacFlowPreviewImport.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = WallpaperSceneController(
+            library: WallpaperSceneLibrary(
+                rootDirectory: root.appendingPathComponent("Library", isDirectory: true)
+            ),
+            performance: WallpaperPerformanceMonitor(defaults: defaults),
+            displayCoordinator: DisplayCoordinator(),
+            defaults: defaults
+        )
+
+        let imported = await controller.importScene(from: source)
+        #expect(imported != nil)
+        #expect(controller.activeSceneID == nil)
+        #expect(!controller.isRunning)
+    }
+
+    @MainActor
+    @Test func wallpaperDisplayTargetsPersistAcrossControllerInstances() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("MacFlowDisplayTargets-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let suiteName = "MacFlowDisplayTargets.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = WallpaperSceneController(
+            library: WallpaperSceneLibrary(rootDirectory: root),
+            performance: WallpaperPerformanceMonitor(defaults: defaults),
+            displayCoordinator: DisplayCoordinator(),
+            defaults: defaults
+        )
+        first.setDisplayPolicy(.selectedDisplays)
+        first.toggleTargetDisplay(41)
+        first.toggleTargetDisplay(73)
+
+        let second = WallpaperSceneController(
+            library: WallpaperSceneLibrary(rootDirectory: root),
+            performance: WallpaperPerformanceMonitor(defaults: defaults),
+            displayCoordinator: DisplayCoordinator(),
+            defaults: defaults
+        )
+        #expect(second.displayPolicy == .selectedDisplays)
+        #expect(second.selectedDisplayIDs == [41, 73])
+    }
+
+    @MainActor
+    private static func writeGradientPNG(to url: URL, colors: [NSColor]) throws {
+        let image = NSImage(size: NSSize(width: 640, height: 360))
+        image.lockFocus()
+        NSGradient(colors: colors)?.draw(
+            in: NSRect(x: 0, y: 0, width: 640, height: 360),
+            angle: 22
+        )
+        image.unlockFocus()
+        let tiff = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: url, options: .atomic)
     }
 
     @MainActor

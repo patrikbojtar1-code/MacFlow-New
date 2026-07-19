@@ -15,6 +15,8 @@ final class WallpaperSceneController: ObservableObject {
         static let activeSceneID = "scenes.activeSceneID"
         static let isPaused = "scenes.isPaused"
         static let automationConfiguration = "scenes.automationConfiguration.v1"
+        static let displayPolicy = "scenes.displayPolicy.v1"
+        static let selectedDisplayIDs = "scenes.selectedDisplayIDs.v1"
     }
 
     private enum SelectionOrigin {
@@ -49,6 +51,8 @@ final class WallpaperSceneController: ObservableObject {
     @Published private(set) var automationReason: WallpaperAutomationReason?
     @Published private(set) var manualOverrideUntil: Date?
     @Published private(set) var exportingSceneID: UUID?
+    @Published private(set) var displayPolicy: NotchDisplayPolicy
+    @Published private(set) var selectedDisplayIDs: Set<UInt32>
 
     let library: WallpaperSceneLibrary
     let performance: WallpaperPerformanceMonitor
@@ -72,6 +76,20 @@ final class WallpaperSceneController: ObservableObject {
 
     var activeScene: WallpaperScene? {
         library.scene(withID: activeSceneID)
+    }
+
+    var availableDisplays: [DisplaySnapshot] {
+        displayCoordinator.displays
+    }
+
+    var targetDisplayIDs: Set<UInt32> {
+        Set(
+            DisplaySelectionResolver.selectedIDs(
+                policy: displayPolicy,
+                selectedIDs: selectedDisplayIDs,
+                displays: availableDisplays
+            )
+        )
     }
 
     var isSuspendedBySystem: Bool {
@@ -113,6 +131,12 @@ final class WallpaperSceneController: ObservableObject {
         self.displayCoordinator = displayCoordinator
         self.telemetry = telemetry ?? WallpaperTelemetryMonitor()
         self.defaults = defaults
+        displayPolicy = defaults.string(forKey: Keys.displayPolicy)
+            .flatMap(NotchDisplayPolicy.init(rawValue:)) ?? .allDisplays
+        selectedDisplayIDs = Set(
+            defaults.array(forKey: Keys.selectedDisplayIDs)?
+                .compactMap { ($0 as? NSNumber)?.uint32Value } ?? []
+        )
         activeSceneID = defaults.string(forKey: Keys.activeSceneID).flatMap(UUID.init(uuidString:))
         isPaused = defaults.bool(forKey: Keys.isPaused)
         if let data = defaults.data(forKey: Keys.automationConfiguration),
@@ -234,6 +258,24 @@ final class WallpaperSceneController: ObservableObject {
         evaluateAutomation(forceRotation: true)
     }
 
+    func setDisplayPolicy(_ policy: NotchDisplayPolicy) {
+        guard displayPolicy != policy else { return }
+        displayPolicy = policy
+        defaults.set(policy.rawValue, forKey: Keys.displayPolicy)
+        rebuildRenderers(crossfade: activeScene != nil)
+    }
+
+    func toggleTargetDisplay(_ displayID: UInt32) {
+        if selectedDisplayIDs.contains(displayID) {
+            selectedDisplayIDs.remove(displayID)
+        } else {
+            selectedDisplayIDs.insert(displayID)
+        }
+        defaults.set(selectedDisplayIDs.sorted().map(NSNumber.init(value:)), forKey: Keys.selectedDisplayIDs)
+        guard displayPolicy == .selectedDisplays else { return }
+        rebuildRenderers(crossfade: activeScene != nil)
+    }
+
     private func apply(_ scene: WallpaperScene, origin: SelectionOrigin) {
         guard library.scene(withID: scene.id) != nil else {
             errorMessage = WallpaperSceneLibraryError.sceneNotFound.localizedDescription
@@ -321,15 +363,21 @@ final class WallpaperSceneController: ObservableObject {
 
     @discardableResult
     func importAndApply(from url: URL) async -> Bool {
+        guard let scene = await importScene(from: url) else { return false }
+        apply(scene)
+        return true
+    }
+
+    func importScene(from url: URL) async -> WallpaperScene? {
         do {
             let scene = try await library.importScene(from: url)
-            apply(scene)
             dragEnded()
-            return true
+            errorMessage = nil
+            return scene
         } catch {
             errorMessage = error.localizedDescription
             dragEnded()
-            return false
+            return nil
         }
     }
 
@@ -385,7 +433,7 @@ final class WallpaperSceneController: ObservableObject {
 
         let sceneChanged = telemetry.snapshot.sceneID != scene.id
         let screensByID = Dictionary(uniqueKeysWithValues: displayCoordinator
-            .selectedScreens(policy: .allDisplays, selectedIDs: [])
+            .selectedScreens(policy: displayPolicy, selectedIDs: selectedDisplayIDs)
             .compactMap { screen in
                 screen.displayID.map { ($0, screen) }
             })
