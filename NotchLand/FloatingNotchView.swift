@@ -133,8 +133,6 @@ struct FloatingNotchView: View {
     /// view out and the big one in, which reads as two layers stacking.
     /// `matchedGeometryEffect` makes them the *same* element at different sizes.
     @Namespace private var morph
-    @State private var notchTransitionScale: CGFloat = 1
-    @State private var notchTransitionBlur: CGFloat = 0
     @State private var notchTransitionTask: Task<Void, Never>?
     @State private var renderedBranchKey: String?
     @State private var presentationMachine = NotchPresentationMachine()
@@ -305,8 +303,6 @@ struct FloatingNotchView: View {
             appState.resetToCollapsed()
             didRevealOnboarding = false
             isNotchPhaseAnimating = false
-            notchTransitionScale = 1
-            notchTransitionBlur = 0
             calendarTransitionActive = false
             calendarCountdownShapeReveal = 1
             suppressCollapsedMusicMarquee = false
@@ -429,10 +425,6 @@ struct FloatingNotchView: View {
             x: 0,
             y: isExpanded ? 8 : (isMusicBranch(key) ? 6 : 4)
         )
-        .compositingGroup()
-        .scaleEffect(notchTransitionScale, anchor: .top)
-        .blur(radius: (1 - notchTransitionScale) * NotchFeatureMotion.containerBlurRadius + notchTransitionBlur)
-        .opacity(Double(notchTransitionScale))
         .contentShape(shape)
         // Blue border is not needed for this version.
         /*
@@ -524,10 +516,6 @@ struct FloatingNotchView: View {
             x: 0,
             y: isExpanded ? 8 : 4
         )
-        .compositingGroup()
-        .scaleEffect(notchTransitionScale, anchor: .top)
-        .blur(radius: (1 - notchTransitionScale) * NotchFeatureMotion.containerBlurRadius + notchTransitionBlur)
-        .opacity(Double(notchTransitionScale))
         .contentShape(shape)
         .overlay {
             if !isExpandedBranch(key) {
@@ -779,8 +767,6 @@ struct FloatingNotchView: View {
     private func startOnboardingHeightMotion(to newBranch: String) {
         notchBlendMotion = .open
         isNotchPhaseAnimating = false
-        notchTransitionScale = 1
-        notchTransitionBlur = 0
         withAnimation(OnboardingHeightMotion.expandAnimation) {
             renderedBranchKey = newBranch
         }
@@ -792,23 +778,13 @@ struct FloatingNotchView: View {
             withAnimation(OnboardingNotchMotion.openCompressAnimation) {
                 isNotchPhaseAnimating = true
                 renderedBranchKey = Self.hardwareNotchBranchKey
-                notchTransitionScale = 1
-                notchTransitionBlur = 0
             }
 
             notchTransitionTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: OnboardingNotchMotion.openCompressDelayNanoseconds)
                 guard !Task.isCancelled else { return }
-                withTransaction(Transaction(animation: nil)) {
-                    notchTransitionScale = OnboardingNotchMotion.openingScale
-                    notchTransitionBlur = OnboardingNotchMotion.openingBlurRadius
-                }
-                try? await Task.sleep(nanoseconds: OnboardingNotchMotion.openKickDelayNanoseconds)
-                guard !Task.isCancelled else { return }
                 withAnimation(OnboardingNotchMotion.openAnimation) {
                     renderedBranchKey = newBranch
-                    notchTransitionScale = 1
-                    notchTransitionBlur = 0
                 }
                 try? await Task.sleep(nanoseconds: OnboardingNotchMotion.openSettleDelayNanoseconds)
                 guard !Task.isCancelled else { return }
@@ -821,8 +797,6 @@ struct FloatingNotchView: View {
         withAnimation(OnboardingNotchMotion.collapseAnimation) {
             isNotchPhaseAnimating = true
             renderedBranchKey = Self.hardwareNotchBranchKey
-            notchTransitionScale = 1
-            notchTransitionBlur = 0
         }
 
         notchTransitionTask = Task { @MainActor in
@@ -830,8 +804,6 @@ struct FloatingNotchView: View {
             guard !Task.isCancelled else { return }
             withAnimation(OnboardingNotchMotion.returnAnimation) {
                 renderedBranchKey = newBranch
-                notchTransitionScale = 1
-                notchTransitionBlur = 0
             }
             try? await Task.sleep(nanoseconds: OnboardingNotchMotion.returnSettleDelayNanoseconds)
             guard !Task.isCancelled else { return }
@@ -845,23 +817,13 @@ struct FloatingNotchView: View {
             withAnimation(NotchFeatureMotion.openCompressAnimation) {
                 isNotchPhaseAnimating = true
                 renderedBranchKey = Self.hardwareNotchBranchKey
-                notchTransitionScale = 1
-                notchTransitionBlur = 0
             }
 
             notchTransitionTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: NotchFeatureMotion.openCompressDelayNanoseconds)
                 guard !Task.isCancelled else { return }
-                withTransaction(Transaction(animation: nil)) {
-                    notchTransitionScale = NotchFeatureMotion.openingScale
-                    notchTransitionBlur = NotchFeatureMotion.openingBlurRadius
-                }
-                try? await Task.sleep(nanoseconds: NotchFeatureMotion.openKickDelayNanoseconds)
-                guard !Task.isCancelled else { return }
                 withAnimation(NotchFeatureMotion.openAnimation) {
                     renderedBranchKey = newBranch
-                    notchTransitionScale = 1
-                    notchTransitionBlur = 0
                 }
                 try? await Task.sleep(nanoseconds: NotchFeatureMotion.openSettleDelayNanoseconds)
                 guard !Task.isCancelled else { return }
@@ -874,8 +836,6 @@ struct FloatingNotchView: View {
         withAnimation(NotchFeatureMotion.collapseAnimation) {
             isNotchPhaseAnimating = true
             renderedBranchKey = Self.hardwareNotchBranchKey
-            notchTransitionScale = 1
-            notchTransitionBlur = 0
         }
 
         notchTransitionTask = Task { @MainActor in
@@ -883,8 +843,6 @@ struct FloatingNotchView: View {
             guard !Task.isCancelled else { return }
             withAnimation(NotchFeatureMotion.returnAnimation) {
                 renderedBranchKey = newBranch
-                notchTransitionScale = 1
-                notchTransitionBlur = 0
             }
             try? await Task.sleep(nanoseconds: NotchFeatureMotion.returnSettleDelayNanoseconds)
             guard !Task.isCancelled else { return }
@@ -898,8 +856,6 @@ struct FloatingNotchView: View {
             withAnimation(BatteryNotchMotion.expandAnimation) {
                 isNotchPhaseAnimating = true
                 renderedBranchKey = newBranch
-                notchTransitionScale = 1
-                notchTransitionBlur = 0
             }
 
             notchTransitionTask = Task { @MainActor in
@@ -914,8 +870,6 @@ struct FloatingNotchView: View {
         withAnimation(BatteryNotchMotion.collapseAnimation) {
             isNotchPhaseAnimating = true
             renderedBranchKey = Self.hardwareNotchBranchKey
-            notchTransitionScale = 1
-            notchTransitionBlur = 0
         }
 
         notchTransitionTask = Task { @MainActor in
@@ -923,8 +877,6 @@ struct FloatingNotchView: View {
             guard !Task.isCancelled else { return }
             withAnimation(NotchFeatureMotion.returnAnimation) {
                 renderedBranchKey = newBranch
-                notchTransitionScale = 1
-                notchTransitionBlur = 0
             }
             try? await Task.sleep(nanoseconds: NotchFeatureMotion.returnSettleDelayNanoseconds)
             guard !Task.isCancelled else { return }
@@ -951,12 +903,6 @@ struct FloatingNotchView: View {
         isNotchPhaseAnimating = false
         suppressCollapsedMusicMarquee = false
         calendarTransitionActive = false
-        guard notchTransitionScale != 1 || notchTransitionBlur != 0 else { return }
-
-        withAnimation(NotchFeatureMotion.returnAnimation) {
-            notchTransitionScale = 1
-            notchTransitionBlur = 0
-        }
     }
 
     private func finishNotchPhase(targetBranch: String) {

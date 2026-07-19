@@ -21,44 +21,49 @@ struct CompactMediaSnapshotTests {
         )
 
         for fixture in fixtures {
-            let presentation = fixture.track.compactPresentation
-            let width = presentation.preferredWidth + 22
-            let shape = NotchDropShape(
-                invertedCornerRadius: 11,
-                bottomCornerRadius: NowPlayingMetrics.compactBottomCornerRadius
-            )
-            let content = ZStack(alignment: .bottom) {
-                shape.fill(Color.black)
-                CompactMediaContent(
-                    presentation: presentation,
-                    processedBackground: fixture.background,
-                    backgroundIdentity: fixture.name,
-                    hardwareNotchWidth: 184,
-                    isHovering: false,
-                    revealsContent: true,
-                    accessibilityContrast: .standard,
-                    reduceMotion: true,
-                    onPlayPause: {}
+            for size in NotchSize.allCases {
+                let presentation = fixture.track.compactPresentation
+                let bodySize = NotchLayoutMetrics.bodySize(for: size)
+                let invertedRadius = FloatingNotchView.musicInvertedRadius
+                let shape = NotchDropShape(
+                    invertedCornerRadius: invertedRadius,
+                    bottomCornerRadius: NotchLayoutMetrics.bottomRadius(for: size)
                 )
-            }
-            .frame(width: width, height: NowPlayingMetrics.compactHeight)
-            .clipShape(shape)
-            .shadow(color: .black.opacity(0.38), radius: 10, y: 6)
-            .padding(18)
+                let content = ZStack(alignment: .bottom) {
+                    shape.fill(Color.black)
+                    CompactMediaContent(
+                        presentation: presentation,
+                        processedBackground: fixture.background,
+                        backgroundIdentity: fixture.name,
+                        hardwareNotchWidth: 184,
+                        notchSize: size,
+                        isHovering: false,
+                        revealsContent: true,
+                        accessibilityContrast: .standard,
+                        reduceMotion: true,
+                        onPlayPause: {}
+                    )
+                    .frame(width: bodySize.width, height: bodySize.height)
+                }
+                .frame(width: bodySize.width + invertedRadius * 2, height: bodySize.height)
+                .clipShape(shape)
+                .shadow(color: .black.opacity(0.38), radius: 10, y: 6)
+                .padding(18)
 
-            let renderer = ImageRenderer(content: content)
-            renderer.scale = 2
-            guard let image = renderer.nsImage,
-                  let tiff = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiff),
-                  let png = bitmap.representation(using: .png, properties: [:]) else {
-                Issue.record("Could not render compact snapshot for \(fixture.name)")
-                continue
-            }
+                let renderer = ImageRenderer(content: content)
+                renderer.scale = 2
+                guard let image = renderer.nsImage,
+                      let tiff = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: tiff),
+                      let png = bitmap.representation(using: .png, properties: [:]) else {
+                    Issue.record("Could not render compact snapshot for \(fixture.name)-\(size.rawValue)")
+                    continue
+                }
 
-            let destination = outputDirectory.appendingPathComponent("\(fixture.name).png")
-            try png.write(to: destination, options: .atomic)
-            #expect(FileManager.default.fileExists(atPath: destination.path))
+                let destination = outputDirectory.appendingPathComponent("\(fixture.name)-\(size.rawValue).png")
+                try png.write(to: destination, options: .atomic)
+                #expect(FileManager.default.fileExists(atPath: destination.path))
+            }
         }
     }
 

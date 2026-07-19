@@ -64,21 +64,19 @@ struct LiveActivityChipView: View {
             accessoryIcon
                 .frame(width: notchSize == .small ? 30 : 42, height: notchSize == .small ? 30 : 42)
 
-            if notchSize != .small {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(activity.title)
-                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                        .foregroundStyle(NotchTheme.primaryText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(activity.title)
+                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
-                    if notchSize == .large, let detail = activity.detail {
+                if notchSize == .large, let detail = activity.detail {
                     Text(detail)
                         .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
                         .foregroundStyle(NotchTheme.secondaryText)
                         .lineLimit(1)
                         .transition(.opacity)
-                    }
                 }
             }
         }

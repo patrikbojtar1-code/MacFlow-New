@@ -28,7 +28,6 @@ enum NowPlayingMetrics {
     static let compactHoverWidthExpansion: CGFloat = 10
     static let compactHorizontalPadding: CGFloat = 15
     static let compactContentHeight: CGFloat = 28
-    static let compactContentBottomPadding: CGFloat = 7
     static let compactSurfaceHeight: CGFloat = 46
     static let compactSurfaceHorizontalInset: CGFloat = 5
     static let compactSurfaceBottomInset: CGFloat = 2
@@ -61,18 +60,14 @@ enum NowPlayingMetrics {
 
     static func sourceSize(for size: NotchSize) -> CGFloat {
         switch size {
-        case .small: 24
+        case .small: 22
         case .medium: 32
         case .large: 38
         }
     }
 
     static func titleSize(for size: NotchSize) -> CGFloat {
-        switch size {
-        case .small: 13
-        case .medium: 15
-        case .large: 16
-        }
+        15 * size.densityMetrics.typographyScale
     }
 
     static func subtitleSize(for size: NotchSize) -> CGFloat {
@@ -367,19 +362,7 @@ struct CompactMediaContent: View {
                 accessibilityContrast: accessibilityContrast,
                 reduceMotion: reduceMotion
             )
-            .frame(maxWidth: .infinity)
-            .frame(height: NowPlayingMetrics.surfaceHeight(for: notchSize))
-            .clipShape(compactSurfaceShape)
-            .overlay {
-                compactSurfaceShape
-                    .stroke(
-                        .white.opacity(accessibilityContrast == .increased ? 0.24 : 0.09),
-                        lineWidth: accessibilityContrast == .increased ? 1 : 0.75
-                    )
-            }
-            .shadow(color: .black.opacity(isHovering ? 0.48 : 0.36), radius: 8, y: 3)
-            .padding(.horizontal, NowPlayingMetrics.compactSurfaceHorizontalInset)
-            .padding(.bottom, NowPlayingMetrics.compactSurfaceBottomInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             CompactHardwareBridgeShape(
                 bottomRadius: NowPlayingMetrics.compactHardwareBridgeBottomRadius
@@ -395,7 +378,7 @@ struct CompactMediaContent: View {
             .accessibilityHidden(true)
 
             HStack(spacing: 0) {
-                HStack(spacing: 10) {
+                HStack(spacing: notchSize == .small ? 8 : 10) {
                     CompactSourceIdentityView(
                         style: presentation.source,
                         size: NowPlayingMetrics.sourceSize(for: notchSize)
@@ -404,32 +387,30 @@ struct CompactMediaContent: View {
                         .opacity(revealsContent ? 1 : 0)
                         .animation(entranceAnimation(delay: 0), value: revealsContent)
 
-                    if notchSize != .small {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(presentation.primaryTitle)
-                                .font(.system(size: NowPlayingMetrics.titleSize(for: notchSize), weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .contentTransition(.interpolate)
-                            if notchSize == .large {
-                                Text(presentation.secondaryTitle)
-                                    .font(.system(size: NowPlayingMetrics.subtitleSize(for: notchSize), weight: .regular))
-                                    .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .contentTransition(.interpolate)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .offset(x: revealsContent || reduceMotion ? 0 : -7)
-                        .opacity(revealsContent ? 1 : 0)
-                        .animation(entranceAnimation(delay: 0.035), value: revealsContent)
-                        .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: presentation.primaryTitle)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(presentation.source.displayName), \(presentation.primaryTitle)")
-                        .accessibilityValue(presentation.secondaryTitle)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(presentation.primaryTitle)
+                            .font(.system(size: NowPlayingMetrics.titleSize(for: notchSize), weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(notchSize == .small ? 0.78 : 0.9)
+                            .allowsTightening(true)
+                            .truncationMode(.tail)
+                            .contentTransition(.interpolate)
+                        Text(presentation.secondaryTitle)
+                            .font(.system(size: NowPlayingMetrics.subtitleSize(for: notchSize), weight: .regular))
+                            .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .contentTransition(.interpolate)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .offset(x: revealsContent || reduceMotion ? 0 : -4)
+                    .opacity(revealsContent ? 1 : 0)
+                    .animation(entranceAnimation(delay: 0.035), value: revealsContent)
+                    .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: presentation.primaryTitle)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(presentation.source.displayName), \(presentation.primaryTitle)")
+                    .accessibilityValue(presentation.secondaryTitle)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -438,18 +419,16 @@ struct CompactMediaContent: View {
                     .accessibilityHidden(true)
 
                 HStack(spacing: 11) {
-                    if notchSize != .small {
-                        CompactMediaWaveform(
-                            isPlaying: presentation.isPlaying,
-                            color: accent,
-                            isEmphasized: isHovering
-                        )
-                        .frame(width: 42, height: 17)
-                        .matchedGeometry(id: "music-eq", in: morphNamespace)
-                        .opacity(revealsContent ? (isHovering ? 1 : 0.88) : 0)
-                        .animation(entranceAnimation(delay: 0.07), value: revealsContent)
-                        .accessibilityHidden(true)
-                    }
+                    CompactMediaWaveform(
+                        isPlaying: presentation.isPlaying,
+                        color: accent,
+                        isEmphasized: isHovering
+                    )
+                    .frame(width: notchSize == .small ? 28 : (notchSize == .medium ? 36 : 42), height: 17)
+                    .matchedGeometry(id: "music-eq", in: morphNamespace)
+                    .opacity(revealsContent ? (isHovering ? 1 : 0.88) : 0)
+                    .animation(entranceAnimation(delay: 0.07), value: revealsContent)
+                    .accessibilityHidden(true)
 
                     Button(action: onPlayPause) {
                         Image(systemName: presentation.isPlaying ? "pause.fill" : "play.fill")
@@ -472,21 +451,14 @@ struct CompactMediaContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .frame(height: NowPlayingMetrics.compactContentHeight + (notchSize == .small ? 0 : 6))
             .padding(.horizontal, NowPlayingMetrics.compactHorizontalPadding)
-            .padding(.bottom, NowPlayingMetrics.compactContentBottomPadding)
-            .scaleEffect(isHovering ? 1.006 : 1, anchor: .bottom)
+            .frame(height: NowPlayingMetrics.compactContentHeight + (notchSize == .small ? 0 : 6))
+            .frame(maxHeight: .infinity, alignment: .center)
+            .scaleEffect(isHovering ? 1.006 : 1, anchor: .center)
             .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-    }
-
-    private var compactSurfaceShape: RoundedRectangle {
-        RoundedRectangle(
-            cornerRadius: NowPlayingMetrics.compactSurfaceCornerRadius,
-            style: .continuous
-        )
     }
 
     private func entranceAnimation(delay: TimeInterval) -> Animation {

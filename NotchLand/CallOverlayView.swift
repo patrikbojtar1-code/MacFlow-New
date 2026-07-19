@@ -146,19 +146,17 @@ struct CallOverlayView: View {
     private func identityWing(status: String, showsPulse: Bool) -> some View {
         HStack(spacing: notchSize == .small ? 9 : 12) {
             avatar(size: notchSize == .small ? 30 : 42, showsPulse: showsPulse)
-            if notchSize != .small {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(presentation.callerName)
-                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                        .foregroundStyle(NotchTheme.primaryText)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(presentation.callerName)
+                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
+                    .lineLimit(1)
+                if notchSize == .large {
+                    Text(status)
+                        .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
+                        .foregroundStyle(NotchTheme.secondaryText)
                         .lineLimit(1)
-                    if notchSize == .large {
-                        Text(status)
-                            .font(.system(size: NotchLayoutMetrics.compactSubtitleSize, weight: .regular))
-                            .foregroundStyle(NotchTheme.secondaryText)
-                            .lineLimit(1)
-                            .contentTransition(.numericText())
-                    }
+                        .contentTransition(.numericText())
                 }
             }
         }
@@ -173,12 +171,10 @@ struct CallOverlayView: View {
                 .foregroundStyle(.white.opacity(0.72))
                 .frame(width: 28, height: 28)
                 .background(NotchTheme.interactiveSurface, in: Circle())
-            if notchSize != .small {
-                Text(presentation.callerName)
-                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                    .foregroundStyle(NotchTheme.primaryText)
-                    .lineLimit(1)
-            }
+            Text(presentation.callerName)
+                .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                .foregroundStyle(NotchTheme.primaryText)
+                .lineLimit(1)
         }
     }
 

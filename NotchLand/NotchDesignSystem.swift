@@ -27,6 +27,39 @@ nonisolated enum NotchSize: String, CaseIterable, Identifiable, Codable, Sendabl
         case .large: "Large"
         }
     }
+
+    var densityMetrics: NotchDensityMetrics {
+        switch self {
+        case .small:
+            NotchDensityMetrics(
+                bodySize: CGSize(width: 440, height: 50),
+                horizontalPadding: 12,
+                contentScale: 0.92,
+                typographyScale: 0.86
+            )
+        case .medium:
+            NotchDensityMetrics(
+                bodySize: CGSize(width: 500, height: 58),
+                horizontalPadding: 16,
+                contentScale: 1,
+                typographyScale: 1
+            )
+        case .large:
+            NotchDensityMetrics(
+                bodySize: CGSize(width: 580, height: 66),
+                horizontalPadding: 18,
+                contentScale: 1.08,
+                typographyScale: 1.06
+            )
+        }
+    }
+}
+
+nonisolated struct NotchDensityMetrics: Equatable, Sendable {
+    let bodySize: CGSize
+    let horizontalPadding: CGFloat
+    let contentScale: CGFloat
+    let typographyScale: CGFloat
 }
 
 private struct EffectiveNotchSizeKey: EnvironmentKey {
@@ -99,19 +132,11 @@ nonisolated enum NotchLayoutMetrics {
     static let hoverHeightExpansion: CGFloat = 3
 
     static func bodySize(for size: NotchSize) -> CGSize {
-        switch size {
-        case .small: CGSize(width: 320, height: 42)
-        case .medium: CGSize(width: 440, height: 54)
-        case .large: CGSize(width: 540, height: 66)
-        }
+        size.densityMetrics.bodySize
     }
 
     static func horizontalPadding(for size: NotchSize) -> CGFloat {
-        switch size {
-        case .small: 12
-        case .medium: 16
-        case .large: 18
-        }
+        size.densityMetrics.horizontalPadding
     }
 
     static func bottomRadius(for size: NotchSize) -> CGFloat {

@@ -56,9 +56,9 @@ struct MacFlowIntegrationTests {
     }
 
     @Test func notchContentSizesProduceThreeDistinctCompactGeometries() {
-        #expect(NotchLayoutMetrics.bodySize(for: .small) == CGSize(width: 320, height: 42))
-        #expect(NotchLayoutMetrics.bodySize(for: .medium) == CGSize(width: 440, height: 54))
-        #expect(NotchLayoutMetrics.bodySize(for: .large) == CGSize(width: 540, height: 66))
+        #expect(NotchLayoutMetrics.bodySize(for: .small) == CGSize(width: 440, height: 50))
+        #expect(NotchLayoutMetrics.bodySize(for: .medium) == CGSize(width: 500, height: 58))
+        #expect(NotchLayoutMetrics.bodySize(for: .large) == CGSize(width: 580, height: 66))
 
         let sizes = NotchSize.allCases.map {
             (

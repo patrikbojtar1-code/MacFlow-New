@@ -46,11 +46,18 @@ final class MacFlowInteractionTests: XCTestCase {
         let sort = element("wallpapers.sort")
         let options = element("wallpapers.options")
         let importButton = element("wallpapers.import")
+        let search = element("wallpapers.search.field")
 
-        for control in [grid, list, sort, options, importButton] {
+        for control in [grid, list, sort, options, importButton, search] {
             XCTAssertTrue(control.waitForExistence(timeout: 3))
             XCTAssertTrue(control.isHittable)
         }
+
+        search.click()
+        search.typeText("mountain")
+        XCTAssertEqual(search.value as? String, "mountain")
+        search.typeKey("a", modifierFlags: .command)
+        search.typeKey(.delete, modifierFlags: [])
 
         for _ in 0..<6 {
             list.click()

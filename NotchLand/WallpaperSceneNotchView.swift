@@ -66,14 +66,13 @@ struct WallpaperSceneCompactView: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: notchSize == .small ? 9 : 12, style: .continuous))
 
-            if notchSize != .small {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(scene.title)
-                        .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
-                        .foregroundStyle(NotchTheme.primaryText)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scene.title)
+                    .font(.system(size: NotchLayoutMetrics.compactTitleSize, weight: .semibold))
+                    .foregroundStyle(NotchTheme.primaryText)
+                    .lineLimit(1)
 
-                    if notchSize == .large || isHovering {
+                if notchSize == .large || isHovering {
                     Text(
                         controller.suspensionDetail
                             ?? controller.automationReason?.title
@@ -84,7 +83,6 @@ struct WallpaperSceneCompactView: View {
                         .lineLimit(1)
                         .contentTransition(.opacity)
                         .transition(.opacity.combined(with: .offset(x: -4)))
-                    }
                 }
             }
         }
@@ -113,7 +111,7 @@ struct WallpaperSceneCompactView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.green)
                         .contentTransition(.symbolEffect(.replace))
-                } else if notchSize != .small {
+                } else {
                     SceneMotionBars(
                         isActive: !controller.isPaused,
                         isEmphasized: isHovering
