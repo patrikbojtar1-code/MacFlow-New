@@ -94,12 +94,24 @@ struct WallpaperPreviewImage: View {
 
                 ForEach(composerLayers) { composerLayer in
                     if composerLayer.isVisible, composerLayer.opacity > 0.001 {
-                        previewLayer(composerLayer.kind, size: proxy.size)
+                        WallpaperComposerLayerAnimation(layer: composerLayer) {
+                            previewLayer(composerLayer.kind, size: proxy.size)
+                                .scaleEffect(composerLayer.scale)
+                                .offset(
+                                    x: proxy.size.width * composerLayer.offsetX,
+                                    y: proxy.size.height * -composerLayer.offsetY
+                                )
+                                .blur(radius: composerLayer.blurRadius)
+                                .mask {
+                                    composerLayerMask(composerLayer, size: proxy.size)
+                                }
+                        }
                             .opacity(composerLayer.opacity)
                             .blendMode(composerLayer.blendMode.swiftUIBlendMode)
                     }
                 }
             }
+            .animation(AppMotion.stateChange(reduceMotion: reduceMotion), value: composerLayers)
             .onContinuousHover { phase in
                 guard animatesMotion, !reduceMotion, parallaxStrength > 0 else {
                     parallaxPosition = CGPoint(x: 0.5, y: 0.5)
@@ -140,6 +152,52 @@ struct WallpaperPreviewImage: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(scene.title), \(scene.kind.displayName) wallpaper")
+    }
+
+    @ViewBuilder
+    private func composerLayerMask(
+        _ composerLayer: WallpaperSceneRenderingConfiguration.ComposerLayer,
+        size: CGSize
+    ) -> some View {
+        let visible = Color.white
+        let hidden = Color.white.opacity(0)
+        switch composerLayer.maskStyle {
+        case .none:
+            visible
+        case .fadeTop, .fadeBottom:
+            LinearGradient(
+                stops: composerLayer.isMaskInverted
+                    ? [
+                        .init(color: visible, location: 0),
+                        .init(color: hidden, location: composerLayer.maskFeather),
+                        .init(color: hidden, location: 1),
+                    ]
+                    : [
+                        .init(color: hidden, location: 0),
+                        .init(color: visible, location: composerLayer.maskFeather),
+                        .init(color: visible, location: 1),
+                    ],
+                startPoint: composerLayer.maskStyle == .fadeTop ? .top : .bottom,
+                endPoint: composerLayer.maskStyle == .fadeTop ? .bottom : .top
+            )
+        case .focusCenter:
+            RadialGradient(
+                stops: composerLayer.isMaskInverted
+                    ? [
+                        .init(color: hidden, location: 0),
+                        .init(color: hidden, location: 1 - composerLayer.maskFeather),
+                        .init(color: visible, location: 1),
+                    ]
+                    : [
+                        .init(color: visible, location: 0),
+                        .init(color: visible, location: 1 - composerLayer.maskFeather),
+                        .init(color: hidden, location: 1),
+                    ],
+                center: .center,
+                startRadius: 0,
+                endRadius: max(size.width, size.height) * 0.72
+            )
+        }
     }
 
     @ViewBuilder
@@ -355,6 +413,58 @@ private struct WallpaperMusicReactionPreview: View {
         let low = 0.08 + (intensity * 0.04)
         let high = 0.18 + (intensity * 0.24)
         return phase ? high : low
+    }
+}
+
+private struct WallpaperComposerLayerAnimation<Content: View>: View {
+    let layer: WallpaperSceneRenderingConfiguration.ComposerLayer
+    private let content: () -> Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase = false
+
+    init(
+        layer: WallpaperSceneRenderingConfiguration.ComposerLayer,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.layer = layer
+        self.content = content
+    }
+
+    var body: some View {
+        content()
+            .scaleEffect(animatedScale)
+            .offset(animatedOffset)
+            .opacity(animatedOpacity)
+            .task(id: layer) {
+                phase = false
+                guard layer.animationPreset != .none, !reduceMotion else { return }
+                await Task.yield()
+                withAnimation(
+                    .easeInOut(duration: layer.animationDuration / 2)
+                        .repeatForever(autoreverses: true)
+                ) {
+                    phase = true
+                }
+            }
+    }
+
+    private var animatedScale: CGFloat {
+        guard layer.animationPreset == .breathe else { return 1 }
+        return phase ? 1 + (0.035 * layer.animationAmount) : 1
+    }
+
+    private var animatedOffset: CGSize {
+        guard layer.animationPreset == .float else { return .zero }
+        let amount = layer.animationAmount
+        return phase
+            ? CGSize(width: 10 * amount, height: -6 * amount)
+            : CGSize(width: -10 * amount, height: 5 * amount)
+    }
+
+    private var animatedOpacity: Double {
+        guard layer.animationPreset == .pulse else { return 1 }
+        return phase ? max(0.65, 1 - (0.28 * layer.animationAmount)) : 1
     }
 }
 

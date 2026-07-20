@@ -31,6 +31,10 @@ nonisolated struct WallpaperSceneEffectDiagnostics: Equatable, Sendable {
     var musicGlowAnimating: Bool
     var composerLayerOrder: [WallpaperSceneRenderingConfiguration.ComposerLayer.Kind]
     var hiddenComposerLayers: Set<WallpaperSceneRenderingConfiguration.ComposerLayer.Kind>
+    var transformedComposerLayers: Set<WallpaperSceneRenderingConfiguration.ComposerLayer.Kind>
+    var blurredComposerLayers: Set<WallpaperSceneRenderingConfiguration.ComposerLayer.Kind>
+    var maskedComposerLayers: Set<WallpaperSceneRenderingConfiguration.ComposerLayer.Kind>
+    var animatedComposerLayers: Set<WallpaperSceneRenderingConfiguration.ComposerLayer.Kind>
 }
 
 @MainActor
@@ -137,6 +141,7 @@ final class WallpaperSceneRenderView: NSView {
         static let animationKey = "macflow.scene.motion"
         static let musicGlowAnimationKey = "macflow.scene.music.glow"
         static let particlePulseAnimationKey = "macflow.scene.music.particles"
+        static let composerAnimationKey = "macflow.scene.composer.keyframes"
         static let zoomDuration: CFTimeInterval = 24
         static let driftDuration: CFTimeInterval = 32
     }
@@ -152,16 +157,32 @@ final class WallpaperSceneRenderView: NSView {
     private var currentProfile = WallpaperPerformanceProfile.automatic
     private var currentMediaPlayback = WallpaperMediaPlaybackSnapshot.inactive
     private var isPaused = false
+    private var activeComposerAnimationKinds = Set<
+        WallpaperSceneRenderingConfiguration.ComposerLayer.Kind
+    >()
     private let mediaContainerLayer = CALayer()
+    private let mediaAnimationLayer = CALayer()
+    private let mediaMotionLayer = CALayer()
     private let musicContainerLayer = CALayer()
+    private let musicAnimationLayer = CALayer()
     private let atmosphereContainerLayer = CALayer()
+    private let atmosphereAnimationLayer = CALayer()
     private let vignetteContainerLayer = CALayer()
+    private let vignetteAnimationLayer = CALayer()
     private let dimmingContainerLayer = CALayer()
+    private let dimmingAnimationLayer = CALayer()
     private var emitterLayer: CAEmitterLayer?
     private var pointerSubscriptionID: UUID?
     private let musicGlowLayer = CAGradientLayer()
     private let vignetteLayer = CAGradientLayer()
     private let dimmingLayer = CALayer()
+    private lazy var composerMaskLayers: [
+        WallpaperSceneRenderingConfiguration.ComposerLayer.Kind: CAGradientLayer
+    ] = Dictionary(uniqueKeysWithValues:
+        WallpaperSceneRenderingConfiguration.ComposerLayer.Kind.allCases.map {
+            ($0, CAGradientLayer())
+        }
+    )
     private var itemStatusObservation: NSKeyValueObservation?
     private var keepUpObservation: NSKeyValueObservation?
     private var readyForDisplayObservation: NSKeyValueObservation?
@@ -175,6 +196,9 @@ final class WallpaperSceneRenderView: NSView {
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
         mediaContainerLayer.masksToBounds = false
+        mediaMotionLayer.masksToBounds = false
+        mediaContainerLayer.addSublayer(mediaAnimationLayer)
+        mediaAnimationLayer.addSublayer(mediaMotionLayer)
         musicGlowLayer.type = .radial
         musicGlowLayer.startPoint = CGPoint(x: 0.5, y: 0.18)
         musicGlowLayer.endPoint = CGPoint(x: 0.5, y: 0.95)
@@ -192,9 +216,13 @@ final class WallpaperSceneRenderView: NSView {
         vignetteLayer.opacity = 0
         dimmingLayer.backgroundColor = NSColor.black.cgColor
         dimmingLayer.opacity = 0
-        musicContainerLayer.addSublayer(musicGlowLayer)
-        vignetteContainerLayer.addSublayer(vignetteLayer)
-        dimmingContainerLayer.addSublayer(dimmingLayer)
+        musicContainerLayer.addSublayer(musicAnimationLayer)
+        musicAnimationLayer.addSublayer(musicGlowLayer)
+        atmosphereContainerLayer.addSublayer(atmosphereAnimationLayer)
+        vignetteContainerLayer.addSublayer(vignetteAnimationLayer)
+        vignetteAnimationLayer.addSublayer(vignetteLayer)
+        dimmingContainerLayer.addSublayer(dimmingAnimationLayer)
+        dimmingAnimationLayer.addSublayer(dimmingLayer)
         applyComposerLayerStack()
     }
 
@@ -208,7 +236,7 @@ final class WallpaperSceneRenderView: NSView {
             containers.first(where: { $0.value === candidate })?.key
         } ?? []
         return WallpaperSceneEffectDiagnostics(
-            ambientLayerAttached: emitterLayer?.superlayer === atmosphereContainerLayer,
+            ambientLayerAttached: emitterLayer?.superlayer === atmosphereAnimationLayer,
             ambientParticleBirthRate: emitterLayer?.emitterCells?.first?.birthRate ?? 0,
             musicGlowAnimating: musicGlowLayer.animation(
                 forKey: Motion.musicGlowAnimationKey
@@ -216,19 +244,32 @@ final class WallpaperSceneRenderView: NSView {
             composerLayerOrder: orderedLayers,
             hiddenComposerLayers: Set(containers.compactMap { entry in
                 entry.value.isHidden ? entry.key : nil
-            })
+            }),
+            transformedComposerLayers: Set(containers.compactMap { entry in
+                entry.value.affineTransform().isIdentity ? nil : entry.key
+            }),
+            blurredComposerLayers: Set(containers.compactMap { entry in
+                entry.value.filters?.isEmpty == false ? entry.key : nil
+            }),
+            maskedComposerLayers: Set(containers.compactMap { entry in
+                entry.value.mask == nil ? nil : entry.key
+            }),
+            animatedComposerLayers: activeComposerAnimationKinds
         )
     }
 
     override func layout() {
         super.layout()
-        composerContainers.values.forEach { $0.frame = bounds }
-        imageLayer?.frame = bounds
-        videoLayer?.frame = bounds
+        applyComposerLayerStack(animated: false)
+        let contentBounds = CGRect(origin: .zero, size: bounds.size)
+        composerAnimationLayers.values.forEach { $0.frame = contentBounds }
+        mediaMotionLayer.frame = contentBounds
+        imageLayer?.frame = contentBounds
+        videoLayer?.frame = contentBounds
         layoutEmitterLayer()
-        musicGlowLayer.frame = bounds
-        vignetteLayer.frame = bounds
-        dimmingLayer.frame = bounds
+        musicGlowLayer.frame = contentBounds
+        vignetteLayer.frame = contentBounds
+        dimmingLayer.frame = contentBounds
     }
 
     private var composerContainers: [
@@ -243,22 +284,124 @@ final class WallpaperSceneRenderView: NSView {
         ]
     }
 
-    private func applyComposerLayerStack() {
+    private var composerAnimationLayers: [
+        WallpaperSceneRenderingConfiguration.ComposerLayer.Kind: CALayer
+    ] {
+        [
+            .media: mediaAnimationLayer,
+            .musicGlow: musicAnimationLayer,
+            .atmosphere: atmosphereAnimationLayer,
+            .vignette: vignetteAnimationLayer,
+            .dimming: dimmingAnimationLayer,
+        ]
+    }
+
+    private func applyComposerLayerStack(animated: Bool = false) {
         let containers = composerContainers
+        let orderedContainers = currentRendering.composerLayers.compactMap {
+            containers[$0.kind]
+        }
+        let currentContainers = layer?.sublayers?.filter { candidate in
+            containers.values.contains { $0 === candidate }
+        } ?? []
+        let requiresReordering = currentContainers.count != orderedContainers.count
+            || zip(currentContainers, orderedContainers).contains { pair in
+                pair.0 !== pair.1
+            }
+
         CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        containers.values.forEach { $0.removeFromSuperlayer() }
+        let shouldAnimate = animated
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        CATransaction.setDisableActions(!shouldAnimate)
+        CATransaction.setAnimationDuration(shouldAnimate ? Motion.treatmentDuration : 0)
+        if requiresReordering {
+            containers.values.forEach { $0.removeFromSuperlayer() }
+            orderedContainers.forEach { layer?.addSublayer($0) }
+        }
         for composerLayer in currentRendering.composerLayers {
             guard let container = containers[composerLayer.kind] else { continue }
-            container.frame = bounds
             container.isHidden = !composerLayer.isVisible
             container.opacity = Float(composerLayer.opacity)
             container.compositingFilter = Self.compositingFilter(
                 for: composerLayer.blendMode
             )
-            layer?.addSublayer(container)
+            applyGeometry(of: composerLayer, to: container)
         }
         CATransaction.commit()
+    }
+
+    private func applyGeometry(
+        of composerLayer: WallpaperSceneRenderingConfiguration.ComposerLayer,
+        to container: CALayer
+    ) {
+        container.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        container.bounds = CGRect(origin: .zero, size: bounds.size)
+        container.position = CGPoint(
+            x: bounds.midX + (bounds.width * composerLayer.offsetX),
+            y: bounds.midY + (bounds.height * composerLayer.offsetY)
+        )
+        container.setAffineTransform(CGAffineTransform(
+            scaleX: composerLayer.scale,
+            y: composerLayer.scale
+        ))
+
+        let effectiveBlur = composerLayer.blurRadius
+            * WallpaperSceneEffectsPolicy.blurMultiplier(for: currentProfile)
+        if effectiveBlur > 0.01,
+           let blur = CIFilter(name: "CIGaussianBlur") {
+            blur.setValue(effectiveBlur, forKey: kCIInputRadiusKey)
+            container.filters = [blur]
+        } else {
+            container.filters = nil
+        }
+        applyMask(of: composerLayer, to: container)
+    }
+
+    private func applyMask(
+        of composerLayer: WallpaperSceneRenderingConfiguration.ComposerLayer,
+        to container: CALayer
+    ) {
+        guard composerLayer.maskStyle != .none,
+              let maskLayer = composerMaskLayers[composerLayer.kind] else {
+            container.mask = nil
+            return
+        }
+
+        let visible = NSColor.white.cgColor
+        let hidden = NSColor.white.withAlphaComponent(0).cgColor
+        maskLayer.frame = container.bounds
+
+        switch composerLayer.maskStyle {
+        case .none:
+            container.mask = nil
+            return
+        case .fadeTop, .fadeBottom:
+            maskLayer.type = .axial
+            if composerLayer.maskStyle == .fadeTop {
+                maskLayer.startPoint = CGPoint(x: 0.5, y: 1)
+                maskLayer.endPoint = CGPoint(x: 0.5, y: 0)
+            } else {
+                maskLayer.startPoint = CGPoint(x: 0.5, y: 0)
+                maskLayer.endPoint = CGPoint(x: 0.5, y: 1)
+            }
+            maskLayer.colors = composerLayer.isMaskInverted
+                ? [visible, hidden, hidden]
+                : [hidden, visible, visible]
+            maskLayer.locations = [0, NSNumber(value: composerLayer.maskFeather), 1]
+        case .focusCenter:
+            maskLayer.type = .radial
+            maskLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
+            maskLayer.endPoint = CGPoint(x: 0.5, y: 1)
+            maskLayer.colors = composerLayer.isMaskInverted
+                ? [hidden, hidden, visible]
+                : [visible, visible, hidden]
+            maskLayer.locations = [
+                0,
+                NSNumber(value: 1 - composerLayer.maskFeather),
+                1,
+            ]
+        }
+        container.mask = maskLayer
     }
 
     private static func compositingFilter(
@@ -335,6 +478,8 @@ final class WallpaperSceneRenderView: NSView {
             maximumResolution = .zero
         }
         player?.items().forEach { $0.preferredMaximumResolution = maximumResolution }
+        applyComposerLayerStack(animated: false)
+        updateComposerLayerAnimations()
         updateImageMotion()
         updateAmbientEffect()
         updateMusicReaction()
@@ -355,6 +500,7 @@ final class WallpaperSceneRenderView: NSView {
             }
         }
         updateImageMotion()
+        updateComposerLayerAnimations()
         updateAmbientEffect()
         updateMusicReaction()
         updateParallaxSubscription()
@@ -388,8 +534,10 @@ final class WallpaperSceneRenderView: NSView {
         emitterLayer = nil
         musicGlowLayer.removeAllAnimations()
         musicGlowLayer.opacity = 0
+        composerAnimationLayers.values.forEach { $0.removeAllAnimations() }
+        activeComposerAnimationKinds.removeAll()
         removePointerSubscription()
-        mediaContainerLayer.setAffineTransform(.identity)
+        mediaMotionLayer.setAffineTransform(.identity)
         isPaused = false
         currentAssetURL = nil
         currentKind = nil
@@ -418,7 +566,7 @@ final class WallpaperSceneRenderView: NSView {
             imageLayer.contentsGravity = .resizeAspectFill
             imageLayer.contentsScale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             imageLayer.frame = self.bounds
-            self.mediaContainerLayer.addSublayer(imageLayer)
+            self.mediaMotionLayer.addSublayer(imageLayer)
             self.imageLayer = imageLayer
             self.applyColorGrading()
             self.updateImageMotion()
@@ -439,7 +587,7 @@ final class WallpaperSceneRenderView: NSView {
         let videoLayer = AVPlayerLayer(player: player)
         videoLayer.videoGravity = .resizeAspectFill
         videoLayer.frame = bounds
-        mediaContainerLayer.addSublayer(videoLayer)
+        mediaMotionLayer.addSublayer(videoLayer)
 
         self.player = player
         self.looper = looper
@@ -515,7 +663,7 @@ final class WallpaperSceneRenderView: NSView {
     ) {
         let normalized = rendering.normalized
         currentRendering = normalized
-        applyComposerLayerStack()
+        applyComposerLayerStack(animated: animated)
 
         CATransaction.begin()
         CATransaction.setAnimationDuration(
@@ -530,6 +678,7 @@ final class WallpaperSceneRenderView: NSView {
         CATransaction.commit()
 
         applyColorGrading()
+        updateComposerLayerAnimations()
         updateImageMotion()
         updateAmbientEffect()
         updateMusicReaction()
@@ -557,6 +706,81 @@ final class WallpaperSceneRenderView: NSView {
         }
         imageLayer?.filters = filters
         videoLayer?.filters = filters
+    }
+
+    private func updateComposerLayerAnimations() {
+        let animationLayers = composerAnimationLayers
+        animationLayers.values.forEach {
+            $0.removeAnimation(forKey: Motion.composerAnimationKey)
+        }
+        activeComposerAnimationKinds.removeAll(keepingCapacity: true)
+
+        guard !isPaused,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+
+        let maximumLayers = WallpaperSceneEffectsPolicy.maximumAnimatedLayers(
+            for: currentProfile
+        )
+        let profileAmount = WallpaperSceneEffectsPolicy.animationAmountMultiplier(
+            for: currentProfile
+        )
+        var animatedLayerCount = 0
+
+        for composerLayer in currentRendering.composerLayers {
+            guard animatedLayerCount < maximumLayers,
+                  composerLayer.animationPreset != .none,
+                  isComposerLayerRenderable(composerLayer.kind),
+                  let animationLayer = animationLayers[composerLayer.kind],
+                  let animation = makeComposerAnimation(
+                    for: composerLayer,
+                    amountMultiplier: profileAmount
+                  ) else { continue }
+            animationLayer.add(animation, forKey: Motion.composerAnimationKey)
+            activeComposerAnimationKinds.insert(composerLayer.kind)
+            animatedLayerCount += 1
+        }
+    }
+
+    private func makeComposerAnimation(
+        for composerLayer: WallpaperSceneRenderingConfiguration.ComposerLayer,
+        amountMultiplier: Double
+    ) -> CAAnimation? {
+        let amount = composerLayer.animationAmount * amountMultiplier
+        let duration = composerLayer.animationDuration
+        let animation: CAAnimation
+
+        switch composerLayer.animationPreset {
+        case .none:
+            return nil
+        case .breathe:
+            let scale = CAKeyframeAnimation(keyPath: "transform.scale")
+            scale.values = [1, 1 + (0.035 * amount), 1]
+            scale.keyTimes = [0, 0.5, 1]
+            animation = scale
+        case .float:
+            let horizontal = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            horizontal.values = [-10 * amount, 10 * amount, -10 * amount]
+            horizontal.keyTimes = [0, 0.5, 1]
+            horizontal.duration = duration
+            let vertical = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            vertical.values = [5 * amount, -6 * amount, 5 * amount]
+            vertical.keyTimes = [0, 0.5, 1]
+            vertical.duration = duration
+            let group = CAAnimationGroup()
+            group.animations = [horizontal, vertical]
+            animation = group
+        case .pulse:
+            let opacity = CAKeyframeAnimation(keyPath: "opacity")
+            opacity.values = [1, max(0.65, 1 - (0.28 * amount)), 1]
+            opacity.keyTimes = [0, 0.5, 1]
+            animation = opacity
+        }
+
+        animation.duration = duration
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.isRemovedOnCompletion = true
+        return animation
     }
 
     private func updateImageMotion() {
@@ -623,7 +847,7 @@ final class WallpaperSceneRenderView: NSView {
         emitter.renderMode = .unordered
         emitter.masksToBounds = true
         emitter.emitterCells = [makeEmitterCell(for: currentRendering.ambientEffect)]
-        atmosphereContainerLayer.addSublayer(emitter)
+        atmosphereAnimationLayer.addSublayer(emitter)
         emitterLayer = emitter
         layoutEmitterLayer()
     }
@@ -810,14 +1034,14 @@ final class WallpaperSceneRenderView: NSView {
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.14)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        mediaContainerLayer.setAffineTransform(transform)
+        mediaMotionLayer.setAffineTransform(transform)
         CATransaction.commit()
     }
 
     private func resetParallax(animated: Bool) {
         CATransaction.begin()
         CATransaction.setAnimationDuration(animated ? 0.18 : 0)
-        mediaContainerLayer.setAffineTransform(.identity)
+        mediaMotionLayer.setAffineTransform(.identity)
         CATransaction.commit()
     }
 
@@ -927,6 +1151,32 @@ nonisolated enum WallpaperSceneEffectsPolicy {
         switch profile {
         case .eco: 0.22
         case .automatic, .balanced: 0.62
+        case .cinematic: 1
+        }
+    }
+
+    static func blurMultiplier(for profile: WallpaperPerformanceProfile) -> Double {
+        switch profile {
+        case .eco: 0.25
+        case .automatic, .balanced: 0.65
+        case .cinematic: 1
+        }
+    }
+
+    static func maximumAnimatedLayers(for profile: WallpaperPerformanceProfile) -> Int {
+        switch profile {
+        case .eco: 1
+        case .automatic, .balanced: 2
+        case .cinematic: 5
+        }
+    }
+
+    static func animationAmountMultiplier(
+        for profile: WallpaperPerformanceProfile
+    ) -> Double {
+        switch profile {
+        case .eco: 0.45
+        case .automatic, .balanced: 0.72
         case .cinematic: 1
         }
     }

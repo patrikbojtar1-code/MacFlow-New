@@ -135,6 +135,45 @@ struct CompactMediaPresentationTests {
         #expect(track.compactPresentation.mediaKind == .video)
     }
 
+    @Test func compactTimelineExtrapolatesAndClampsPlayback() {
+        let timestamp = Date(timeIntervalSinceReferenceDate: 1_000)
+        let track = NowPlayingService.Track(
+            title: "Timeline",
+            artist: "MacFlow",
+            album: nil,
+            artwork: nil,
+            duration: 100,
+            elapsedAtTimestamp: 35,
+            timestamp: timestamp,
+            playbackRate: 1,
+            sourceApplicationName: "Music",
+            sourceBundleIdentifier: "com.apple.Music"
+        )
+
+        let presentation = track.compactPresentation
+        #expect(presentation.isSeekable)
+        #expect(presentation.elapsed(at: timestamp.addingTimeInterval(10)) == 45)
+        #expect(presentation.progress(at: timestamp.addingTimeInterval(10)) == 0.45)
+        #expect(presentation.elapsed(at: timestamp.addingTimeInterval(200)) == 100)
+    }
+
+    @Test func eachNotchDensityHasAProgressiveTransportHierarchy() {
+        let small = CompactMediaLayoutProfile.resolve(for: .small)
+        let medium = CompactMediaLayoutProfile.resolve(for: .medium)
+        let large = CompactMediaLayoutProfile.resolve(for: .large)
+
+        #expect(!small.showsPrevious)
+        #expect(!small.showsNext)
+        #expect(!medium.showsPrevious)
+        #expect(medium.showsNext)
+        #expect(large.showsPrevious)
+        #expect(large.showsNext)
+        #expect(small.sourceSize < medium.sourceSize)
+        #expect(medium.sourceSize < large.sourceSize)
+        #expect(small.waveformWidth < medium.waveformWidth)
+        #expect(medium.waveformWidth < large.waveformWidth)
+    }
+
     @Test func appleTVSearchParserFindsExactEpisodeAndArtwork() {
         let searchHTML = #"""
         <script>{"ariaLabel":"Nechť se přihlásí skutečná May","contextAction":{"url":"https://tv.apple.com/cz/episode/necht-se-prihlasi-skutecna-may/umc.cmc.episode?showId=umc.cmc.show"},"artwork":{}}</script>

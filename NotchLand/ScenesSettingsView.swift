@@ -969,35 +969,15 @@ struct ScenesSettingsView: View {
             }
 
             if isExpanded {
-                HStack(spacing: MacFlowSpacing.space8) {
-                    Text("Opacity")
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                    Slider(
-                        value: Binding(
-                            get: {
-                                composerLayers(for: scene).first(where: {
-                                    $0.kind == composerLayer.kind
-                                })?.opacity ?? composerLayer.opacity
-                            },
-                            set: { opacity in
-                                updateComposerLayer(
-                                    composerLayer.kind,
-                                    for: scene,
-                                    performsHaptic: false
-                                ) {
-                                    $0.opacity = opacity
-                                }
-                            }
-                        ),
-                        in: 0...1
-                    )
-                    .tint(MacFlowColor.wallpaper)
-                    Text(composerLayer.opacity, format: .percent.precision(.fractionLength(0)))
-                        .font(.system(size: 9).monospacedDigit())
-                        .foregroundStyle(MacFlowColor.textTertiary)
-                        .frame(width: 30, alignment: .trailing)
-                }
+                composerLayerSlider(
+                    "Opacity",
+                    value: composerLayer.opacity,
+                    range: WallpaperSceneRenderingConfiguration.ComposerLayer.opacityRange,
+                    keyPath: \.opacity,
+                    layerKind: composerLayer.kind,
+                    scene: scene,
+                    format: .percent
+                )
 
                 HStack {
                     Text("Blend")
@@ -1024,6 +1004,207 @@ struct ScenesSettingsView: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
+
+                Divider().overlay(MacFlowColor.borderSubtle)
+
+                HStack {
+                    Text("TRANSFORM")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(MacFlowColor.textTertiary)
+                        .tracking(0.6)
+                    Spacer()
+                    if !composerLayer.hasDefaultTransform {
+                        Button("Reset") {
+                            updateComposerLayer(composerLayer.kind, for: scene) {
+                                $0.scale = 1
+                                $0.offsetX = 0
+                                $0.offsetY = 0
+                                $0.blurRadius = 0
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundStyle(MacFlowColor.wallpaper)
+                    }
+                }
+
+                composerLayerSlider(
+                    "Scale",
+                    value: composerLayer.scale,
+                    range: WallpaperSceneRenderingConfiguration.ComposerLayer.scaleRange,
+                    keyPath: \.scale,
+                    layerKind: composerLayer.kind,
+                    scene: scene,
+                    format: .percent
+                )
+                composerLayerSlider(
+                    "Move X",
+                    value: composerLayer.offsetX,
+                    range: WallpaperSceneRenderingConfiguration.ComposerLayer.offsetRange,
+                    keyPath: \.offsetX,
+                    layerKind: composerLayer.kind,
+                    scene: scene,
+                    format: .signedPercent
+                )
+                composerLayerSlider(
+                    "Move Y",
+                    value: composerLayer.offsetY,
+                    range: WallpaperSceneRenderingConfiguration.ComposerLayer.offsetRange,
+                    keyPath: \.offsetY,
+                    layerKind: composerLayer.kind,
+                    scene: scene,
+                    format: .signedPercent
+                )
+                composerLayerSlider(
+                    "Blur",
+                    value: composerLayer.blurRadius,
+                    range: WallpaperSceneRenderingConfiguration.ComposerLayer.blurRange,
+                    keyPath: \.blurRadius,
+                    layerKind: composerLayer.kind,
+                    scene: scene,
+                    format: .points
+                )
+
+                Divider().overlay(MacFlowColor.borderSubtle)
+
+                HStack {
+                    Text("MASK")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(MacFlowColor.textTertiary)
+                        .tracking(0.6)
+                    Spacer()
+                    if !composerLayer.hasDefaultMask {
+                        Button("Reset") {
+                            updateComposerLayer(composerLayer.kind, for: scene) {
+                                $0.maskStyle = .none
+                                $0.maskFeather = 0.45
+                                $0.isMaskInverted = false
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundStyle(MacFlowColor.wallpaper)
+                    }
+                }
+
+                HStack {
+                    Text("Shape")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                    Spacer()
+                    Menu(composerLayer.maskStyle.title) {
+                        ForEach(
+                            WallpaperSceneRenderingConfiguration.ComposerLayer.MaskStyle.allCases
+                        ) { maskStyle in
+                            Button {
+                                updateComposerLayer(composerLayer.kind, for: scene) {
+                                    $0.maskStyle = maskStyle
+                                }
+                            } label: {
+                                Label(maskStyle.title, systemImage: maskStyle.systemImage)
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+
+                if composerLayer.maskStyle != .none {
+                    composerLayerSlider(
+                        "Feather",
+                        value: composerLayer.maskFeather,
+                        range: WallpaperSceneRenderingConfiguration.ComposerLayer.maskFeatherRange,
+                        keyPath: \.maskFeather,
+                        layerKind: composerLayer.kind,
+                        scene: scene,
+                        format: .percent
+                    )
+
+                    Toggle(
+                        "Invert mask",
+                        isOn: Binding(
+                            get: {
+                                composerLayers(for: scene).first(where: {
+                                    $0.kind == composerLayer.kind
+                                })?.isMaskInverted ?? composerLayer.isMaskInverted
+                            },
+                            set: { isInverted in
+                                updateComposerLayer(composerLayer.kind, for: scene) {
+                                    $0.isMaskInverted = isInverted
+                                }
+                            }
+                        )
+                    )
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                }
+
+                Divider().overlay(MacFlowColor.borderSubtle)
+
+                HStack {
+                    Text("ANIMATION")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(MacFlowColor.textTertiary)
+                        .tracking(0.6)
+                    Spacer()
+                    if !composerLayer.hasDefaultAnimation {
+                        Button("Reset") {
+                            updateComposerLayer(composerLayer.kind, for: scene) {
+                                $0.animationPreset = .none
+                                $0.animationAmount = 0.35
+                                $0.animationDuration = 8
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 8.5, weight: .medium))
+                        .foregroundStyle(MacFlowColor.wallpaper)
+                    }
+                }
+
+                HStack {
+                    Text("Motion")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                    Spacer()
+                    Menu(composerLayer.animationPreset.title) {
+                        ForEach(
+                            WallpaperSceneRenderingConfiguration.ComposerLayer.AnimationPreset.allCases
+                        ) { preset in
+                            Button {
+                                updateComposerLayer(composerLayer.kind, for: scene) {
+                                    $0.animationPreset = preset
+                                }
+                            } label: {
+                                Label(preset.title, systemImage: preset.systemImage)
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+
+                if composerLayer.animationPreset != .none {
+                    composerLayerSlider(
+                        "Amount",
+                        value: composerLayer.animationAmount,
+                        range: WallpaperSceneRenderingConfiguration.ComposerLayer.animationAmountRange,
+                        keyPath: \.animationAmount,
+                        layerKind: composerLayer.kind,
+                        scene: scene,
+                        format: .percent
+                    )
+                    composerLayerSlider(
+                        "Duration",
+                        value: composerLayer.animationDuration,
+                        range: WallpaperSceneRenderingConfiguration.ComposerLayer.animationDurationRange,
+                        keyPath: \.animationDuration,
+                        layerKind: composerLayer.kind,
+                        scene: scene,
+                        format: .seconds
+                    )
+                }
             }
         }
         .padding(.horizontal, MacFlowSpacing.space8)
@@ -1042,6 +1223,74 @@ struct ScenesSettingsView: View {
                 )
         }
         .opacity(composerLayer.isVisible ? 1 : 0.58)
+    }
+
+    private enum ComposerLayerValueFormat {
+        case percent
+        case signedPercent
+        case points
+        case seconds
+
+        func string(from value: Double) -> String {
+            switch self {
+            case .percent:
+                return value.formatted(.percent.precision(.fractionLength(0)))
+            case .signedPercent:
+                if abs(value) < 0.0005 {
+                    return "0%"
+                } else {
+                    let magnitude = abs(value).formatted(
+                        .percent.precision(.fractionLength(0))
+                    )
+                    return value > 0 ? "+\(magnitude)" : "−\(magnitude)"
+                }
+            case .points:
+                return "\(value.formatted(.number.precision(.fractionLength(0)))) pt"
+            case .seconds:
+                return "\(value.formatted(.number.precision(.fractionLength(1)))) s"
+            }
+        }
+    }
+
+    private func composerLayerSlider(
+        _ title: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        keyPath: WritableKeyPath<WallpaperSceneRenderingConfiguration.ComposerLayer, Double>,
+        layerKind: WallpaperSceneRenderingConfiguration.ComposerLayer.Kind,
+        scene: WallpaperScene,
+        format: ComposerLayerValueFormat
+    ) -> some View {
+        HStack(spacing: MacFlowSpacing.space8) {
+            Text(title)
+                .font(.system(size: 9.5))
+                .foregroundStyle(MacFlowColor.textSecondary)
+                .frame(width: 48, alignment: .leading)
+            Slider(
+                value: Binding(
+                    get: {
+                        composerLayers(for: scene).first(where: {
+                            $0.kind == layerKind
+                        })?[keyPath: keyPath] ?? value
+                    },
+                    set: { newValue in
+                        updateComposerLayer(
+                            layerKind,
+                            for: scene,
+                            performsHaptic: false
+                        ) {
+                            $0[keyPath: keyPath] = newValue
+                        }
+                    }
+                ),
+                in: range
+            )
+            .tint(MacFlowColor.wallpaper)
+            Text(format.string(from: value))
+                .font(.system(size: 8.5).monospacedDigit())
+                .foregroundStyle(MacFlowColor.textTertiary)
+                .frame(width: 42, alignment: .trailing)
+        }
     }
 
     private func composerLayers(

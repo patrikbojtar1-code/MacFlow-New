@@ -26,12 +26,6 @@ enum NowPlayingMetrics {
     static let compactHeight: CGFloat = NotchLayoutMetrics.bodySize(for: .small).height
     static let compactBottomCornerRadius: CGFloat = 22
     static let compactHoverWidthExpansion: CGFloat = 10
-    static let compactHorizontalPadding: CGFloat = 15
-    static let compactContentHeight: CGFloat = 28
-    static let compactSurfaceHeight: CGFloat = 46
-    static let compactSurfaceHorizontalInset: CGFloat = 5
-    static let compactSurfaceBottomInset: CGFloat = 2
-    static let compactSurfaceCornerRadius: CGFloat = 18
     /// Matches the measured 13-inch M4 MacBook Air safe-area cutout.
     static let compactHardwareBridgeHeight: CGFloat = 32
     static let compactHardwareBridgeBottomRadius: CGFloat = 8
@@ -47,35 +41,73 @@ enum NowPlayingMetrics {
     static let collapsedSidePadding: CGFloat = 10
     /// Side artwork in the collapsed pill.
     static let collapsedArtSize: CGFloat = 22
-    /// EQ bars area in the collapsed pill.
-    static let collapsedBarsSize = CGSize(width: 22, height: 14)
 
     static func compactHeight(for size: NotchSize) -> CGFloat {
         NotchLayoutMetrics.bodySize(for: size).height
     }
 
-    static func surfaceHeight(for size: NotchSize) -> CGFloat {
-        compactHeight(for: size) - 6
-    }
-
-    static func sourceSize(for size: NotchSize) -> CGFloat {
-        switch size {
-        case .small: 22
-        case .medium: 32
-        case .large: 38
-        }
-    }
-
-    static func titleSize(for size: NotchSize) -> CGFloat {
-        15 * size.densityMetrics.typographyScale
-    }
-
-    static func subtitleSize(for size: NotchSize) -> CGFloat {
-        size == .small ? 10 : 12
-    }
-
     static func compactBodyWidth(for size: NotchSize) -> CGFloat {
         NotchLayoutMetrics.bodySize(for: size).width
+    }
+}
+
+/// A density-specific contract for the compact player. Keeping this separate
+/// from the SwiftUI hierarchy prevents Small from becoming a scaled-down Large
+/// layout and gives every density a deliberate information hierarchy.
+nonisolated struct CompactMediaLayoutProfile: Equatable, Sendable {
+    let sourceSize: CGFloat
+    let titleSize: CGFloat
+    let subtitleSize: CGFloat
+    let horizontalPadding: CGFloat
+    let identitySpacing: CGFloat
+    let controlSpacing: CGFloat
+    let controlDiameter: CGFloat
+    let waveformWidth: CGFloat
+    let showsPrevious: Bool
+    let showsNext: Bool
+
+    static func resolve(for size: NotchSize) -> Self {
+        switch size {
+        case .small:
+            Self(
+                sourceSize: 28,
+                titleSize: 13,
+                subtitleSize: 9.5,
+                horizontalPadding: 12,
+                identitySpacing: 8,
+                controlSpacing: 7,
+                controlDiameter: 28,
+                waveformWidth: 30,
+                showsPrevious: false,
+                showsNext: false
+            )
+        case .medium:
+            Self(
+                sourceSize: 34,
+                titleSize: 15,
+                subtitleSize: 11,
+                horizontalPadding: 15,
+                identitySpacing: 10,
+                controlSpacing: 7,
+                controlDiameter: 30,
+                waveformWidth: 38,
+                showsPrevious: false,
+                showsNext: true
+            )
+        case .large:
+            Self(
+                sourceSize: 40,
+                titleSize: 16,
+                subtitleSize: 12,
+                horizontalPadding: 18,
+                identitySpacing: 11,
+                controlSpacing: 8,
+                controlDiameter: 32,
+                waveformWidth: 44,
+                showsPrevious: true,
+                showsNext: true
+            )
+        }
     }
 }
 
@@ -288,7 +320,10 @@ struct NowPlayingCollapsedView: View {
             accessibilityContrast: accessibilityContrast,
             reduceMotion: reduceMotion,
             morphNamespace: morphNamespace,
-            onPlayPause: togglePlayback
+            onPrevious: previousTrack,
+            onPlayPause: togglePlayback,
+            onNext: nextTrack,
+            onSeek: seek
         )
         .task(id: presentation.artworkIdentifier) {
             await backgroundModel.update(
@@ -322,6 +357,22 @@ struct NowPlayingCollapsedView: View {
         nowPlaying.togglePlayPause()
     }
 
+    private func previousTrack() {
+        NotchHaptics.perform(.navigation)
+        nowPlaying.previousTrack()
+    }
+
+    private func nextTrack() {
+        NotchHaptics.perform(.navigation)
+        nowPlaying.nextTrack()
+    }
+
+    private func seek(to elapsed: TimeInterval) {
+        guard presentation.isSeekable else { return }
+        NotchHaptics.perform(.navigation)
+        nowPlaying.seek(to: elapsed)
+    }
+
     private func announcePlaybackState(isPlaying: Bool) {
         NSAccessibility.post(
             element: NSApp as Any,
@@ -345,7 +396,14 @@ struct CompactMediaContent: View {
     let accessibilityContrast: ColorSchemeContrast
     let reduceMotion: Bool
     var morphNamespace: Namespace.ID? = nil
+    var onPrevious: () -> Void = {}
     let onPlayPause: () -> Void
+    var onNext: () -> Void = {}
+    var onSeek: (TimeInterval) -> Void = { _ in }
+
+    private var profile: CompactMediaLayoutProfile {
+        .resolve(for: notchSize)
+    }
 
     private var accent: Color {
         Color(presentation.accentColor)
@@ -378,87 +436,123 @@ struct CompactMediaContent: View {
             .accessibilityHidden(true)
 
             HStack(spacing: 0) {
-                HStack(spacing: notchSize == .small ? 8 : 10) {
-                    CompactSourceIdentityView(
-                        style: presentation.source,
-                        size: NowPlayingMetrics.sourceSize(for: notchSize)
-                    )
-                        .scaleEffect(revealsContent && !reduceMotion ? 1 : 0.88)
-                        .opacity(revealsContent ? 1 : 0)
-                        .animation(entranceAnimation(delay: 0), value: revealsContent)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(presentation.primaryTitle)
-                            .font(.system(size: NowPlayingMetrics.titleSize(for: notchSize), weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                            .minimumScaleFactor(notchSize == .small ? 0.78 : 0.9)
-                            .allowsTightening(true)
-                            .truncationMode(.tail)
-                            .contentTransition(.interpolate)
-                        Text(presentation.secondaryTitle)
-                            .font(.system(size: NowPlayingMetrics.subtitleSize(for: notchSize), weight: .regular))
-                            .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.84 : 0.64))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .contentTransition(.interpolate)
-                    }
+                identityWing
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .offset(x: revealsContent || reduceMotion ? 0 : -4)
-                    .opacity(revealsContent ? 1 : 0)
-                    .animation(entranceAnimation(delay: 0.035), value: revealsContent)
-                    .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: presentation.primaryTitle)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(presentation.source.displayName), \(presentation.primaryTitle)")
-                    .accessibilityValue(presentation.secondaryTitle)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Color.clear
                     .frame(width: hardwareNotchWidth)
+                    .allowsHitTesting(false)
                     .accessibilityHidden(true)
 
-                HStack(spacing: 11) {
-                    CompactMediaWaveform(
-                        isPlaying: presentation.isPlaying,
-                        color: accent,
-                        isEmphasized: isHovering
-                    )
-                    .frame(width: notchSize == .small ? 28 : (notchSize == .medium ? 36 : 42), height: 17)
-                    .matchedGeometry(id: "music-eq", in: morphNamespace)
-                    .opacity(revealsContent ? (isHovering ? 1 : 0.88) : 0)
-                    .animation(entranceAnimation(delay: 0.07), value: revealsContent)
-                    .accessibilityHidden(true)
-
-                    Button(action: onPlayPause) {
-                        Image(systemName: presentation.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white.opacity(presentation.canPlayPause ? 0.96 : 0.4))
-                            .contentTransition(.symbolEffect(.replace))
-                            .frame(width: 28, height: 28)
-                            .background(.white.opacity(isHovering ? 0.11 : 0), in: Circle())
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!presentation.canPlayPause)
-                    .opacity(revealsContent ? 1 : 0)
-                    .scaleEffect(isHovering ? 1.035 : 1)
-                    .animation(entranceAnimation(delay: 0.10), value: revealsContent)
-                    .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: presentation.isPlaying)
-                    .accessibilityLabel(presentation.isPlaying ? "Pause" : "Play")
-                    .accessibilityValue(presentation.isPlaying ? "Playing" : "Paused")
-                    .accessibilityHint("Controls \(presentation.primaryTitle)")
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                transportWing
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            .padding(.horizontal, NowPlayingMetrics.compactHorizontalPadding)
-            .frame(height: NowPlayingMetrics.compactContentHeight + (notchSize == .small ? 0 : 6))
+            .padding(.horizontal, profile.horizontalPadding)
+            .frame(height: max(profile.sourceSize, notchSize == .small ? 33 : 38))
             .frame(maxHeight: .infinity, alignment: .center)
             .scaleEffect(isHovering ? 1.006 : 1, anchor: .center)
             .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+    }
+
+    private var identityWing: some View {
+        HStack(spacing: profile.identitySpacing) {
+            CompactSourceIdentityView(
+                style: presentation.source,
+                size: profile.sourceSize
+            )
+            .scaleEffect(revealsContent && !reduceMotion ? 1 : 0.88)
+            .opacity(revealsContent ? 1 : 0)
+            .animation(entranceAnimation(delay: 0), value: revealsContent)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(presentation.primaryTitle)
+                    .font(.system(size: profile.titleSize, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(notchSize == .small ? 0.76 : 0.86)
+                    .allowsTightening(true)
+                    .truncationMode(.tail)
+                    .contentTransition(.interpolate)
+
+                Text(presentation.secondaryTitle)
+                    .font(.system(size: profile.subtitleSize, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(accessibilityContrast == .increased ? 0.86 : 0.66))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.84)
+                    .truncationMode(.tail)
+                    .contentTransition(.interpolate)
+
+                CompactMediaTimeline(
+                    presentation: presentation,
+                    accent: accent,
+                    onSeek: onSeek
+                )
+                .frame(height: 5)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .offset(x: revealsContent || reduceMotion ? 0 : -4)
+            .opacity(revealsContent ? 1 : 0)
+            .animation(entranceAnimation(delay: 0.035), value: revealsContent)
+            .animation(
+                NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion),
+                value: presentation.primaryTitle
+            )
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(presentation.source.displayName), \(presentation.primaryTitle)")
+        .accessibilityValue(presentation.secondaryTitle)
+    }
+
+    private var transportWing: some View {
+        HStack(spacing: profile.controlSpacing) {
+            if profile.showsPrevious {
+                CompactTransportButton(
+                    symbol: "backward.fill",
+                    label: "Previous",
+                    diameter: profile.controlDiameter - 4,
+                    isHoveringNotch: isHovering,
+                    action: onPrevious
+                )
+            }
+
+            CompactMediaWaveform(
+                isPlaying: presentation.isPlaying,
+                color: accent,
+                isEmphasized: isHovering
+            )
+            .frame(width: profile.waveformWidth, height: notchSize == .large ? 19 : 17)
+            .matchedGeometry(id: "music-eq", in: morphNamespace)
+            .accessibilityHidden(true)
+
+            CompactTransportButton(
+                symbol: presentation.isPlaying ? "pause.fill" : "play.fill",
+                label: presentation.isPlaying ? "Pause" : "Play",
+                diameter: profile.controlDiameter,
+                isProminent: true,
+                isEnabled: presentation.canPlayPause,
+                isHoveringNotch: isHovering,
+                action: onPlayPause
+            )
+
+            if profile.showsNext {
+                CompactTransportButton(
+                    symbol: "forward.fill",
+                    label: "Next",
+                    diameter: profile.controlDiameter - 4,
+                    isHoveringNotch: isHovering,
+                    action: onNext
+                )
+            }
+        }
+        .opacity(revealsContent ? (isHovering ? 1 : 0.9) : 0)
+        .animation(entranceAnimation(delay: 0.07), value: revealsContent)
+        .animation(
+            NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion),
+            value: presentation.isPlaying
+        )
     }
 
     private func entranceAnimation(delay: TimeInterval) -> Animation {
@@ -645,6 +739,124 @@ private enum CompactApplicationIconCache {
         let icon = NSWorkspace.shared.icon(forFile: applicationURL.path)
         cache.setObject(icon, forKey: key)
         return icon
+    }
+}
+
+private struct CompactMediaTimeline: View {
+    let presentation: NowPlayingService.CompactMediaPresentation
+    let accent: Color
+    let onSeek: (TimeInterval) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var draggedProgress: Double?
+    @State private var isHovering = false
+
+    var body: some View {
+        TimelineView(
+            .animation(
+                minimumInterval: AppMotion.FrameInterval.lowFrequency,
+                paused: !presentation.isPlaying || !presentation.isSeekable
+            )
+        ) { context in
+            GeometryReader { proxy in
+                let progress = draggedProgress ?? presentation.progress(at: context.date)
+                let clampedProgress = CGFloat(min(1, max(0, progress)))
+                let fillWidth = proxy.size.width * clampedProgress
+
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(.white.opacity(presentation.isSeekable ? 0.16 : 0.07))
+
+                    Capsule(style: .continuous)
+                        .fill(accent.opacity(presentation.isPlaying ? 0.95 : 0.62))
+                        .frame(width: fillWidth)
+
+                    if isHovering, presentation.isSeekable {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 5, height: 5)
+                            .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                            .offset(x: min(max(0, fillWidth - 2.5), max(0, proxy.size.width - 5)))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .frame(height: isHovering ? 2.5 : 2)
+                .frame(maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
+                .gesture(seekGesture(width: proxy.size.width))
+            }
+        }
+        .onHover { isHovering = $0 }
+        .animation(
+            NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion),
+            value: isHovering
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playback position")
+        .accessibilityValue(accessibilityProgress)
+    }
+
+    private func seekGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard presentation.isSeekable, width > 0 else { return }
+                draggedProgress = min(1, max(0, Double(value.location.x / width)))
+            }
+            .onEnded { value in
+                guard presentation.isSeekable, width > 0 else {
+                    draggedProgress = nil
+                    return
+                }
+                let progress = min(1, max(0, Double(value.location.x / width)))
+                onSeek(progress * presentation.duration)
+                draggedProgress = nil
+            }
+    }
+
+    private var accessibilityProgress: String {
+        guard presentation.isSeekable else { return "Unavailable" }
+        return "\(Int((presentation.progress() * 100).rounded())) percent"
+    }
+}
+
+private struct CompactTransportButton: View {
+    let symbol: String
+    let label: String
+    let diameter: CGFloat
+    var isProminent = false
+    var isEnabled = true
+    let isHoveringNotch: Bool
+    let action: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: isProminent ? 15.5 : 11.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.38))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: diameter, height: diameter)
+                .background(background, in: Circle())
+                .contentShape(Circle())
+                .scaleEffect(isHovering ? 1.07 : (isHoveringNotch && isProminent ? 1.025 : 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .onHover { isHovering = $0 }
+        .animation(
+            NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion),
+            value: isHovering
+        )
+        .accessibilityLabel(label)
+        .help(label)
+    }
+
+    private var background: Color {
+        guard isProminent || isHovering else { return .clear }
+        if isHovering { return .white.opacity(0.17) }
+        return .white.opacity(isHoveringNotch ? 0.11 : 0.075)
     }
 }
 
@@ -840,7 +1052,6 @@ struct NowPlayingExpandedView: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .drawingGroup(opaque: false)
         .allowsHitTesting(false)
     }
 
@@ -1088,7 +1299,7 @@ struct NowPlayingExpandedView: View {
     }
 
     private func scrubber(theme: MediaSourceTheme) -> some View {
-        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.standard, paused: !track.isPlaying)) { ctx in
+        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.lowFrequency, paused: !track.isPlaying)) { ctx in
             let elapsed = track.elapsed(at: ctx.date)
             let progress = track.progress(at: ctx.date)
             let displayedProgress = scrubbedProgress ?? progress
@@ -1113,6 +1324,7 @@ struct NowPlayingExpandedView: View {
                     onScrubEnded: { progress in
                         scrubClearTask?.cancel()
                         scrubbedProgress = progress
+                        NotchHaptics.perform(.navigation)
                         nowPlaying.seek(to: progress * track.duration)
                         scrubClearTask = Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 450_000_000)
@@ -1138,32 +1350,38 @@ struct NowPlayingExpandedView: View {
         HStack(spacing: cinematic ? 13 : 8) {
             ControlButton(
                 symbol: "backward.fill",
+                label: "Previous",
                 size: cinematic ? 15 : 13,
                 prominent: false,
                 accent: theme.accent,
                 foreground: .white,
                 diameter: cinematic ? 39 : nil
             ) {
+                NotchHaptics.perform(.navigation)
                 nowPlaying.previousTrack()
             }
             ControlButton(
                 symbol: track.isPlaying ? "pause.fill" : "play.fill",
+                label: track.isPlaying ? "Pause" : "Play",
                 size: cinematic ? 19 : 18,
                 prominent: true,
                 accent: theme.accent,
                 foreground: theme.controlForeground,
                 diameter: cinematic ? 48 : nil
             ) {
+                NotchHaptics.perform(.navigation)
                 nowPlaying.togglePlayPause()
             }
             ControlButton(
                 symbol: "forward.fill",
+                label: "Next",
                 size: cinematic ? 15 : 13,
                 prominent: false,
                 accent: theme.accent,
                 foreground: .white,
                 diameter: cinematic ? 39 : nil
             ) {
+                NotchHaptics.perform(.navigation)
                 nowPlaying.nextTrack()
             }
         }
@@ -1266,6 +1484,7 @@ private struct ProgressBar: View {
 
 private struct ControlButton: View {
     let symbol: String
+    let label: String
     let size: CGFloat
     let prominent: Bool
     let accent: Color
@@ -1299,6 +1518,8 @@ private struct ControlButton: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .animation(NotchMotionGraph.animation(for: .hover), value: isHovering)
+        .accessibilityLabel(label)
+        .help(label)
     }
 
     private var background: Color {

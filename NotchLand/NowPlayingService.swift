@@ -81,6 +81,28 @@ final class NowPlayingService: ObservableObject {
         var mediaKind: CompactMediaKind
         var canPlayPause: Bool
         var preferredWidth: CGFloat
+        var duration: TimeInterval
+        var elapsedAtTimestamp: TimeInterval
+        var timestamp: Date
+        var playbackRate: Double
+
+        var isSeekable: Bool {
+            duration.isFinite && duration > 0
+        }
+
+        func elapsed(at instant: Date = Date()) -> TimeInterval {
+            let drift = isPlaying
+                ? max(0, instant.timeIntervalSince(timestamp)) * playbackRate
+                : 0
+            let rawElapsed = elapsedAtTimestamp + drift
+            guard isSeekable else { return max(0, rawElapsed) }
+            return min(max(0, rawElapsed), duration)
+        }
+
+        func progress(at instant: Date = Date()) -> Double {
+            guard isSeekable else { return 0 }
+            return min(1, max(0, elapsed(at: instant) / duration))
+        }
     }
 
     struct Track: Equatable {
@@ -469,7 +491,11 @@ final class NowPlayingService: ObservableObject {
             accentColor: source.accent,
             mediaKind: source.mediaKind,
             canPlayPause: source.canPlayPause,
-            preferredWidth: preferredWidth
+            preferredWidth: preferredWidth,
+            duration: track.duration,
+            elapsedAtTimestamp: track.elapsedAtTimestamp,
+            timestamp: track.timestamp,
+            playbackRate: track.playbackRate
         )
     }
 

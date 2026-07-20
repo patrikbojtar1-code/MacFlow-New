@@ -133,6 +133,68 @@ nonisolated struct WallpaperSceneRenderingConfiguration: Codable, Hashable, Send
     }
 
     struct ComposerLayer: Codable, Hashable, Identifiable, Sendable {
+        static let opacityRange: ClosedRange<Double> = 0...1
+        static let scaleRange: ClosedRange<Double> = 0.75...1.3
+        static let offsetRange: ClosedRange<Double> = -0.25...0.25
+        static let blurRange: ClosedRange<Double> = 0...18
+        static let maskFeatherRange: ClosedRange<Double> = 0.1...0.9
+        static let animationAmountRange: ClosedRange<Double> = 0.1...1
+        static let animationDurationRange: ClosedRange<Double> = 2...20
+
+        enum AnimationPreset: String, Codable, CaseIterable, Identifiable, Sendable {
+            case none
+            case breathe
+            case float
+            case pulse
+
+            var id: String { rawValue }
+
+            var title: String {
+                switch self {
+                case .none: "None"
+                case .breathe: "Breathe"
+                case .float: "Float"
+                case .pulse: "Pulse"
+                }
+            }
+
+            var systemImage: String {
+                switch self {
+                case .none: "pause.fill"
+                case .breathe: "arrow.up.left.and.arrow.down.right"
+                case .float: "wind"
+                case .pulse: "waveform.path.ecg"
+                }
+            }
+        }
+
+        enum MaskStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+            case none
+            case fadeTop
+            case fadeBottom
+            case focusCenter
+
+            var id: String { rawValue }
+
+            var title: String {
+                switch self {
+                case .none: "None"
+                case .fadeTop: "Fade Top"
+                case .fadeBottom: "Fade Bottom"
+                case .focusCenter: "Focus Center"
+                }
+            }
+
+            var systemImage: String {
+                switch self {
+                case .none: "rectangle"
+                case .fadeTop: "rectangle.tophalf.inset.filled"
+                case .fadeBottom: "rectangle.bottomhalf.inset.filled"
+                case .focusCenter: "scope"
+                }
+            }
+        }
+
         enum Kind: String, Codable, CaseIterable, Identifiable, Sendable {
             case media
             case musicGlow
@@ -188,23 +250,142 @@ nonisolated struct WallpaperSceneRenderingConfiguration: Codable, Hashable, Send
         var isVisible: Bool
         var opacity: Double
         var blendMode: BlendMode
+        var scale: Double
+        var offsetX: Double
+        var offsetY: Double
+        var blurRadius: Double
+        var maskStyle: MaskStyle
+        var maskFeather: Double
+        var isMaskInverted: Bool
+        var animationPreset: AnimationPreset
+        var animationAmount: Double
+        var animationDuration: Double
 
         init(
             kind: Kind,
             isVisible: Bool = true,
             opacity: Double = 1,
-            blendMode: BlendMode = .normal
+            blendMode: BlendMode = .normal,
+            scale: Double = 1,
+            offsetX: Double = 0,
+            offsetY: Double = 0,
+            blurRadius: Double = 0,
+            maskStyle: MaskStyle = .none,
+            maskFeather: Double = 0.45,
+            isMaskInverted: Bool = false,
+            animationPreset: AnimationPreset = .none,
+            animationAmount: Double = 0.35,
+            animationDuration: Double = 8
         ) {
             self.kind = kind
             self.isVisible = isVisible
             self.opacity = opacity
             self.blendMode = blendMode
+            self.scale = scale
+            self.offsetX = offsetX
+            self.offsetY = offsetY
+            self.blurRadius = blurRadius
+            self.maskStyle = maskStyle
+            self.maskFeather = maskFeather
+            self.isMaskInverted = isMaskInverted
+            self.animationPreset = animationPreset
+            self.animationAmount = animationAmount
+            self.animationDuration = animationDuration
         }
 
         var normalized: ComposerLayer {
             var layer = self
-            layer.opacity = min(max(opacity, 0), 1)
+            layer.opacity = Self.clamp(opacity, to: Self.opacityRange)
+            layer.scale = Self.clamp(scale, to: Self.scaleRange)
+            layer.offsetX = Self.clamp(offsetX, to: Self.offsetRange)
+            layer.offsetY = Self.clamp(offsetY, to: Self.offsetRange)
+            layer.blurRadius = Self.clamp(blurRadius, to: Self.blurRange)
+            layer.maskFeather = Self.clamp(maskFeather, to: Self.maskFeatherRange)
+            layer.animationAmount = Self.clamp(
+                animationAmount,
+                to: Self.animationAmountRange
+            )
+            layer.animationDuration = Self.clamp(
+                animationDuration,
+                to: Self.animationDurationRange
+            )
             return layer
+        }
+
+        var hasDefaultTransform: Bool {
+            abs(scale - 1) < 0.001
+                && abs(offsetX) < 0.001
+                && abs(offsetY) < 0.001
+                && blurRadius < 0.001
+        }
+
+        var hasDefaultMask: Bool {
+            maskStyle == .none
+                && abs(maskFeather - 0.45) < 0.001
+                && !isMaskInverted
+        }
+
+        var hasDefaultAnimation: Bool {
+            animationPreset == .none
+                && abs(animationAmount - 0.35) < 0.001
+                && abs(animationDuration - 8) < 0.001
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case kind
+            case isVisible
+            case opacity
+            case blendMode
+            case scale
+            case offsetX
+            case offsetY
+            case blurRadius
+            case maskStyle
+            case maskFeather
+            case isMaskInverted
+            case animationPreset
+            case animationAmount
+            case animationDuration
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                kind: try container.decode(Kind.self, forKey: .kind),
+                isVisible: try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true,
+                opacity: try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 1,
+                blendMode: try container.decodeIfPresent(BlendMode.self, forKey: .blendMode) ?? .normal,
+                scale: try container.decodeIfPresent(Double.self, forKey: .scale) ?? 1,
+                offsetX: try container.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0,
+                offsetY: try container.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0,
+                blurRadius: try container.decodeIfPresent(Double.self, forKey: .blurRadius) ?? 0,
+                maskStyle: try container.decodeIfPresent(MaskStyle.self, forKey: .maskStyle) ?? .none,
+                maskFeather: try container.decodeIfPresent(Double.self, forKey: .maskFeather) ?? 0.45,
+                isMaskInverted: try container.decodeIfPresent(
+                    Bool.self,
+                    forKey: .isMaskInverted
+                ) ?? false,
+                animationPreset: try container.decodeIfPresent(
+                    AnimationPreset.self,
+                    forKey: .animationPreset
+                ) ?? .none,
+                animationAmount: try container.decodeIfPresent(
+                    Double.self,
+                    forKey: .animationAmount
+                ) ?? 0.35,
+                animationDuration: try container.decodeIfPresent(
+                    Double.self,
+                    forKey: .animationDuration
+                ) ?? 8
+            )
+            self = normalized
+        }
+
+        private static func clamp(
+            _ value: Double,
+            to range: ClosedRange<Double>
+        ) -> Double {
+            min(max(value, range.lowerBound), range.upperBound)
         }
     }
 
@@ -523,7 +704,7 @@ nonisolated struct WallpaperScene: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    static let manifestVersion = 5
+    static let manifestVersion = 8
 
     let id: UUID
     var title: String

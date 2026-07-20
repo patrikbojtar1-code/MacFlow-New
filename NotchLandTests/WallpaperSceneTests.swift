@@ -377,7 +377,21 @@ struct WallpaperSceneTests {
             musicReaction: .playbackPulse,
             musicReactionIntensity: 2,
             composerLayers: [
-                .init(kind: .atmosphere, opacity: 4, blendMode: .add),
+                .init(
+                    kind: .atmosphere,
+                    opacity: 4,
+                    blendMode: .add,
+                    scale: 4,
+                    offsetX: -2,
+                    offsetY: 3,
+                    blurRadius: 100,
+                    maskStyle: .focusCenter,
+                    maskFeather: 4,
+                    isMaskInverted: true,
+                    animationPreset: .float,
+                    animationAmount: 4,
+                    animationDuration: 90
+                ),
                 .init(kind: .atmosphere, isVisible: false),
                 .init(kind: .media, opacity: -2),
             ]
@@ -399,6 +413,16 @@ struct WallpaperSceneTests {
             .atmosphere, .media, .musicGlow, .vignette, .dimming,
         ])
         #expect(configuration.composerLayers[0].opacity == 1)
+        #expect(configuration.composerLayers[0].scale == 1.3)
+        #expect(configuration.composerLayers[0].offsetX == -0.25)
+        #expect(configuration.composerLayers[0].offsetY == 0.25)
+        #expect(configuration.composerLayers[0].blurRadius == 18)
+        #expect(configuration.composerLayers[0].maskStyle == .focusCenter)
+        #expect(configuration.composerLayers[0].maskFeather == 0.9)
+        #expect(configuration.composerLayers[0].isMaskInverted)
+        #expect(configuration.composerLayers[0].animationPreset == .float)
+        #expect(configuration.composerLayers[0].animationAmount == 1)
+        #expect(configuration.composerLayers[0].animationDuration == 20)
         #expect(configuration.composerLayers[1].opacity == 0)
     }
 
@@ -459,6 +483,33 @@ struct WallpaperSceneTests {
         #expect(rendering.musicReaction == .none)
         #expect(rendering.musicReactionIntensity == 0.45)
         #expect(rendering.composerLayers == WallpaperSceneRenderingConfiguration.defaultComposerLayers)
+    }
+
+    @Test func legacyComposerLayersMigrateToNeutralTransforms() throws {
+        let json = """
+        {
+          "composerLayers": [
+            {
+              "kind": "media",
+              "isVisible": true,
+              "opacity": 0.8,
+              "blendMode": "normal"
+            }
+          ]
+        }
+        """
+        let rendering = try JSONDecoder().decode(
+            WallpaperSceneRenderingConfiguration.self,
+            from: Data(json.utf8)
+        )
+        let media = try #require(rendering.composerLayers.first)
+
+        #expect(media.kind == .media)
+        #expect(media.opacity == 0.8)
+        #expect(media.hasDefaultTransform)
+        #expect(media.hasDefaultMask)
+        #expect(media.hasDefaultAnimation)
+        #expect(rendering.composerLayers.count == 5)
     }
 
     @Test func sceneMotionPolicyProtectsEnergyAndAccessibilityBudgets() {
@@ -527,6 +578,14 @@ struct WallpaperSceneTests {
         #expect(
             WallpaperSceneEffectsPolicy.densityMultiplier(for: .eco)
                 < WallpaperSceneEffectsPolicy.densityMultiplier(for: .balanced)
+        )
+        #expect(
+            WallpaperSceneEffectsPolicy.maximumAnimatedLayers(for: .eco)
+                < WallpaperSceneEffectsPolicy.maximumAnimatedLayers(for: .cinematic)
+        )
+        #expect(
+            WallpaperSceneEffectsPolicy.animationAmountMultiplier(for: .eco)
+                < WallpaperSceneEffectsPolicy.animationAmountMultiplier(for: .balanced)
         )
     }
 
@@ -617,16 +676,34 @@ struct WallpaperSceneTests {
         }) {
             customizedLayers.composerLayers[atmosphereIndex].isVisible = false
         }
+        if let mediaIndex = customizedLayers.composerLayers.firstIndex(where: {
+            $0.kind == .media
+        }) {
+            customizedLayers.composerLayers[mediaIndex].scale = 1.12
+            customizedLayers.composerLayers[mediaIndex].offsetX = 0.08
+            customizedLayers.composerLayers[mediaIndex].blurRadius = 6
+            customizedLayers.composerLayers[mediaIndex].maskStyle = .focusCenter
+            customizedLayers.composerLayers[mediaIndex].maskFeather = 0.62
+            customizedLayers.composerLayers[mediaIndex].animationPreset = .breathe
+            customizedLayers.composerLayers[mediaIndex].animationAmount = 0.7
+            customizedLayers.composerLayers[mediaIndex].animationDuration = 4
+        }
         renderer.update(rendering: customizedLayers)
+        try await Task.sleep(for: .milliseconds(220))
         diagnostics = renderer.effectDiagnostics
         #expect(diagnostics.composerLayerOrder == customizedLayers.composerLayers.map(\.kind))
         #expect(diagnostics.hiddenComposerLayers.contains(.atmosphere))
+        #expect(diagnostics.transformedComposerLayers.contains(.media))
+        #expect(diagnostics.blurredComposerLayers.contains(.media))
+        #expect(diagnostics.maskedComposerLayers.contains(.media))
+        #expect(diagnostics.animatedComposerLayers.contains(.media))
         #expect(!diagnostics.ambientLayerAttached)
 
         renderer.setPaused(true)
         diagnostics = renderer.effectDiagnostics
         #expect(!diagnostics.ambientLayerAttached)
         #expect(!diagnostics.musicGlowAnimating)
+        #expect(diagnostics.animatedComposerLayers.isEmpty)
     }
 
     @Test func legacySceneManifestDefaultsToFillAtNormalSpeed() throws {
@@ -1128,8 +1205,23 @@ struct WallpaperSceneTests {
             musicReaction: .ambientGlow,
             musicReactionIntensity: 0.65,
             composerLayers: [
-                .init(kind: .media),
-                .init(kind: .atmosphere, opacity: 0.68, blendMode: .add),
+                .init(
+                    kind: .media,
+                    scale: 1.08,
+                    offsetX: 0.04,
+                    blurRadius: 2,
+                    maskStyle: .fadeTop,
+                    maskFeather: 0.58,
+                    animationPreset: .breathe,
+                    animationAmount: 0.48,
+                    animationDuration: 6
+                ),
+                .init(
+                    kind: .atmosphere,
+                    opacity: 0.68,
+                    blendMode: .add,
+                    offsetY: 0.07
+                ),
                 .init(kind: .musicGlow, blendMode: .screen),
                 .init(kind: .vignette, opacity: 0.75, blendMode: .multiply),
                 .init(kind: .dimming, blendMode: .multiply),
