@@ -8,6 +8,106 @@
 import Foundation
 
 nonisolated struct WallpaperSceneRenderingConfiguration: Codable, Hashable, Sendable {
+    enum MotionPreset: String, Codable, CaseIterable, Identifiable, Sendable {
+        case none
+        case cinematicZoom
+        case slowDrift
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .none: "Still"
+            case .cinematicZoom: "Cinematic Zoom"
+            case .slowDrift: "Slow Drift"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .none: "No camera movement"
+            case .cinematicZoom: "A subtle, focus-friendly push in"
+            case .slowDrift: "A gentle pan with a shallow zoom"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .none: "pause.rectangle"
+            case .cinematicZoom: "viewfinder"
+            case .slowDrift: "move.3d"
+            }
+        }
+    }
+
+    enum AmbientEffect: String, Codable, CaseIterable, Identifiable, Sendable {
+        case none
+        case dust
+        case snow
+        case embers
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .none: "None"
+            case .dust: "Ambient Dust"
+            case .snow: "Snowfall"
+            case .embers: "Embers"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .none: "No atmospheric overlay"
+            case .dust: "Slow, soft particles with minimal visual noise"
+            case .snow: "A calm foreground snowfall layer"
+            case .embers: "Warm particles rising from the lower edge"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .none: "circle.slash"
+            case .dust: "sparkles"
+            case .snow: "snowflake"
+            case .embers: "flame.fill"
+            }
+        }
+    }
+
+    enum MusicReaction: String, Codable, CaseIterable, Identifiable, Sendable {
+        case none
+        case ambientGlow
+        case playbackPulse
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .none: "Off"
+            case .ambientGlow: "Ambient Glow"
+            case .playbackPulse: "Playback Pulse"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .none: "The scene stays independent of media playback"
+            case .ambientGlow: "A slow artwork-colored glow while media is playing"
+            case .playbackPulse: "A more expressive compositor pulse for music sessions"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .none: "waveform.slash"
+            case .ambientGlow: "waveform.path.ecg"
+            case .playbackPulse: "waveform.badge.plus"
+            }
+        }
+    }
+
     enum ScalingMode: String, Codable, CaseIterable, Identifiable, Sendable {
         case fill
         case fit
@@ -34,20 +134,53 @@ nonisolated struct WallpaperSceneRenderingConfiguration: Codable, Hashable, Send
 
     static let playbackRateOptions: [Double] = [0.5, 0.75, 1, 1.25, 1.5]
     static let dimmingRange: ClosedRange<Double> = 0...0.7
+    static let saturationRange: ClosedRange<Double> = 0...1.4
+    static let contrastRange: ClosedRange<Double> = 0.8...1.25
+    static let vignetteRange: ClosedRange<Double> = 0...0.65
+    static let effectIntensityRange: ClosedRange<Double> = 0.1...1
+    static let parallaxStrengthRange: ClosedRange<Double> = 0...1
+    static let musicReactionIntensityRange: ClosedRange<Double> = 0.1...1
     static let `default` = WallpaperSceneRenderingConfiguration()
 
     var scalingMode: ScalingMode
     var playbackRate: Double
     var dimming: Double
+    var motionPreset: MotionPreset
+    var saturation: Double
+    var contrast: Double
+    var vignette: Double
+    var ambientEffect: AmbientEffect
+    var effectIntensity: Double
+    var parallaxStrength: Double
+    var musicReaction: MusicReaction
+    var musicReactionIntensity: Double
 
     init(
         scalingMode: ScalingMode = .fill,
         playbackRate: Double = 1,
-        dimming: Double = 0
+        dimming: Double = 0,
+        motionPreset: MotionPreset = .none,
+        saturation: Double = 1,
+        contrast: Double = 1,
+        vignette: Double = 0,
+        ambientEffect: AmbientEffect = .none,
+        effectIntensity: Double = 0.45,
+        parallaxStrength: Double = 0,
+        musicReaction: MusicReaction = .none,
+        musicReactionIntensity: Double = 0.45
     ) {
         self.scalingMode = scalingMode
         self.playbackRate = playbackRate
         self.dimming = dimming
+        self.motionPreset = motionPreset
+        self.saturation = saturation
+        self.contrast = contrast
+        self.vignette = vignette
+        self.ambientEffect = ambientEffect
+        self.effectIntensity = effectIntensity
+        self.parallaxStrength = parallaxStrength
+        self.musicReaction = musicReaction
+        self.musicReactionIntensity = musicReactionIntensity
     }
 
     var normalized: WallpaperSceneRenderingConfiguration {
@@ -57,8 +190,61 @@ nonisolated struct WallpaperSceneRenderingConfiguration: Codable, Hashable, Send
         return WallpaperSceneRenderingConfiguration(
             scalingMode: scalingMode,
             playbackRate: closestRate,
-            dimming: min(max(dimming, Self.dimmingRange.lowerBound), Self.dimmingRange.upperBound)
+            dimming: Self.clamp(dimming, to: Self.dimmingRange),
+            motionPreset: motionPreset,
+            saturation: Self.clamp(saturation, to: Self.saturationRange),
+            contrast: Self.clamp(contrast, to: Self.contrastRange),
+            vignette: Self.clamp(vignette, to: Self.vignetteRange),
+            ambientEffect: ambientEffect,
+            effectIntensity: Self.clamp(effectIntensity, to: Self.effectIntensityRange),
+            parallaxStrength: Self.clamp(parallaxStrength, to: Self.parallaxStrengthRange),
+            musicReaction: musicReaction,
+            musicReactionIntensity: Self.clamp(
+                musicReactionIntensity,
+                to: Self.musicReactionIntensityRange
+            )
         )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scalingMode
+        case playbackRate
+        case dimming
+        case motionPreset
+        case saturation
+        case contrast
+        case vignette
+        case ambientEffect
+        case effectIntensity
+        case parallaxStrength
+        case musicReaction
+        case musicReactionIntensity
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            scalingMode: try container.decodeIfPresent(ScalingMode.self, forKey: .scalingMode) ?? .fill,
+            playbackRate: try container.decodeIfPresent(Double.self, forKey: .playbackRate) ?? 1,
+            dimming: try container.decodeIfPresent(Double.self, forKey: .dimming) ?? 0,
+            motionPreset: try container.decodeIfPresent(MotionPreset.self, forKey: .motionPreset) ?? .none,
+            saturation: try container.decodeIfPresent(Double.self, forKey: .saturation) ?? 1,
+            contrast: try container.decodeIfPresent(Double.self, forKey: .contrast) ?? 1,
+            vignette: try container.decodeIfPresent(Double.self, forKey: .vignette) ?? 0,
+            ambientEffect: try container.decodeIfPresent(AmbientEffect.self, forKey: .ambientEffect) ?? .none,
+            effectIntensity: try container.decodeIfPresent(Double.self, forKey: .effectIntensity) ?? 0.45,
+            parallaxStrength: try container.decodeIfPresent(Double.self, forKey: .parallaxStrength) ?? 0,
+            musicReaction: try container.decodeIfPresent(MusicReaction.self, forKey: .musicReaction) ?? .none,
+            musicReactionIntensity: try container.decodeIfPresent(
+                Double.self,
+                forKey: .musicReactionIntensity
+            ) ?? 0.45
+        )
+        self = normalized
+    }
+
+    private static func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 }
 
@@ -82,7 +268,7 @@ nonisolated struct WallpaperScene: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    static let manifestVersion = 2
+    static let manifestVersion = 4
 
     let id: UUID
     var title: String

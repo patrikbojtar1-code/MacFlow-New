@@ -299,7 +299,8 @@ struct ScenesSettingsView: View {
             scene: scene,
             url: controller.library.previewURL(for: scene),
             scalingMode: scene.rendering.scalingMode,
-            dimming: scene.rendering.dimming
+            dimming: scene.rendering.dimming,
+            animatesMotion: true
         )
         .overlay {
             LinearGradient(
@@ -597,6 +598,131 @@ struct ScenesSettingsView: View {
 
     private func inspectorSettings(_ scene: WallpaperScene) -> some View {
         VStack(spacing: 0) {
+            MacFlowInspectorSection("Scene Studio") {
+                if scene.kind == .image {
+                    Picker(
+                        "Motion",
+                        selection: renderingBinding(for: scene, keyPath: \.motionPreset)
+                    ) {
+                        ForEach(WallpaperSceneRenderingConfiguration.MotionPreset.allCases) { preset in
+                            Label(preset.title, systemImage: preset.systemImage).tag(preset)
+                        }
+                    }
+
+                    Text(scene.rendering.motionPreset.detail)
+                        .font(.system(size: 10))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                } else {
+                    Label("Motion is provided by the source video", systemImage: "film")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                }
+
+                gradingSlider(
+                    "Saturation",
+                    value: scene.rendering.saturation,
+                    range: WallpaperSceneRenderingConfiguration.saturationRange,
+                    binding: renderingBinding(for: scene, keyPath: \.saturation)
+                )
+                gradingSlider(
+                    "Contrast",
+                    value: scene.rendering.contrast,
+                    range: WallpaperSceneRenderingConfiguration.contrastRange,
+                    binding: renderingBinding(for: scene, keyPath: \.contrast)
+                )
+                gradingSlider(
+                    "Vignette",
+                    value: scene.rendering.vignette,
+                    range: WallpaperSceneRenderingConfiguration.vignetteRange,
+                    binding: renderingBinding(for: scene, keyPath: \.vignette),
+                    displaysAsPercent: true
+                )
+            }
+            Divider().overlay(MacFlowColor.borderSubtle)
+            MacFlowInspectorSection("Scene Composer") {
+                Picker(
+                    "Atmosphere",
+                    selection: renderingBinding(for: scene, keyPath: \.ambientEffect)
+                ) {
+                    ForEach(WallpaperSceneRenderingConfiguration.AmbientEffect.allCases) { effect in
+                        Label(effect.title, systemImage: effect.systemImage).tag(effect)
+                    }
+                }
+
+                Text(scene.rendering.ambientEffect.detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+
+                if scene.rendering.ambientEffect != .none {
+                    gradingSlider(
+                        "Effect intensity",
+                        value: scene.rendering.effectIntensity,
+                        range: WallpaperSceneRenderingConfiguration.effectIntensityRange,
+                        binding: renderingBinding(for: scene, keyPath: \.effectIntensity),
+                        displaysAsPercent: true
+                    )
+                }
+
+                gradingSlider(
+                    "Pointer parallax",
+                    value: scene.rendering.parallaxStrength,
+                    range: WallpaperSceneRenderingConfiguration.parallaxStrengthRange,
+                    binding: renderingBinding(for: scene, keyPath: \.parallaxStrength),
+                    displaysAsPercent: true
+                )
+
+                if controller.performance.effectiveProfile == .eco {
+                    Label("Composer effects pause automatically in Eco", systemImage: "leaf.fill")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.green)
+                }
+            }
+            Divider().overlay(MacFlowColor.borderSubtle)
+            MacFlowInspectorSection("Scene rendering") {
+                Picker("Scaling", selection: renderingBinding(for: scene, keyPath: \.scalingMode)) {
+                    ForEach(WallpaperSceneRenderingConfiguration.ScalingMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                if scene.kind == .video {
+                    HStack {
+                        Text("Playback")
+                            .font(.system(size: 11.5))
+                        Spacer()
+                        Picker("Playback", selection: renderingBinding(for: scene, keyPath: \.playbackRate)) {
+                            ForEach(WallpaperSceneRenderingConfiguration.playbackRateOptions, id: \.self) { rate in
+                                Text("\(rate.formatted(.number.precision(.fractionLength(0...2))))×").tag(rate)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 92)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: MacFlowSpacing.space8) {
+                    HStack {
+                        Text("Dimming").font(.system(size: 11.5))
+                        Spacer()
+                        Text(scene.rendering.dimming, format: .percent.precision(.fractionLength(0)))
+                            .font(.system(size: 10.5).monospacedDigit())
+                            .foregroundStyle(MacFlowColor.textSecondary)
+                    }
+                    Slider(
+                        value: renderingBinding(for: scene, keyPath: \.dimming),
+                        in: WallpaperSceneRenderingConfiguration.dimmingRange
+                    )
+                    .tint(MacFlowColor.wallpaper)
+                }
+
+                Button("Reset Scene Settings") {
+                    controller.updateRendering(for: scene.id, configuration: .default)
+                }
+                .buttonStyle(.bordered)
+                .disabled(scene.rendering == .default)
+            }
+            Divider().overlay(MacFlowColor.borderSubtle)
             MacFlowInspectorSection("Displays") {
                 Picker(
                     "Target",
@@ -663,51 +789,31 @@ struct ScenesSettingsView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(MacFlowColor.textSecondary)
             }
-            Divider().overlay(MacFlowColor.borderSubtle)
-            MacFlowInspectorSection("Scene rendering") {
-                Picker("Scaling", selection: renderingBinding(for: scene, keyPath: \.scalingMode)) {
-                    ForEach(WallpaperSceneRenderingConfiguration.ScalingMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
+        }
+    }
 
-                if scene.kind == .video {
-                    HStack {
-                        Text("Playback")
-                            .font(.system(size: 11.5))
-                        Spacer()
-                        Picker("Playback", selection: renderingBinding(for: scene, keyPath: \.playbackRate)) {
-                            ForEach(WallpaperSceneRenderingConfiguration.playbackRateOptions, id: \.self) { rate in
-                                Text("\(rate.formatted(.number.precision(.fractionLength(0...2))))×").tag(rate)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 92)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: MacFlowSpacing.space8) {
-                    HStack {
-                        Text("Dimming").font(.system(size: 11.5))
-                        Spacer()
-                        Text(scene.rendering.dimming, format: .percent.precision(.fractionLength(0)))
-                            .font(.system(size: 10.5).monospacedDigit())
-                            .foregroundStyle(MacFlowColor.textSecondary)
-                    }
-                    Slider(
-                        value: renderingBinding(for: scene, keyPath: \.dimming),
-                        in: WallpaperSceneRenderingConfiguration.dimmingRange
-                    )
-                    .tint(MacFlowColor.wallpaper)
-                }
-
-                Button("Reset Scene Settings") {
-                    controller.updateRendering(for: scene.id, configuration: .default)
-                }
-                .buttonStyle(.bordered)
-                .disabled(scene.rendering == .default)
+    private func gradingSlider(
+        _ title: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        binding: Binding<Double>,
+        displaysAsPercent: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 11.5))
+                Spacer()
+                Text(
+                    displaysAsPercent
+                        ? value.formatted(.percent.precision(.fractionLength(0)))
+                        : value.formatted(.number.precision(.fractionLength(2)))
+                )
+                .font(.system(size: 10.5).monospacedDigit())
+                .foregroundStyle(MacFlowColor.textSecondary)
             }
+            Slider(value: binding, in: range)
+                .tint(MacFlowColor.wallpaper)
         }
     }
 
@@ -987,13 +1093,22 @@ private struct WallpaperThumbnailView: View {
     let url: URL
     let scalingMode: WallpaperSceneRenderingConfiguration.ScalingMode
     let dimming: Double
+    var animatesMotion = false
 
     var body: some View {
         WallpaperPreviewImage(
             scene: scene,
             url: url,
             scalingMode: scalingMode,
-            dimming: dimming
+            dimming: dimming,
+            saturation: scene.rendering.saturation,
+            contrast: scene.rendering.contrast,
+            vignette: scene.rendering.vignette,
+            motionPreset: scene.rendering.motionPreset,
+            ambientEffect: scene.rendering.ambientEffect,
+            effectIntensity: scene.rendering.effectIntensity,
+            parallaxStrength: scene.rendering.parallaxStrength,
+            animatesMotion: animatesMotion
         )
     }
 }
@@ -1289,17 +1404,18 @@ private struct WallpaperPlaylistEditor: View {
     }
 }
 
-private struct WallpaperAutomationEditor: View {
+struct WallpaperAutomationEditor: View {
     @EnvironmentObject private var controller: WallpaperSceneController
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: MacFlowSpacing.space24) {
             HStack {
                 VStack(alignment: .leading, spacing: MacFlowSpacing.space4) {
-                    Text("Wallpaper Automation")
+                    Text("Smart Rotation")
                         .font(.title2.weight(.semibold))
-                    Text("Choose scenes for time of day, Focus, and favorite rotation.")
+                    Text("Build a context-aware wallpaper timeline from your playlists.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(MacFlowColor.textSecondary)
                 }
@@ -1321,15 +1437,53 @@ private struct WallpaperAutomationEditor: View {
                 }
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
-                    icon: "star.fill",
-                    tint: .yellow,
-                    title: "Rotate favorites",
-                    subtitle: "Cycle through favorite scenes when no specific rule applies."
+                    icon: "arrow.triangle.2.circlepath",
+                    tint: MacFlowColor.wallpaper,
+                    title: "Automatic rotation",
+                    subtitle: controller.rotationSourceDetail
                 ) {
-                    Toggle("Rotate favorites", isOn: automationBinding(\.rotatesFavorites))
+                    Toggle("Automatic rotation", isOn: automationBinding(\.rotatesFavorites))
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
+                MacFlowInsetDivider()
+                MacFlowSettingsRow(
+                    icon: controller.automationConfiguration.rotationSource.systemImage,
+                    tint: controller.automationConfiguration.rotationSource == .favorites ? .yellow : MacFlowColor.wallpaper,
+                    title: "Rotation source"
+                ) {
+                    Picker("Rotation source", selection: automationBinding(\.rotationSource)) {
+                        ForEach(WallpaperAutomationConfiguration.RotationSource.allCases) { source in
+                            Label(source.title, systemImage: source.systemImage).tag(source)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                }
+                .disabled(!controller.automationConfiguration.rotatesFavorites)
+
+                if controller.automationConfiguration.rotationSource == .playlist {
+                    MacFlowInsetDivider()
+                    MacFlowSettingsRow(
+                        icon: "music.note.list",
+                        tint: MacFlowColor.wallpaper,
+                        title: "Playlist",
+                        subtitle: controller.selectedRotationPlaylist == nil
+                            ? "Choose an ordered playlist"
+                            : "Scenes follow the order from Playlist Manager"
+                    ) {
+                        Picker("Playlist", selection: automationBinding(\.rotationPlaylistID)) {
+                            Text("Choose…").tag(UUID?.none)
+                            ForEach(playlists) { playlist in
+                                Text(playlist.title).tag(Optional(playlist.id))
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 180)
+                    }
+                    .disabled(!controller.automationConfiguration.rotatesFavorites)
+                }
+
                 MacFlowInsetDivider()
                 MacFlowSettingsRow(
                     icon: "timer",
@@ -1344,15 +1498,36 @@ private struct WallpaperAutomationEditor: View {
                     .labelsHidden()
                     .frame(width: 100)
                 }
+                .disabled(!controller.automationConfiguration.rotatesFavorites)
+
+                MacFlowInsetDivider()
+                MacFlowSettingsRow(
+                    icon: "battery.25percent",
+                    tint: .green,
+                    title: "Pause rotation on Low Power",
+                    subtitle: "Keeps the current scene and avoids unnecessary transitions."
+                ) {
+                    Toggle(
+                        "Pause rotation on Low Power",
+                        isOn: automationBinding(\.pausesRotationOnLowPower)
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
             }
 
             HStack(alignment: .top, spacing: MacFlowSpacing.space12) {
                 VStack(alignment: .leading, spacing: MacFlowSpacing.space12) {
-                    MacFlowSectionHeader("Focus")
+                    MacFlowSectionHeader("Context")
                     rulePicker(
                         title: "Focus scene",
                         icon: "moon.fill",
                         selection: automationBinding(\.focusSceneID)
+                    )
+                    rulePicker(
+                        title: "Low Power",
+                        icon: "battery.25percent",
+                        selection: automationBinding(\.lowPowerSceneID)
                     )
                 }
                 .frame(maxWidth: .infinity)
@@ -1370,20 +1545,26 @@ private struct WallpaperAutomationEditor: View {
                 .frame(maxWidth: .infinity)
             }
 
-            if controller.isManualOverrideActive {
-                HStack {
-                    Label(controller.automationStatusDetail, systemImage: "hand.raised.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(MacFlowColor.textSecondary)
-                    Spacer()
-                    Button("Resume Now") { controller.resumeAutomationNow() }
-                        .buttonStyle(.bordered)
+                if controller.isManualOverrideActive {
+                    HStack {
+                        Label(controller.automationStatusDetail, systemImage: "hand.raised.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MacFlowColor.textSecondary)
+                        Spacer()
+                        Button("Resume Now") { controller.resumeAutomationNow() }
+                            .buttonStyle(.bordered)
+                    }
                 }
             }
+            .padding(MacFlowSpacing.space24)
         }
-        .padding(MacFlowSpacing.space24)
-        .frame(width: 680)
+        .frame(width: 720)
+        .frame(maxHeight: 680)
         .background(MacFlowColor.canvas)
+    }
+
+    private var playlists: [WallpaperSceneCollection] {
+        controller.library.collections.filter { $0.kind == .custom }
     }
 
     private func rulePicker(title: String, icon: String, selection: Binding<UUID?>) -> some View {

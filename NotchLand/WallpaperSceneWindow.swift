@@ -7,8 +7,23 @@
 
 import AppKit
 import AVFoundation
+import CoreImage
 import ImageIO
 import QuartzCore
+
+nonisolated struct WallpaperMediaPlaybackSnapshot: Equatable, Sendable {
+    var isPlaying: Bool
+    var accentRed: Double
+    var accentGreen: Double
+    var accentBlue: Double
+
+    static let inactive = WallpaperMediaPlaybackSnapshot(
+        isPlaying: false,
+        accentRed: 0.28,
+        accentGreen: 0.52,
+        accentBlue: 1
+    )
+}
 
 @MainActor
 final class WallpaperSceneWindow: NSWindow {
@@ -88,6 +103,10 @@ final class WallpaperSceneWindow: NSWindow {
         rendererView.setPaused(paused)
     }
 
+    func update(mediaPlayback: WallpaperMediaPlaybackSnapshot) {
+        rendererView.update(mediaPlayback: mediaPlayback)
+    }
+
     func stopRendering() {
         notifyRendererStopped()
         rendererView.stop()
@@ -107,6 +126,11 @@ final class WallpaperSceneWindow: NSWindow {
 private final class WallpaperSceneRenderView: NSView {
     private enum Motion {
         static let treatmentDuration: CFTimeInterval = 0.18
+        static let animationKey = "macflow.scene.motion"
+        static let musicGlowAnimationKey = "macflow.scene.music.glow"
+        static let particlePulseAnimationKey = "macflow.scene.music.particles"
+        static let zoomDuration: CFTimeInterval = 24
+        static let driftDuration: CFTimeInterval = 32
     }
 
     private var player: AVQueuePlayer?
@@ -117,6 +141,14 @@ private final class WallpaperSceneRenderView: NSView {
     private var currentKind: WallpaperScene.Kind?
     private var imageLoadTask: Task<Void, Never>?
     private var currentRendering = WallpaperSceneRenderingConfiguration.default
+    private var currentProfile = WallpaperPerformanceProfile.automatic
+    private var currentMediaPlayback = WallpaperMediaPlaybackSnapshot.inactive
+    private var isPaused = false
+    private let mediaContainerLayer = CALayer()
+    private var emitterLayer: CAEmitterLayer?
+    private var pointerSubscriptionID: UUID?
+    private let musicGlowLayer = CAGradientLayer()
+    private let vignetteLayer = CAGradientLayer()
     private let dimmingLayer = CALayer()
     private var itemStatusObservation: NSKeyValueObservation?
     private var keepUpObservation: NSKeyValueObservation?
@@ -130,8 +162,27 @@ private final class WallpaperSceneRenderView: NSView {
         layer = CALayer()
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
+        mediaContainerLayer.masksToBounds = false
+        musicGlowLayer.type = .radial
+        musicGlowLayer.startPoint = CGPoint(x: 0.5, y: 0.18)
+        musicGlowLayer.endPoint = CGPoint(x: 0.5, y: 0.95)
+        musicGlowLayer.locations = [0, 0.52, 1]
+        musicGlowLayer.opacity = 0
+        vignetteLayer.type = .radial
+        vignetteLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
+        vignetteLayer.endPoint = CGPoint(x: 1, y: 1)
+        vignetteLayer.colors = [
+            NSColor.clear.cgColor,
+            NSColor.black.withAlphaComponent(0.22).cgColor,
+            NSColor.black.cgColor,
+        ]
+        vignetteLayer.locations = [0, 0.62, 1]
+        vignetteLayer.opacity = 0
         dimmingLayer.backgroundColor = NSColor.black.cgColor
         dimmingLayer.opacity = 0
+        layer?.addSublayer(mediaContainerLayer)
+        layer?.addSublayer(musicGlowLayer)
+        layer?.addSublayer(vignetteLayer)
         layer?.addSublayer(dimmingLayer)
     }
 
@@ -141,8 +192,12 @@ private final class WallpaperSceneRenderView: NSView {
 
     override func layout() {
         super.layout()
+        mediaContainerLayer.frame = bounds
         imageLayer?.frame = bounds
         videoLayer?.frame = bounds
+        layoutEmitterLayer()
+        musicGlowLayer.frame = bounds
+        vignetteLayer.frame = bounds
         dimmingLayer.frame = bounds
     }
 
@@ -166,6 +221,7 @@ private final class WallpaperSceneRenderView: NSView {
         currentAssetURL = assetURL
         currentKind = scene.kind
         currentRendering = scene.rendering.normalized
+        currentProfile = profile
 
         switch scene.kind {
         case .image:
@@ -180,6 +236,7 @@ private final class WallpaperSceneRenderView: NSView {
     }
 
     func update(profile: WallpaperPerformanceProfile) {
+        currentProfile = profile
         let maximumResolution: CGSize
         switch profile {
         case .eco:
@@ -190,6 +247,10 @@ private final class WallpaperSceneRenderView: NSView {
             maximumResolution = .zero
         }
         player?.items().forEach { $0.preferredMaximumResolution = maximumResolution }
+        updateImageMotion()
+        updateAmbientEffect()
+        updateMusicReaction()
+        updateParallaxSubscription()
     }
 
     func update(rendering: WallpaperSceneRenderingConfiguration) {
@@ -197,12 +258,24 @@ private final class WallpaperSceneRenderView: NSView {
     }
 
     func setPaused(_ paused: Bool) {
-        guard let player else { return }
-        if paused {
-            player.pause()
-        } else if player.timeControlStatus != .playing {
-            player.playImmediately(atRate: Float(currentRendering.playbackRate))
+        isPaused = paused
+        if let player {
+            if paused {
+                player.pause()
+            } else if player.timeControlStatus != .playing {
+                player.playImmediately(atRate: Float(currentRendering.playbackRate))
+            }
         }
+        updateImageMotion()
+        updateAmbientEffect()
+        updateMusicReaction()
+        updateParallaxSubscription()
+    }
+
+    func update(mediaPlayback: WallpaperMediaPlaybackSnapshot) {
+        guard currentMediaPlayback != mediaPlayback else { return }
+        currentMediaPlayback = mediaPlayback
+        updateMusicReaction()
     }
 
     func stop() {
@@ -223,6 +296,13 @@ private final class WallpaperSceneRenderView: NSView {
         videoLayer = nil
         imageLayer?.removeFromSuperlayer()
         imageLayer = nil
+        emitterLayer?.removeFromSuperlayer()
+        emitterLayer = nil
+        musicGlowLayer.removeAllAnimations()
+        musicGlowLayer.opacity = 0
+        removePointerSubscription()
+        mediaContainerLayer.setAffineTransform(.identity)
+        isPaused = false
         currentAssetURL = nil
         currentKind = nil
         rendererEvent = nil
@@ -250,8 +330,10 @@ private final class WallpaperSceneRenderView: NSView {
             imageLayer.contentsGravity = .resizeAspectFill
             imageLayer.contentsScale = self.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
             imageLayer.frame = self.bounds
-            self.layer?.insertSublayer(imageLayer, below: self.dimmingLayer)
+            self.mediaContainerLayer.addSublayer(imageLayer)
             self.imageLayer = imageLayer
+            self.applyColorGrading()
+            self.updateImageMotion()
             self.imageLoadTask = nil
             self.rendererEvent?(.firstFramePresented)
             onReady?()
@@ -269,11 +351,12 @@ private final class WallpaperSceneRenderView: NSView {
         let videoLayer = AVPlayerLayer(player: player)
         videoLayer.videoGravity = .resizeAspectFill
         videoLayer.frame = bounds
-        layer?.insertSublayer(videoLayer, below: dimmingLayer)
+        mediaContainerLayer.addSublayer(videoLayer)
 
         self.player = player
         self.looper = looper
         self.videoLayer = videoLayer
+        applyColorGrading()
         observeReadiness(item: item, layer: videoLayer, assetURL: url)
         update(profile: profile)
         player.playImmediately(atRate: Float(currentRendering.playbackRate))
@@ -353,14 +436,411 @@ private final class WallpaperSceneRenderView: NSView {
         )
         imageLayer?.contentsGravity = normalized.scalingMode.contentsGravity
         videoLayer?.videoGravity = normalized.scalingMode.videoGravity
+        vignetteLayer.opacity = Float(normalized.vignette)
         dimmingLayer.opacity = Float(normalized.dimming)
         CATransaction.commit()
+
+        applyColorGrading()
+        updateImageMotion()
+        updateAmbientEffect()
+        updateMusicReaction()
+        updateParallaxSubscription()
 
         guard let player else { return }
         player.defaultRate = Float(normalized.playbackRate)
         if player.timeControlStatus == .playing {
             player.playImmediately(atRate: Float(normalized.playbackRate))
         }
+    }
+
+    private func applyColorGrading() {
+        let usesDefaultGrading = abs(currentRendering.saturation - 1) < 0.001
+            && abs(currentRendering.contrast - 1) < 0.001
+        let filters: [Any]?
+        if usesDefaultGrading {
+            filters = nil
+        } else if let colorControls = CIFilter(name: "CIColorControls") {
+            colorControls.setValue(currentRendering.saturation, forKey: kCIInputSaturationKey)
+            colorControls.setValue(currentRendering.contrast, forKey: kCIInputContrastKey)
+            filters = [colorControls]
+        } else {
+            filters = nil
+        }
+        imageLayer?.filters = filters
+        videoLayer?.filters = filters
+    }
+
+    private func updateImageMotion() {
+        guard let imageLayer else { return }
+        imageLayer.removeAnimation(forKey: Motion.animationKey)
+        imageLayer.speed = 1
+        imageLayer.timeOffset = 0
+        imageLayer.beginTime = 0
+
+        guard WallpaperSceneMotionPolicy.shouldAnimate(
+            preset: currentRendering.motionPreset,
+            kind: currentKind,
+            profile: currentProfile,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            paused: isPaused
+        ) else { return }
+
+        let animation: CAAnimation
+        switch currentRendering.motionPreset {
+        case .none:
+            return
+        case .cinematicZoom:
+            let zoom = CABasicAnimation(keyPath: "transform.scale")
+            zoom.fromValue = 1.01
+            zoom.toValue = 1.065
+            zoom.duration = Motion.zoomDuration
+            zoom.autoreverses = true
+            zoom.repeatCount = .infinity
+            zoom.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation = zoom
+        case .slowDrift:
+            let scale = CAKeyframeAnimation(keyPath: "transform.scale")
+            scale.values = [1.055, 1.085, 1.055]
+            let horizontal = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            horizontal.values = [-10, 12, -10]
+            let vertical = CAKeyframeAnimation(keyPath: "transform.translation.y")
+            vertical.values = [7, -9, 7]
+            let group = CAAnimationGroup()
+            group.animations = [scale, horizontal, vertical]
+            group.duration = Motion.driftDuration
+            group.repeatCount = .infinity
+            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation = group
+        }
+        imageLayer.add(animation, forKey: Motion.animationKey)
+    }
+
+    private func updateAmbientEffect() {
+        emitterLayer?.removeFromSuperlayer()
+        emitterLayer = nil
+
+        guard WallpaperSceneEffectsPolicy.shouldRender(
+            effect: currentRendering.ambientEffect,
+            profile: currentProfile,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            paused: isPaused
+        ) else { return }
+
+        let emitter = CAEmitterLayer()
+        emitter.frame = bounds
+        emitter.renderMode = .additive
+        emitter.masksToBounds = true
+        emitter.emitterCells = [makeEmitterCell(for: currentRendering.ambientEffect)]
+        layer?.insertSublayer(emitter, below: vignetteLayer)
+        emitterLayer = emitter
+        layoutEmitterLayer()
+    }
+
+    private func makeEmitterCell(
+        for effect: WallpaperSceneRenderingConfiguration.AmbientEffect
+    ) -> CAEmitterCell {
+        let cell = CAEmitterCell()
+        let density = Float(currentRendering.effectIntensity)
+            * WallpaperSceneEffectsPolicy.densityMultiplier(for: currentProfile)
+        cell.contents = Self.particleImage(for: effect)
+        cell.lifetimeRange = 3
+        cell.spinRange = .pi
+        cell.alphaSpeed = -0.025
+
+        switch effect {
+        case .none:
+            cell.birthRate = 0
+        case .dust:
+            cell.birthRate = 5 * density
+            cell.lifetime = 18
+            cell.velocity = 4
+            cell.velocityRange = 7
+            cell.emissionRange = .pi * 2
+            cell.scale = 0.18
+            cell.scaleRange = 0.11
+            cell.alphaRange = 0.22
+        case .snow:
+            cell.birthRate = 13 * density
+            cell.lifetime = 16
+            cell.velocity = 34
+            cell.velocityRange = 13
+            cell.emissionLongitude = -.pi / 2
+            cell.emissionRange = .pi / 9
+            cell.yAcceleration = -2
+            cell.xAcceleration = 1.5
+            cell.scale = 0.24
+            cell.scaleRange = 0.14
+            cell.alphaRange = 0.16
+        case .embers:
+            cell.birthRate = 8 * density
+            cell.lifetime = 8
+            cell.velocity = 42
+            cell.velocityRange = 18
+            cell.emissionLongitude = .pi / 2
+            cell.emissionRange = .pi / 6
+            cell.yAcceleration = 5
+            cell.scale = 0.16
+            cell.scaleRange = 0.1
+            cell.alphaSpeed = -0.09
+            cell.color = NSColor.systemOrange.cgColor
+        }
+        return cell
+    }
+
+    private func layoutEmitterLayer() {
+        guard let emitterLayer else { return }
+        emitterLayer.frame = bounds
+        switch currentRendering.ambientEffect {
+        case .none:
+            break
+        case .dust:
+            emitterLayer.emitterShape = .rectangle
+            emitterLayer.emitterPosition = CGPoint(x: bounds.midX, y: bounds.midY)
+            emitterLayer.emitterSize = bounds.size
+        case .snow:
+            emitterLayer.emitterShape = .line
+            emitterLayer.emitterPosition = CGPoint(x: bounds.midX, y: bounds.maxY)
+            emitterLayer.emitterSize = CGSize(width: bounds.width, height: 1)
+        case .embers:
+            emitterLayer.emitterShape = .line
+            emitterLayer.emitterPosition = CGPoint(x: bounds.midX, y: bounds.minY)
+            emitterLayer.emitterSize = CGSize(width: bounds.width * 0.82, height: 1)
+        }
+    }
+
+    private func updateMusicReaction() {
+        musicGlowLayer.removeAnimation(forKey: Motion.musicGlowAnimationKey)
+        emitterLayer?.removeAnimation(forKey: Motion.particlePulseAnimationKey)
+        musicGlowLayer.opacity = 0
+
+        guard WallpaperMusicReactionPolicy.shouldAnimate(
+            reaction: currentRendering.musicReaction,
+            isPlaying: currentMediaPlayback.isPlaying,
+            profile: currentProfile,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            paused: isPaused
+        ) else { return }
+
+        let intensity = Float(currentRendering.musicReactionIntensity)
+        let accent = NSColor(
+            calibratedRed: currentMediaPlayback.accentRed,
+            green: currentMediaPlayback.accentGreen,
+            blue: currentMediaPlayback.accentBlue,
+            alpha: 1
+        )
+        musicGlowLayer.colors = [
+            accent.withAlphaComponent(0.76).cgColor,
+            accent.withAlphaComponent(0.18).cgColor,
+            NSColor.clear.cgColor,
+        ]
+
+        let glow = CABasicAnimation(keyPath: "opacity")
+        glow.fromValue = 0.035 + (0.045 * intensity)
+        glow.toValue = 0.1 + (0.2 * intensity)
+        glow.autoreverses = true
+        glow.repeatCount = .infinity
+        glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+        switch currentRendering.musicReaction {
+        case .none:
+            return
+        case .ambientGlow:
+            glow.duration = 2.8
+        case .playbackPulse:
+            glow.duration = 1.25
+            if let emitterLayer {
+                let particles = CABasicAnimation(keyPath: "birthRate")
+                particles.fromValue = 0.72
+                particles.toValue = 1.18 + (0.22 * intensity)
+                particles.duration = 1.25
+                particles.autoreverses = true
+                particles.repeatCount = .infinity
+                particles.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                emitterLayer.add(particles, forKey: Motion.particlePulseAnimationKey)
+            }
+        }
+        musicGlowLayer.add(glow, forKey: Motion.musicGlowAnimationKey)
+    }
+
+    private func updateParallaxSubscription() {
+        let shouldTrack = WallpaperSceneEffectsPolicy.shouldTrackPointer(
+            strength: currentRendering.parallaxStrength,
+            profile: currentProfile,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            paused: isPaused
+        )
+        guard shouldTrack else {
+            removePointerSubscription()
+            resetParallax(animated: true)
+            return
+        }
+        if pointerSubscriptionID != nil {
+            updateParallax(mouseLocation: NSEvent.mouseLocation)
+            return
+        }
+        pointerSubscriptionID = WallpaperPointerMonitor.shared.subscribe { [weak self] location in
+            self?.updateParallax(mouseLocation: location)
+        }
+        updateParallax(mouseLocation: NSEvent.mouseLocation)
+    }
+
+    private func removePointerSubscription() {
+        guard let pointerSubscriptionID else { return }
+        WallpaperPointerMonitor.shared.unsubscribe(pointerSubscriptionID)
+        self.pointerSubscriptionID = nil
+    }
+
+    private func updateParallax(mouseLocation: CGPoint) {
+        guard let screenFrame = window?.screen?.frame, screenFrame.width > 0, screenFrame.height > 0 else {
+            return
+        }
+        let normalizedX = min(max((mouseLocation.x - screenFrame.midX) / (screenFrame.width / 2), -1), 1)
+        let normalizedY = min(max((mouseLocation.y - screenFrame.midY) / (screenFrame.height / 2), -1), 1)
+        let strength = CGFloat(currentRendering.parallaxStrength)
+        let maximumOffset = 14 * strength
+        let scale = 1 + (0.025 * strength)
+        var transform = CGAffineTransform.identity
+        transform = transform.translatedBy(
+            x: normalizedX * maximumOffset,
+            y: normalizedY * maximumOffset
+        )
+        transform = transform.scaledBy(x: scale, y: scale)
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.14)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        mediaContainerLayer.setAffineTransform(transform)
+        CATransaction.commit()
+    }
+
+    private func resetParallax(animated: Bool) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(animated ? 0.18 : 0)
+        mediaContainerLayer.setAffineTransform(.identity)
+        CATransaction.commit()
+    }
+
+    private static func particleImage(
+        for effect: WallpaperSceneRenderingConfiguration.AmbientEffect
+    ) -> CGImage? {
+        let size = 12
+        guard let context = CGContext(
+            data: nil,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        let color: NSColor = effect == .embers ? .systemOrange : .white
+        context.setFillColor(color.cgColor)
+        context.fillEllipse(in: CGRect(x: 2, y: 2, width: 8, height: 8))
+        return context.makeImage()
+    }
+}
+
+@MainActor
+private final class WallpaperPointerMonitor {
+    static let shared = WallpaperPointerMonitor()
+
+    private enum Timing {
+        static let minimumDispatchInterval: TimeInterval = 1.0 / 30.0
+    }
+
+    private var subscribers: [UUID: (CGPoint) -> Void] = [:]
+    private var globalMonitor: Any?
+    private var localMonitor: Any?
+    private var lastDispatchTime: TimeInterval = 0
+
+    func subscribe(_ handler: @escaping (CGPoint) -> Void) -> UUID {
+        let id = UUID()
+        subscribers[id] = handler
+        installMonitorsIfNeeded()
+        return id
+    }
+
+    func unsubscribe(_ id: UUID) {
+        subscribers.removeValue(forKey: id)
+        guard subscribers.isEmpty else { return }
+        removeMonitors()
+    }
+
+    private func installMonitorsIfNeeded() {
+        guard globalMonitor == nil, localMonitor == nil else { return }
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.publishCurrentLocation() }
+        }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+            self?.publishCurrentLocation()
+            return event
+        }
+    }
+
+    private func publishCurrentLocation() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastDispatchTime >= Timing.minimumDispatchInterval else { return }
+        lastDispatchTime = now
+        let location = NSEvent.mouseLocation
+        for handler in subscribers.values {
+            handler(location)
+        }
+    }
+
+    private func removeMonitors() {
+        if let globalMonitor {
+            NSEvent.removeMonitor(globalMonitor)
+            self.globalMonitor = nil
+        }
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+        lastDispatchTime = 0
+    }
+}
+
+nonisolated enum WallpaperSceneEffectsPolicy {
+    static func shouldRender(
+        effect: WallpaperSceneRenderingConfiguration.AmbientEffect,
+        profile: WallpaperPerformanceProfile,
+        reduceMotion: Bool,
+        paused: Bool
+    ) -> Bool {
+        effect != .none && profile != .eco && !reduceMotion && !paused
+    }
+
+    static func shouldTrackPointer(
+        strength: Double,
+        profile: WallpaperPerformanceProfile,
+        reduceMotion: Bool,
+        paused: Bool
+    ) -> Bool {
+        strength > 0.001 && profile != .eco && !reduceMotion && !paused
+    }
+
+    static func densityMultiplier(for profile: WallpaperPerformanceProfile) -> Float {
+        switch profile {
+        case .eco: 0
+        case .automatic, .balanced: 0.62
+        case .cinematic: 1
+        }
+    }
+}
+
+nonisolated enum WallpaperSceneMotionPolicy {
+    static func shouldAnimate(
+        preset: WallpaperSceneRenderingConfiguration.MotionPreset,
+        kind: WallpaperScene.Kind?,
+        profile: WallpaperPerformanceProfile,
+        reduceMotion: Bool,
+        paused: Bool
+    ) -> Bool {
+        preset != .none
+            && kind == .image
+            && profile != .eco
+            && !reduceMotion
+            && !paused
     }
 }
 

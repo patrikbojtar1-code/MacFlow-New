@@ -70,9 +70,19 @@ struct WallpaperPreviewImage: View {
     let url: URL
     var scalingMode: WallpaperSceneRenderingConfiguration.ScalingMode = .fill
     var dimming: Double = 0
+    var saturation: Double = 1
+    var contrast: Double = 1
+    var vignette: Double = 0
+    var motionPreset: WallpaperSceneRenderingConfiguration.MotionPreset = .none
+    var ambientEffect: WallpaperSceneRenderingConfiguration.AmbientEffect = .none
+    var effectIntensity: Double = 0.45
+    var parallaxStrength: Double = 0
+    var animatesMotion = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var image: CGImage?
+    @State private var motionPhase = false
+    @State private var parallaxPosition = CGPoint(x: 0.5, y: 0.5)
 
     var body: some View {
         GeometryReader { proxy in
@@ -81,6 +91,10 @@ struct WallpaperPreviewImage: View {
 
                 if let image {
                     imageView(image, size: proxy.size)
+                        .scaleEffect(motionScale * parallaxScale)
+                        .offset(combinedOffset)
+                        .saturation(saturation)
+                        .contrast(contrast)
                         .transition(.opacity)
                 } else {
                     Image(systemName: scene.kind.systemImage)
@@ -88,7 +102,45 @@ struct WallpaperPreviewImage: View {
                         .foregroundStyle(.white.opacity(0.42))
                 }
 
+                if animatesMotion, !reduceMotion, ambientEffect != .none {
+                    WallpaperAmbientEffectPreview(
+                        effect: ambientEffect,
+                        intensity: effectIntensity
+                    )
+                    .allowsHitTesting(false)
+                }
+
+                RadialGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.42),
+                        .init(color: .black.opacity(vignette * 0.28), location: 0.72),
+                        .init(color: .black.opacity(vignette), location: 1),
+                    ],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: max(proxy.size.width, proxy.size.height) * 0.72
+                )
+                .allowsHitTesting(false)
+
                 Color.black.opacity(dimming)
+                    .allowsHitTesting(false)
+            }
+            .onContinuousHover { phase in
+                guard animatesMotion, !reduceMotion, parallaxStrength > 0 else {
+                    parallaxPosition = CGPoint(x: 0.5, y: 0.5)
+                    return
+                }
+                switch phase {
+                case .active(let location):
+                    parallaxPosition = CGPoint(
+                        x: min(max(location.x / max(proxy.size.width, 1), 0), 1),
+                        y: min(max(location.y / max(proxy.size.height, 1), 0), 1)
+                    )
+                case .ended:
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        parallaxPosition = CGPoint(x: 0.5, y: 0.5)
+                    }
+                }
             }
         }
         .clipped()
@@ -98,6 +150,17 @@ struct WallpaperPreviewImage: View {
                   !Task.isCancelled else { return }
             withAnimation(AppMotion.insertion(reduceMotion: reduceMotion)) {
                 image = loadedImage
+            }
+        }
+        .task(id: motionPreset) {
+            motionPhase = false
+            guard animatesMotion, !reduceMotion, motionPreset != .none else { return }
+            await Task.yield()
+            withAnimation(
+                .easeInOut(duration: motionPreset == .cinematicZoom ? 12 : 16)
+                    .repeatForever(autoreverses: true)
+            ) {
+                motionPhase = true
             }
         }
         .accessibilityElement(children: .ignore)
@@ -122,6 +185,109 @@ struct WallpaperPreviewImage: View {
             Image(decorative: image, scale: 1)
                 .resizable()
                 .frame(width: size.width, height: size.height)
+        }
+    }
+
+    private var motionScale: CGFloat {
+        guard animatesMotion, !reduceMotion else { return 1 }
+        switch motionPreset {
+        case .none: return 1
+        case .cinematicZoom: return motionPhase ? 1.055 : 1.01
+        case .slowDrift: return motionPhase ? 1.075 : 1.045
+        }
+    }
+
+    private var motionOffset: CGSize {
+        guard animatesMotion, !reduceMotion, motionPreset == .slowDrift else { return .zero }
+        return motionPhase ? CGSize(width: 7, height: -5) : CGSize(width: -6, height: 4)
+    }
+
+    private var parallaxScale: CGFloat {
+        guard animatesMotion, !reduceMotion else { return 1 }
+        return 1 + (0.025 * parallaxStrength)
+    }
+
+    private var combinedOffset: CGSize {
+        let pointerX = (parallaxPosition.x - 0.5) * 2
+        let pointerY = (parallaxPosition.y - 0.5) * 2
+        let maximumOffset = 9 * parallaxStrength
+        return CGSize(
+            width: motionOffset.width + (pointerX * maximumOffset),
+            height: motionOffset.height + (pointerY * maximumOffset)
+        )
+    }
+}
+
+private struct WallpaperAmbientEffectPreview: View {
+    private enum Tokens {
+        static let particleCount = 12
+    }
+
+    let effect: WallpaperSceneRenderingConfiguration.AmbientEffect
+    let intensity: Double
+
+    @State private var phase = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ForEach(0..<Tokens.particleCount, id: \.self) { index in
+                Circle()
+                    .fill(particleColor.opacity(particleOpacity(index)))
+                    .frame(width: particleSize(index), height: particleSize(index))
+                    .blur(radius: effect == .dust ? 1.1 : 0.35)
+                    .position(
+                        x: horizontalPosition(index, width: proxy.size.width),
+                        y: verticalPosition(index, height: proxy.size.height)
+                    )
+                    .animation(
+                        .linear(duration: particleDuration(index))
+                            .repeatForever(autoreverses: false)
+                            .delay(Double(index % 5) * 0.32),
+                        value: phase
+                    )
+            }
+        }
+        .task(id: effect) {
+            phase = false
+            await Task.yield()
+            phase = true
+        }
+    }
+
+    private var particleColor: Color {
+        effect == .embers ? .orange : .white
+    }
+
+    private func particleSize(_ index: Int) -> CGFloat {
+        CGFloat(2.4 + Double(index % 4) * 1.15) * (0.72 + intensity * 0.5)
+    }
+
+    private func particleOpacity(_ index: Int) -> Double {
+        min(0.18 + (Double(index % 3) * 0.07), 0.42) * (0.55 + intensity * 0.45)
+    }
+
+    private func particleDuration(_ index: Int) -> Double {
+        let base = effect == .dust ? 13.0 : (effect == .snow ? 9.5 : 7.5)
+        return base + Double(index % 5) * 0.8
+    }
+
+    private func horizontalPosition(_ index: Int, width: CGFloat) -> CGFloat {
+        let base = CGFloat((index * 37) % 101) / 100
+        let drift = phase ? CGFloat((index % 3) - 1) * 18 : 0
+        return (base * width) + drift
+    }
+
+    private func verticalPosition(_ index: Int, height: CGFloat) -> CGFloat {
+        let stagger = CGFloat((index * 29) % 100) / 100 * height
+        switch effect {
+        case .none:
+            return stagger
+        case .dust:
+            return phase ? stagger - 28 : stagger + 24
+        case .snow:
+            return phase ? height + 24 : -24 - stagger * 0.2
+        case .embers:
+            return phase ? -24 : height + 24 + stagger * 0.15
         }
     }
 }

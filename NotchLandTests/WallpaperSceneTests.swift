@@ -109,6 +109,18 @@ struct WallpaperSceneTests {
             _ = try await library.importScene(from: url)
         }
 
+        if let selectedScene = library.scenes.first {
+            try library.updateRendering(
+                forSceneID: selectedScene.id,
+                configuration: WallpaperSceneRenderingConfiguration(
+                    motionPreset: .slowDrift,
+                    ambientEffect: .embers,
+                    effectIntensity: 0.8,
+                    parallaxStrength: 0.4
+                )
+            )
+        }
+
         let defaults = try #require(UserDefaults(suiteName: "MacFlowHubSnapshot.\(UUID().uuidString)"))
         let controller = WallpaperSceneController(
             library: library,
@@ -144,6 +156,76 @@ struct WallpaperSceneTests {
             .appendingPathComponent(".build/WallpaperHubScreenshots", isDirectory: true)
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         let outputURL = outputDirectory.appendingPathComponent("wallpaper-hub.png")
+        try png.write(to: outputURL, options: .atomic)
+        #expect(fileManager.fileExists(atPath: outputURL.path))
+    }
+
+    @MainActor
+    @Test func smartRotationEditorRendersPlaylistAndContextRules() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("MacFlowAutomationSnapshot-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let library = WallpaperSceneLibrary(
+            rootDirectory: root.appendingPathComponent("Library", isDirectory: true)
+        )
+        for (title, color) in [("Deep Focus", NSColor.systemIndigo), ("Battery Calm", .systemGreen)] {
+            let url = root.appendingPathComponent("\(title).png")
+            try Self.writeGradientPNG(to: url, colors: [color, .black])
+            _ = try await library.importScene(from: url)
+        }
+        let playlist = try #require(library.createCollection(named: "Workday Flow"))
+        for scene in library.scenes.reversed() {
+            library.add(scene, to: playlist)
+        }
+
+        let suiteName = "MacFlowAutomationSnapshot.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let controller = WallpaperSceneController(
+            library: library,
+            performance: WallpaperPerformanceMonitor(defaults: defaults),
+            displayCoordinator: DisplayCoordinator(),
+            defaults: defaults
+        )
+        controller.updateAutomationConfiguration {
+            $0.isEnabled = true
+            $0.rotationSource = .playlist
+            $0.rotationPlaylistID = playlist.id
+            $0.focusSceneID = library.scenes.first?.id
+            $0.lowPowerSceneID = library.scenes.last?.id
+        }
+
+        let rootView = WallpaperAutomationEditor()
+            .environmentObject(controller)
+            .frame(width: 720, height: 680)
+            .background(MacFlowColor.canvas)
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 720, height: 680)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.layoutIfNeeded()
+        try await Task.sleep(for: .milliseconds(180))
+        hostingView.layoutSubtreeIfNeeded()
+
+        let bitmap = try #require(
+            hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds)
+        )
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        let outputDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".build/WallpaperHubScreenshots", isDirectory: true)
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let outputURL = outputDirectory.appendingPathComponent("smart-rotation.png")
         try png.write(to: outputURL, options: .atomic)
         #expect(fileManager.fileExists(atPath: outputURL.path))
     }
@@ -282,12 +364,114 @@ struct WallpaperSceneTests {
         let configuration = WallpaperSceneRenderingConfiguration(
             scalingMode: .fit,
             playbackRate: 9,
-            dimming: 4
+            dimming: 4,
+            motionPreset: .slowDrift,
+            saturation: 9,
+            contrast: 0,
+            vignette: 2,
+            ambientEffect: .embers,
+            effectIntensity: 4,
+            parallaxStrength: 3
         ).normalized
 
         #expect(configuration.scalingMode == .fit)
         #expect(configuration.playbackRate == 1.5)
         #expect(configuration.dimming == 0.7)
+        #expect(configuration.motionPreset == .slowDrift)
+        #expect(configuration.saturation == 1.4)
+        #expect(configuration.contrast == 0.8)
+        #expect(configuration.vignette == 0.65)
+        #expect(configuration.ambientEffect == .embers)
+        #expect(configuration.effectIntensity == 1)
+        #expect(configuration.parallaxStrength == 1)
+    }
+
+    @Test func legacyRenderingConfigurationMigratesSceneStudioDefaults() throws {
+        let json = """
+        {
+          "scalingMode": "fit",
+          "playbackRate": 1.25,
+          "dimming": 0.2
+        }
+        """
+        let rendering = try JSONDecoder().decode(
+            WallpaperSceneRenderingConfiguration.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(rendering.scalingMode == .fit)
+        #expect(rendering.motionPreset == .none)
+        #expect(rendering.saturation == 1)
+        #expect(rendering.contrast == 1)
+        #expect(rendering.vignette == 0)
+        #expect(rendering.ambientEffect == .none)
+        #expect(rendering.effectIntensity == 0.45)
+        #expect(rendering.parallaxStrength == 0)
+    }
+
+    @Test func sceneMotionPolicyProtectsEnergyAndAccessibilityBudgets() {
+        #expect(WallpaperSceneMotionPolicy.shouldAnimate(
+            preset: .cinematicZoom,
+            kind: .image,
+            profile: .balanced,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperSceneMotionPolicy.shouldAnimate(
+            preset: .slowDrift,
+            kind: .image,
+            profile: .eco,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperSceneMotionPolicy.shouldAnimate(
+            preset: .slowDrift,
+            kind: .video,
+            profile: .cinematic,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperSceneMotionPolicy.shouldAnimate(
+            preset: .slowDrift,
+            kind: .image,
+            profile: .cinematic,
+            reduceMotion: true,
+            paused: false
+        ))
+    }
+
+    @Test func sceneComposerPolicyProtectsEnergyAndAccessibilityBudgets() {
+        #expect(WallpaperSceneEffectsPolicy.shouldRender(
+            effect: .snow,
+            profile: .balanced,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperSceneEffectsPolicy.shouldRender(
+            effect: .embers,
+            profile: .eco,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperSceneEffectsPolicy.shouldRender(
+            effect: .dust,
+            profile: .cinematic,
+            reduceMotion: true,
+            paused: false
+        ))
+        #expect(WallpaperSceneEffectsPolicy.shouldTrackPointer(
+            strength: 0.4,
+            profile: .cinematic,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperSceneEffectsPolicy.shouldTrackPointer(
+            strength: 0,
+            profile: .cinematic,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(WallpaperSceneEffectsPolicy.densityMultiplier(for: .balanced) < 1)
     }
 
     @Test func legacySceneManifestDefaultsToFillAtNormalSpeed() throws {
@@ -349,11 +533,17 @@ struct WallpaperSceneTests {
 
     @Test func automationConfigurationRoundTripsEveryRule() throws {
         let focusID = UUID()
+        let lowPowerID = UUID()
         let morningID = UUID()
+        let playlistID = UUID()
         var configuration = WallpaperAutomationConfiguration()
         configuration.isEnabled = true
         configuration.rotationIntervalMinutes = 15
+        configuration.rotationSource = .playlist
+        configuration.rotationPlaylistID = playlistID
+        configuration.pausesRotationOnLowPower = false
         configuration.focusSceneID = focusID
+        configuration.lowPowerSceneID = lowPowerID
         configuration.setSceneID(morningID, for: .morning)
 
         let data = try JSONEncoder().encode(configuration)
@@ -361,7 +551,69 @@ struct WallpaperSceneTests {
 
         #expect(decoded == configuration)
         #expect(decoded.focusSceneID == focusID)
+        #expect(decoded.lowPowerSceneID == lowPowerID)
+        #expect(decoded.rotationPlaylistID == playlistID)
         #expect(decoded.sceneID(for: .morning) == morningID)
+    }
+
+    @Test func legacyAutomationConfigurationMigratesSmartRotationDefaults() throws {
+        let json = """
+        {
+          "isEnabled": true,
+          "rotatesFavorites": true,
+          "rotationIntervalMinutes": 15
+        }
+        """
+        let configuration = try JSONDecoder().decode(
+            WallpaperAutomationConfiguration.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(configuration.rotationSource == .favorites)
+        #expect(configuration.rotationPlaylistID == nil)
+        #expect(configuration.pausesRotationOnLowPower)
+        #expect(configuration.lowPowerSceneID == nil)
+    }
+
+    @Test func automationRulesPrioritizeFocusThenPowerThenTime() throws {
+        let focusID = UUID()
+        let lowPowerID = UUID()
+        let eveningID = UUID()
+        var configuration = WallpaperAutomationConfiguration()
+        configuration.focusSceneID = focusID
+        configuration.lowPowerSceneID = lowPowerID
+        configuration.setSceneID(eveningID, for: .evening)
+        let available: Set<UUID> = [focusID, lowPowerID, eveningID]
+
+        let focus = WallpaperAutomationRuleResolver.firstMatch(
+            configuration: configuration,
+            availableSceneIDs: available,
+            isFocusActive: true,
+            isLowPowerModeEnabled: true,
+            dayPeriod: .evening
+        )
+        #expect(focus == WallpaperAutomationRuleMatch(sceneID: focusID, reason: .focus))
+
+        let power = WallpaperAutomationRuleResolver.firstMatch(
+            configuration: configuration,
+            availableSceneIDs: available,
+            isFocusActive: false,
+            isLowPowerModeEnabled: true,
+            dayPeriod: .evening
+        )
+        #expect(power == WallpaperAutomationRuleMatch(sceneID: lowPowerID, reason: .lowPower))
+
+        let time = WallpaperAutomationRuleResolver.firstMatch(
+            configuration: configuration,
+            availableSceneIDs: [eveningID],
+            isFocusActive: true,
+            isLowPowerModeEnabled: true,
+            dayPeriod: .evening
+        )
+        #expect(time == WallpaperAutomationRuleMatch(
+            sceneID: eveningID,
+            reason: .dayPeriod(.evening)
+        ))
     }
 
     @Test func packagePathsRejectTraversalAndNestedAssets() {
@@ -710,7 +962,14 @@ struct WallpaperSceneTests {
         let rendering = WallpaperSceneRenderingConfiguration(
             scalingMode: .stretch,
             playbackRate: 0.75,
-            dimming: 0.18
+            dimming: 0.18,
+            motionPreset: .slowDrift,
+            saturation: 1.18,
+            contrast: 1.08,
+            vignette: 0.24,
+            ambientEffect: .dust,
+            effectIntensity: 0.7,
+            parallaxStrength: 0.35
         )
         try sourceLibrary.updateRendering(
             forSceneID: sourceScene.id,

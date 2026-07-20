@@ -114,7 +114,25 @@ final class WallpaperSceneController: ObservableObject {
             return "Manual choice until \(manualOverrideUntil.formatted(date: .omitted, time: .shortened))"
         }
         if let automationReason { return automationReason.title }
-        return "Watching time of day and Focus"
+        return "Watching Focus, power, time, and rotation"
+    }
+
+    var rotationSourceDetail: String {
+        guard automationConfiguration.rotatesFavorites else { return "Rotation is disabled" }
+        switch automationConfiguration.rotationSource {
+        case .favorites:
+            let count = library.scenes(in: library.favorites).count
+            return count == 1 ? "1 favorite scene" : "\(count) favorite scenes"
+        case .playlist:
+            guard let playlist = selectedRotationPlaylist else { return "Choose a playlist" }
+            let count = library.scenes(in: playlist).count
+            return count == 1 ? "1 scene in \(playlist.title)" : "\(count) scenes in \(playlist.title)"
+        }
+    }
+
+    var selectedRotationPlaylist: WallpaperSceneCollection? {
+        guard let playlistID = automationConfiguration.rotationPlaylistID else { return nil }
+        return library.collections.first { $0.id == playlistID && $0.kind == .custom }
     }
 
     init(
@@ -190,6 +208,14 @@ final class WallpaperSceneController: ObservableObject {
             .dropFirst()
             .sink { [weak self] _, _, _ in
                 self?.updatePlaybackState()
+            }
+            .store(in: &cancellables)
+
+        performance.$isLowPowerModeEnabled
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.evaluateAutomation(forceRotation: true)
             }
             .store(in: &cancellables)
 
@@ -295,7 +321,7 @@ final class WallpaperSceneController: ObservableObject {
             }
         case .automation(let reason):
             automationReason = reason
-            if reason == .favoriteRotation {
+            if reason.isRotation {
                 lastRotationDate = .now
             }
         }
@@ -646,7 +672,7 @@ final class WallpaperSceneController: ObservableObject {
     }
 
     private func shouldPause(scene: WallpaperScene) -> Bool {
-        isPaused || (scene.kind == .video && isSuspendedBySystem)
+        isPaused || isSuspendedBySystem
     }
 
     private func pauseReason(scene: WallpaperScene) -> WallpaperPauseReason? {
@@ -738,17 +764,15 @@ final class WallpaperSceneController: ObservableObject {
             self.manualOverrideUntil = nil
         }
 
-        if focusMode?.isFocusActive == true,
-           let focusScene = library.scene(withID: automationConfiguration.focusSceneID) {
-            applyAutomationScene(focusScene, reason: .focus)
-            return
-        }
-
         let period = WallpaperDayPeriod.current()
-        if let scheduledScene = library.scene(
-            withID: automationConfiguration.sceneID(for: period)
-        ) {
-            applyAutomationScene(scheduledScene, reason: .dayPeriod(period))
+        if let match = WallpaperAutomationRuleResolver.firstMatch(
+            configuration: automationConfiguration,
+            availableSceneIDs: Set(library.scenes.map(\.id)),
+            isFocusActive: focusMode?.isFocusActive == true,
+            isLowPowerModeEnabled: performance.isLowPowerModeEnabled,
+            dayPeriod: period
+        ), let matchedScene = library.scene(withID: match.sceneID) {
+            applyAutomationScene(matchedScene, reason: match.reason)
             return
         }
 
@@ -757,15 +781,21 @@ final class WallpaperSceneController: ObservableObject {
             return
         }
 
-        let elapsed = Date().timeIntervalSince(lastRotationDate)
-        let interval = TimeInterval(automationConfiguration.rotationIntervalMinutes * 60)
-        guard forceRotation || elapsed >= interval else { return }
-        let favoriteScenes = library.scenes(in: library.favorites)
-        guard let nextScene = Self.nextScene(after: activeSceneID, in: favoriteScenes) else {
+        if performance.isLowPowerModeEnabled,
+           automationConfiguration.pausesRotationOnLowPower {
             automationReason = nil
             return
         }
-        applyAutomationScene(nextScene, reason: .favoriteRotation)
+
+        let elapsed = Date().timeIntervalSince(lastRotationDate)
+        let interval = TimeInterval(automationConfiguration.rotationIntervalMinutes * 60)
+        guard forceRotation || elapsed >= interval else { return }
+        let rotation = rotationCandidates()
+        guard let nextScene = Self.nextScene(after: activeSceneID, in: rotation.scenes) else {
+            automationReason = nil
+            return
+        }
+        applyAutomationScene(nextScene, reason: rotation.reason)
     }
 
     private func applyAutomationScene(
@@ -774,10 +804,28 @@ final class WallpaperSceneController: ObservableObject {
     ) {
         if activeSceneID == scene.id {
             automationReason = reason
-            if reason == .favoriteRotation { lastRotationDate = .now }
+            if reason.isRotation { lastRotationDate = .now }
             return
         }
         apply(scene, origin: .automation(reason))
+    }
+
+    private func rotationCandidates() -> (
+        scenes: [WallpaperScene],
+        reason: WallpaperAutomationReason
+    ) {
+        switch automationConfiguration.rotationSource {
+        case .favorites:
+            return (library.scenes(in: library.favorites), .favoriteRotation)
+        case .playlist:
+            guard let playlist = selectedRotationPlaylist else {
+                return ([], .playlistRotation("Playlist"))
+            }
+            return (
+                library.scenes(in: playlist),
+                .playlistRotation(playlist.title)
+            )
+        }
     }
 
     nonisolated static func nextScene(
