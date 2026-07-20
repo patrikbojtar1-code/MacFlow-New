@@ -506,6 +506,7 @@ private enum ExpandedMediaTokens {
 struct NowPlayingCollapsedView: View {
     @EnvironmentObject private var nowPlaying: NowPlayingService
     @EnvironmentObject private var settings: NotchSettings
+    @EnvironmentObject private var audioOutputs: AudioDeviceActivitySource
     @Environment(\.effectiveNotchSize) private var effectiveNotchSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var accessibilityContrast
@@ -521,6 +522,8 @@ struct NowPlayingCollapsedView: View {
     @State private var revealsContent = false
     @State private var requestedHandoffDirection: CompactMediaSwipeDirection?
     @State private var handoffResetTask: Task<Void, Never>?
+    @State private var volumeHUDState: CompactVolumeHUDState?
+    @State private var volumeHUDTask: Task<Void, Never>?
 
     private var presentation: NowPlayingService.CompactMediaPresentation {
         track.compactPresentation
@@ -542,6 +545,7 @@ struct NowPlayingCollapsedView: View {
             trackHandoffDirection: handoffDirection ?? requestedHandoffDirection,
             gestureProgress: gestureProgress,
             expansionProgress: expansionProgress,
+            volumeHUDState: volumeHUDState,
             onPrevious: previousTrack,
             onPlayPause: togglePlayback,
             onNext: nextTrack,
@@ -588,9 +592,14 @@ struct NowPlayingCollapsedView: View {
                 handoffResetTask = nil
             }
         }
+        .onChange(of: audioOutputs.volumeState) { oldValue, newValue in
+            showVolumeHUDIfNeeded(from: oldValue, to: newValue)
+        }
         .onDisappear {
             handoffResetTask?.cancel()
             handoffResetTask = nil
+            volumeHUDTask?.cancel()
+            volumeHUDTask = nil
         }
         .accessibilityAction(named: presentation.isPlaying ? "Pause" : "Play") {
             togglePlayback()
@@ -631,6 +640,28 @@ struct NowPlayingCollapsedView: View {
         nowPlaying.seek(to: elapsed)
     }
 
+    private func showVolumeHUDIfNeeded(
+        from oldValue: AudioOutputVolumeState,
+        to newValue: AudioOutputVolumeState
+    ) {
+        guard newValue.isAvailable else { return }
+        let levelDelta = abs(newValue.effectiveLevel - oldValue.effectiveLevel)
+        guard levelDelta >= 0.01 || newValue.isMuted != oldValue.isMuted else { return }
+
+        volumeHUDTask?.cancel()
+        withAnimation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion)) {
+            volumeHUDState = CompactVolumeHUDState(volumeState: newValue)
+        }
+        volumeHUDTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1250))
+            guard !Task.isCancelled else { return }
+            withAnimation(NotchMotionGraph.animation(for: .dismiss, reduceMotion: reduceMotion)) {
+                volumeHUDState = nil
+            }
+            volumeHUDTask = nil
+        }
+    }
+
     private func announcePlaybackState(isPlaying: Bool) {
         NSAccessibility.post(
             element: NSApp as Any,
@@ -640,6 +671,28 @@ struct NowPlayingCollapsedView: View {
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue,
             ]
         )
+    }
+}
+
+nonisolated struct CompactVolumeHUDState: Equatable, Sendable {
+    let level: Double
+    let isMuted: Bool
+
+    init(volumeState: AudioOutputVolumeState) {
+        let resolvedLevel = volumeState.isMuted ? 0 : volumeState.level
+        level = resolvedLevel
+        isMuted = volumeState.isMuted || resolvedLevel <= 0.001
+    }
+
+    var symbolName: String {
+        if isMuted { return "speaker.slash.fill" }
+        if level < 0.34 { return "speaker.wave.1.fill" }
+        if level < 0.68 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
+    }
+
+    var percentage: Int {
+        Int((level * 100).rounded())
     }
 }
 
@@ -659,6 +712,7 @@ struct CompactMediaContent: View {
     /// Interactive value in `-1...1`: negative is Previous, positive is Next.
     var gestureProgress: CGFloat = 0
     var expansionProgress: CGFloat = 0
+    var volumeHUDState: CompactVolumeHUDState?
     var onPrevious: () -> Void = {}
     let onPlayPause: () -> Void
     var onNext: () -> Void = {}
@@ -666,7 +720,9 @@ struct CompactMediaContent: View {
 
     @State private var waveformHandoffScale: CGFloat = 1
     @State private var waveformHandoffOpacity: CGFloat = 1
+    @State private var showsHandoffFlash = false
     @State private var handoffTask: Task<Void, Never>?
+    @State private var handoffFlashTask: Task<Void, Never>?
 
     private var profile: CompactMediaLayoutProfile {
         .resolve(for: notchSize)
@@ -710,6 +766,30 @@ struct CompactMediaContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+
+            if let gestureDirection = activeGestureDirection {
+                CompactGestureCommitCue(
+                    direction: gestureDirection,
+                    progress: activeGestureProgress,
+                    accent: gestureAccent
+                )
+                .padding(.horizontal, profile.horizontalPadding + 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(3)
+            }
+
+            if showsHandoffFlash {
+                CompactTrackHandoffFlash(
+                    direction: trackHandoffDirection ?? .next,
+                    accent: gestureAccent
+                )
+                .transition(.opacity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(3)
+            }
 
             CompactHardwareBridgeShape(
                 bottomRadius: NowPlayingMetrics.compactHardwareBridgeBottomRadius
@@ -757,6 +837,22 @@ struct CompactMediaContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .padding(.bottom, 7)
 
+            if let volumeHUDState {
+                CompactVolumeHUD(
+                    state: volumeHUDState,
+                    accent: gestureAccent
+                )
+                .padding(.trailing, profile.horizontalPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .transition(
+                    .scale(scale: reduceMotion ? 1 : 0.88, anchor: .trailing)
+                        .combined(with: .opacity)
+                )
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .zIndex(5)
+            }
+
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
@@ -771,6 +867,8 @@ struct CompactMediaContent: View {
         .onDisappear {
             handoffTask?.cancel()
             handoffTask = nil
+            handoffFlashTask?.cancel()
+            handoffFlashTask = nil
         }
     }
 
@@ -926,6 +1024,16 @@ struct CompactMediaContent: View {
         min(1, max(0, gestureProgress))
     }
 
+    private var activeGestureDirection: CompactMediaSwipeDirection? {
+        if nextGestureProgress > 0.04 { return .next }
+        if previousGestureProgress > 0.04 { return .previous }
+        return nil
+    }
+
+    private var activeGestureProgress: CGFloat {
+        max(previousGestureProgress, nextGestureProgress)
+    }
+
     private var trackHandoffTransition: AnyTransition {
         let direction = trackHandoffDirection ?? .next
         let insertionOffset: CGFloat = direction == .next ? 14 : -14
@@ -937,6 +1045,7 @@ struct CompactMediaContent: View {
 
     private func performTrackHandoffPulse() {
         handoffTask?.cancel()
+        handoffFlashTask?.cancel()
         MotionDebug.record(
             name: "Track handoff",
             surface: "Compact Now Playing",
@@ -947,12 +1056,24 @@ struct CompactMediaContent: View {
         guard !reduceMotion else {
             waveformHandoffScale = 1
             waveformHandoffOpacity = 1
+            showsHandoffFlash = false
             return
         }
 
+        withAnimation(.easeOut(duration: 0.08)) {
+            showsHandoffFlash = true
+        }
         withAnimation(.easeOut(duration: 0.09)) {
             waveformHandoffScale = 0.18
             waveformHandoffOpacity = 0.42
+        }
+        handoffFlashTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(420))
+            guard !Task.isCancelled else { return }
+            withAnimation(NotchMotionGraph.animation(for: .dismiss)) {
+                showsHandoffFlash = false
+            }
+            handoffFlashTask = nil
         }
         handoffTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(90))
@@ -963,6 +1084,172 @@ struct CompactMediaContent: View {
             }
             handoffTask = nil
         }
+    }
+}
+
+private struct CompactGestureCommitCue: View {
+    let direction: CompactMediaSwipeDirection
+    let progress: CGFloat
+    let accent: Color
+
+    private var clampedProgress: CGFloat {
+        min(1, max(0, progress))
+    }
+
+    private var revealProgress: CGFloat {
+        CompactMediaGestureMotion.ramp(clampedProgress, from: 0.16, to: 0.52)
+    }
+
+    private var armedProgress: CGFloat {
+        CompactMediaGestureMotion.ramp(clampedProgress, from: 0.72, to: 0.995)
+    }
+
+    var body: some View {
+        HStack {
+            if direction.emergesFromLeadingEdge {
+                cue
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: 0)
+                cue
+            }
+        }
+        .opacity(revealProgress)
+        .scaleEffect(0.86 + revealProgress * 0.14)
+        .offset(x: direction.emergesFromLeadingEdge
+            ? -6 * (1 - revealProgress)
+            : 6 * (1 - revealProgress))
+    }
+
+    private var cue: some View {
+        ZStack {
+            Circle()
+                .fill(.black.opacity(0.28 + armedProgress * 0.16))
+                .frame(width: 29, height: 29)
+
+            Circle()
+                .fill(accent.opacity(0.10 + armedProgress * 0.08))
+                .blur(radius: 5)
+                .frame(width: 34, height: 34)
+
+            Circle()
+                .stroke(.white.opacity(0.12 + armedProgress * 0.18), lineWidth: 0.8)
+                .frame(width: 29, height: 29)
+
+            CompactGestureProgressRing(
+                progress: clampedProgress,
+                accent: accent,
+                lineWidth: 1.35
+            )
+            .frame(width: 27, height: 27)
+
+            Image(systemName: direction.symbol)
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(.white)
+                .scaleEffect(0.9 + armedProgress * 0.14)
+                .shadow(color: accent.opacity(0.28 * armedProgress), radius: 4)
+        }
+    }
+}
+
+private struct CompactTrackHandoffFlash: View {
+    let direction: CompactMediaSwipeDirection
+    let accent: Color
+
+    var body: some View {
+        LinearGradient(
+            colors: direction.emergesFromLeadingEdge
+                ? [
+                    accent.opacity(0.16),
+                    accent.opacity(0.07),
+                    Color.white.opacity(0.025),
+                    .clear
+                ]
+                : [
+                    .clear,
+                    Color.white.opacity(0.025),
+                    accent.opacity(0.07),
+                    accent.opacity(0.16)
+                ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .blendMode(.screen)
+        .mask {
+            LinearGradient(
+                colors: [.clear, .white, .white, .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
+    }
+}
+
+private struct CompactVolumeHUD: View {
+    let state: CompactVolumeHUDState
+    let accent: Color
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var level: CGFloat {
+        CGFloat(min(1, max(0, state.level)))
+    }
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: state.symbolName)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(state.isMuted ? .white.opacity(0.82) : accent)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 14)
+
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(.white.opacity(0.14))
+                    Capsule(style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    accent.opacity(state.isMuted ? 0.22 : 0.72),
+                                    accent.opacity(state.isMuted ? 0.32 : 1)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(3, width * level))
+                }
+            }
+            .frame(width: 38, height: 4)
+
+            Text("\(state.percentage)")
+                .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.76))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .frame(width: 18, alignment: .trailing)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 27)
+        .background {
+            Capsule(style: .continuous)
+                .fill(.black.opacity(0.62))
+            Capsule(style: .continuous)
+                .fill(accent.opacity(state.isMuted ? 0.045 : 0.09))
+                .blur(radius: 4)
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(.white.opacity(0.13), lineWidth: 0.75)
+        }
+        .shadow(color: .black.opacity(0.24), radius: 10, y: 4)
+        .shadow(color: accent.opacity(state.isMuted ? 0 : 0.12), radius: 8)
+        .animation(
+            NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion),
+            value: state
+        )
     }
 }
 
@@ -2506,10 +2793,169 @@ struct NowPlayingExpandedView: View {
     }
 }
 
+private struct PlaybackStatusPill: View {
+    let isPlaying: Bool
+    let accent: Color
+    var morphNamespace: Namespace.ID? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 5) {
+            EQBarsView(isAnimating: isPlaying, primaryColor: accent)
+                .frame(width: 16, height: 11)
+                .matchedGeometry(id: "music-eq", in: morphNamespace)
+                .opacity(isPlaying ? 0.94 : 0.34)
+
+            ZStack {
+                Circle()
+                    .fill(isPlaying ? accent : .white.opacity(0.28))
+                    .frame(width: isPlaying ? 5.5 : 5, height: isPlaying ? 5.5 : 5)
+
+                Circle()
+                    .stroke(accent.opacity(isPlaying ? 0.32 : 0), lineWidth: 1)
+                    .frame(width: 11, height: 11)
+                    .scaleEffect(isPlaying ? 1 : 0.55)
+                    .opacity(isPlaying ? 1 : 0)
+            }
+            .frame(width: 11, height: 11)
+
+            Text(isPlaying ? "Playing" : "Paused")
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(isPlaying ? 0.72 : 0.52))
+                .contentTransition(.interpolate)
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 8)
+        .frame(height: 22)
+        .background {
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            accent.opacity(isPlaying ? 0.16 : 0.065),
+                            Color.white.opacity(isPlaying ? 0.07 : 0.045)
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+        }
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(
+                    accent.opacity(isPlaying ? 0.22 : 0.08),
+                    lineWidth: 0.75
+                )
+        }
+        .shadow(color: accent.opacity(isPlaying ? 0.11 : 0), radius: 8, y: 2)
+        .animation(
+            NotchMotionGraph.animation(for: .playbackResponse, reduceMotion: reduceMotion),
+            value: isPlaying
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isPlaying ? "Playing" : "Paused")
+    }
+}
+
+private struct HeaderIconSurface<Content: View>: View {
+    let accent: Color
+    var isActive = false
+    var isEnabled = true
+    let content: Content
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+
+    init(
+        accent: Color,
+        isActive: Bool = false,
+        isEnabled: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.accent = accent
+        self.isActive = isActive
+        self.isEnabled = isEnabled
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .frame(width: 22, height: 22)
+            .background {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(backgroundOpacity + 0.025),
+                                Color.white.opacity(backgroundOpacity)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                if isActive || isHovering {
+                    Circle()
+                        .fill(accent.opacity(isActive ? 0.13 : 0.08))
+                        .blur(radius: 5)
+                }
+            }
+            .overlay {
+                Circle()
+                    .stroke(
+                        accent.opacity(isActive || isHovering ? 0.24 : 0.08),
+                        lineWidth: 0.75
+                    )
+            }
+            .contentShape(Circle())
+            .scaleEffect(isHovering ? 1.055 : 1)
+            .opacity(isEnabled ? 1 : 0.48)
+            .shadow(
+                color: accent.opacity(isActive || isHovering ? 0.13 : 0),
+                radius: isActive || isHovering ? 7 : 0,
+                y: 2
+            )
+            .onHover { isHovering = $0 }
+            .animation(
+                NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion),
+                value: isHovering
+            )
+            .animation(
+                NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion),
+                value: isActive
+            )
+    }
+
+    private var backgroundOpacity: Double {
+        if isActive { return 0.105 }
+        if isHovering { return 0.09 }
+        return 0.055
+    }
+}
+
+private struct MediaPressButtonStyle: ButtonStyle {
+    var pressedScale: CGFloat = 0.94
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? pressedScale : 1)
+            .brightness(configuration.isPressed ? 0.035 : 0)
+            .animation(
+                NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion),
+                value: configuration.isPressed
+            )
+    }
+}
+
 private struct AudioOutputMenuLabel: View {
     let device: AudioOutputDevice?
     let state: AudioOutputSelectionState
     let accent: Color
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
     var body: some View {
         HStack(spacing: 5) {
@@ -2555,16 +3001,53 @@ private struct AudioOutputMenuLabel: View {
         }
         .padding(.horizontal, 7)
         .frame(height: 22)
-        .background(.white.opacity(0.065), in: Capsule(style: .continuous))
+        .background {
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(backgroundOpacity + 0.025),
+                            Color.white.opacity(backgroundOpacity)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if isEmphasized {
+                Capsule(style: .continuous)
+                    .fill(emphasisColor.opacity(0.08))
+                    .blur(radius: 5)
+            }
+        }
         .overlay {
             Capsule(style: .continuous)
-                .stroke(.white.opacity(0.1), lineWidth: 0.75)
+                .stroke(emphasisColor.opacity(isEmphasized ? 0.24 : 0.08), lineWidth: 0.75)
         }
         .contentShape(Capsule(style: .continuous))
-        .animation(NotchMotionGraph.animation(for: .selection), value: state)
+        .scaleEffect(isHovering ? 1.018 : 1)
+        .shadow(color: emphasisColor.opacity(isEmphasized ? 0.12 : 0), radius: 7, y: 2)
+        .onHover { isHovering = $0 }
+        .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
+        .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: state)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Audio output")
         .accessibilityValue(device?.name ?? "Unavailable")
+    }
+
+    private var isEmphasized: Bool {
+        isHovering || state != .idle
+    }
+
+    private var backgroundOpacity: Double {
+        if state != .idle { return 0.105 }
+        if isHovering { return 0.09 }
+        return 0.055
+    }
+
+    private var emphasisColor: Color {
+        if case .failed = state { return .red }
+        return accent
     }
 
     private func batterySymbol(for percent: Int) -> String {
@@ -2843,6 +3326,7 @@ private struct ControlButton: View {
     var diameter: CGFloat? = nil
     let action: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     var body: some View {
@@ -2857,6 +3341,20 @@ private struct ControlButton: View {
                         width: resolvedDiameter,
                         height: resolvedDiameter
                     )
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [
+                                Color.white.opacity(highlightOpacity),
+                                Color.white.opacity(0)
+                            ],
+                            center: .topLeading,
+                            startRadius: 1,
+                            endRadius: resolvedDiameter * 0.85
+                        )
+                    )
+                    .frame(width: resolvedDiameter, height: resolvedDiameter)
+
                 if prominent && (symbol == "play.fill" || symbol == "pause.fill") {
                     CompactPlaybackGlyph(
                         isPlaying: symbol == "pause.fill",
@@ -2870,13 +3368,26 @@ private struct ControlButton: View {
                         .foregroundStyle(prominent ? foreground : Color.white.opacity(0.86))
                 }
             }
+            .overlay {
+                Circle()
+                    .stroke(
+                        prominent
+                            ? Color.white.opacity(isHovering ? 0.32 : 0.18)
+                            : accent.opacity(isHovering ? 0.24 : 0.08),
+                        lineWidth: 0.85
+                    )
+            }
             .contentShape(Circle())
             .scaleEffect(isHovering ? 1.055 : 1)
-            .shadow(color: prominent ? accent.opacity(0.28) : .clear, radius: 9, y: 4)
+            .shadow(
+                color: accent.opacity(prominent ? (isHovering ? 0.36 : 0.24) : (isHovering ? 0.12 : 0)),
+                radius: prominent ? 10 : 7,
+                y: prominent ? 4 : 2
+            )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MediaPressButtonStyle(pressedScale: prominent ? 0.90 : 0.92))
         .onHover { isHovering = $0 }
-        .animation(NotchMotionGraph.animation(for: .hover), value: isHovering)
+        .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
         .accessibilityLabel(label)
         .help(label)
     }
@@ -2886,6 +3397,11 @@ private struct ControlButton: View {
             return accent.opacity(isHovering ? 1 : 0.92)
         }
         return Color.white.opacity(isHovering ? 0.14 : 0.065)
+    }
+
+    private var highlightOpacity: Double {
+        if prominent { return isHovering ? 0.32 : 0.2 }
+        return isHovering ? 0.12 : 0.055
     }
 }
 
