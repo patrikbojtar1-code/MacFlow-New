@@ -579,6 +579,8 @@ nonisolated enum NotchMotionRole: String, CaseIterable, Sendable {
     case hover
     case zoneReveal
     case selection
+    case playbackResponse
+    case trackHandoff
     case contentEnter
     case containerExpand
     case interruption
@@ -639,6 +641,8 @@ nonisolated enum NotchMotionGraph {
         .hover: .init(curve: .spring, duration: 0.28, dampingFraction: 0.88),
         .zoneReveal: .init(curve: .spring, duration: 0.26, dampingFraction: 0.86),
         .selection: .init(curve: .spring, duration: 0.24, dampingFraction: 0.88),
+        .playbackResponse: .init(curve: .spring, duration: 0.42, dampingFraction: 0.88),
+        .trackHandoff: .init(curve: .spring, duration: 0.38, dampingFraction: 0.90),
         .contentEnter: .init(curve: .spring, duration: 0.34, dampingFraction: 0.88, delay: 0.045),
         .containerExpand: .init(curve: .spring, duration: 0.44, dampingFraction: 0.84),
         .interruption: .init(curve: .spring, duration: 0.36, dampingFraction: 0.90),

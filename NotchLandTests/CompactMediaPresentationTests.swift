@@ -220,6 +220,35 @@ struct CompactMediaPresentationTests {
         #expect(abs(next + previous) < 0.0001)
     }
 
+    @Test func gestureProgressMagneticallySettlesNearActivation() {
+        let beforeSnap = CompactMediaGesturePolicy.progress(for: 40)
+        let nearActivation = CompactMediaGesturePolicy.progress(for: 52)
+        let activated = CompactMediaGesturePolicy.progress(for: 54)
+
+        #expect(beforeSnap < CompactMediaGesturePolicy.magneticSnapStart)
+        #expect(nearActivation > beforeSnap)
+        #expect(activated == 1)
+    }
+
+    @Test func handoffIdentityIgnoresTimelineUpdatesButChangesWithTrack() {
+        var original = makeTrack(
+            title: "Instant Crush",
+            artist: "Daft Punk",
+            album: "Random Access Memories",
+            application: "Spotify",
+            bundle: "com.spotify.client"
+        )
+        let originalIdentity = original.compactPresentation.handoffIdentity
+
+        original.elapsedAtTimestamp += 30
+        original.timestamp = original.timestamp.addingTimeInterval(30)
+        original.playbackRate = 0
+        #expect(original.compactPresentation.handoffIdentity == originalIdentity)
+
+        original.title = "Get Lucky"
+        #expect(original.compactPresentation.handoffIdentity != originalIdentity)
+    }
+
     @Test func appleTVSearchParserFindsExactEpisodeAndArtwork() {
         let searchHTML = #"""
         <script>{"ariaLabel":"Nechť se přihlásí skutečná May","contextAction":{"url":"https://tv.apple.com/cz/episode/necht-se-prihlasi-skutecna-may/umc.cmc.episode?showId=umc.cmc.show"},"artwork":{}}</script>

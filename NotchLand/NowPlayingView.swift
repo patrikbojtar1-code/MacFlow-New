@@ -142,6 +142,9 @@ nonisolated enum CompactMediaGesturePolicy {
     static let activationThreshold: CGFloat = 54
     static let verticalTolerance: CGFloat = 34
     static let trackingDeadZone: CGFloat = 2
+    static let magneticSnapStart: CGFloat = 0.78
+    static let armedProgress: CGFloat = 0.995
+    static let disarmProgress: CGFloat = 0.68
 
     static func direction(
         horizontalTranslation: CGFloat,
@@ -156,7 +159,11 @@ nonisolated enum CompactMediaGesturePolicy {
 
     static func progress(for horizontalTranslation: CGFloat) -> CGFloat {
         let distance = max(0, abs(horizontalTranslation) - trackingDeadZone)
-        return min(1, distance / (activationThreshold - trackingDeadZone))
+        let linear = min(1, distance / (activationThreshold - trackingDeadZone))
+        guard linear > magneticSnapStart else { return linear }
+        let snapProgress = (linear - magneticSnapStart) / (1 - magneticSnapStart)
+        let magnetic = CompactMediaGestureMotion.smooth(snapProgress)
+        return magneticSnapStart + magnetic * (1 - magneticSnapStart)
     }
 
     static func signedProgress(for horizontalTranslation: CGFloat) -> CGFloat {
@@ -408,10 +415,13 @@ struct NowPlayingCollapsedView: View {
     let track: NowPlayingService.Track
     var isHovering: Bool = false
     var morphNamespace: Namespace.ID? = nil
+    var handoffDirection: CompactMediaSwipeDirection? = nil
     /// Interactive value in `-1...1`: negative is Previous, positive is Next.
     var gestureProgress: CGFloat = 0
     @StateObject private var backgroundModel = CompactArtworkBackgroundModel()
     @State private var revealsContent = false
+    @State private var requestedHandoffDirection: CompactMediaSwipeDirection?
+    @State private var handoffResetTask: Task<Void, Never>?
 
     private var presentation: NowPlayingService.CompactMediaPresentation {
         track.compactPresentation
@@ -430,6 +440,7 @@ struct NowPlayingCollapsedView: View {
             reduceMotion: reduceMotion,
             morphNamespace: morphNamespace,
             mediaAppearance: settings.mediaAppearance,
+            trackHandoffDirection: handoffDirection ?? requestedHandoffDirection,
             gestureProgress: gestureProgress,
             onPrevious: previousTrack,
             onPlayPause: togglePlayback,
@@ -460,6 +471,26 @@ struct NowPlayingCollapsedView: View {
         }
         .onChange(of: presentation.isPlaying) { _, isPlaying in
             announcePlaybackState(isPlaying: isPlaying)
+            MotionDebug.record(
+                name: "Playback morph",
+                surface: "Compact Now Playing",
+                duration: NotchMotionGraph.measurement(for: .playbackResponse).duration,
+                state: isPlaying ? "playing" : "paused",
+                reason: "MediaRemote playback state"
+            )
+        }
+        .onChange(of: presentation.handoffIdentity) { _, _ in
+            handoffResetTask?.cancel()
+            handoffResetTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(720))
+                guard !Task.isCancelled else { return }
+                requestedHandoffDirection = nil
+                handoffResetTask = nil
+            }
+        }
+        .onDisappear {
+            handoffResetTask?.cancel()
+            handoffResetTask = nil
         }
         .accessibilityAction(named: presentation.isPlaying ? "Pause" : "Play") {
             togglePlayback()
@@ -483,11 +514,13 @@ struct NowPlayingCollapsedView: View {
     }
 
     private func previousTrack() {
+        requestedHandoffDirection = .previous
         NotchHaptics.perform(.navigation)
         nowPlaying.previousTrack()
     }
 
     private func nextTrack() {
+        requestedHandoffDirection = .next
         NotchHaptics.perform(.navigation)
         nowPlaying.nextTrack()
     }
@@ -522,12 +555,17 @@ struct CompactMediaContent: View {
     let reduceMotion: Bool
     var morphNamespace: Namespace.ID? = nil
     var mediaAppearance: NotchSettings.MediaAppearance = .ambient
+    var trackHandoffDirection: CompactMediaSwipeDirection? = nil
     /// Interactive value in `-1...1`: negative is Previous, positive is Next.
     var gestureProgress: CGFloat = 0
     var onPrevious: () -> Void = {}
     let onPlayPause: () -> Void
     var onNext: () -> Void = {}
     var onSeek: (TimeInterval) -> Void = { _ in }
+
+    @State private var waveformHandoffScale: CGFloat = 1
+    @State private var waveformHandoffOpacity: CGFloat = 1
+    @State private var handoffTask: Task<Void, Never>?
 
     private var profile: CompactMediaLayoutProfile {
         .resolve(for: notchSize)
@@ -551,7 +589,8 @@ struct CompactMediaContent: View {
                 isHovering: isHovering,
                 accessibilityContrast: accessibilityContrast,
                 reduceMotion: reduceMotion,
-                appearance: mediaAppearance
+                appearance: mediaAppearance,
+                handoffDirection: trackHandoffDirection
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -585,8 +624,13 @@ struct CompactMediaContent: View {
             .accessibilityHidden(true)
 
             HStack(spacing: 0) {
-                identityWing
+                ZStack(alignment: .leading) {
+                    identityWing
+                        .id(presentation.handoffIdentity)
+                        .transition(trackHandoffTransition)
+                }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
 
                 Color.clear
                     .frame(width: hardwareNotchWidth)
@@ -606,6 +650,18 @@ struct CompactMediaContent: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        .motionDebugProbe("compact-now-playing")
+        .animation(
+            NotchMotionGraph.animation(for: .trackHandoff, reduceMotion: reduceMotion),
+            value: presentation.handoffIdentity
+        )
+        .onChange(of: presentation.handoffIdentity) { _, _ in
+            performTrackHandoffPulse()
+        }
+        .onDisappear {
+            handoffTask?.cancel()
+            handoffTask = nil
+        }
     }
 
     private var identityWing: some View {
@@ -629,6 +685,10 @@ struct CompactMediaContent: View {
                     .allowsTightening(true)
                     .truncationMode(.tail)
                     .contentTransition(.interpolate)
+                    .matchedGeometry(
+                        id: "music-title-\(presentation.handoffIdentity)",
+                        in: morphNamespace
+                    )
 
                 Text(presentation.secondaryTitle)
                     .font(.system(size: profile.subtitleSize, weight: .medium, design: .rounded))
@@ -637,6 +697,10 @@ struct CompactMediaContent: View {
                     .minimumScaleFactor(0.84)
                     .truncationMode(.tail)
                     .contentTransition(.interpolate)
+                    .matchedGeometry(
+                        id: "music-subtitle-\(presentation.handoffIdentity)",
+                        in: morphNamespace
+                    )
 
                 CompactMediaTimeline(
                     presentation: presentation,
@@ -694,6 +758,9 @@ struct CompactMediaContent: View {
             .matchedGeometry(id: "music-eq", in: morphNamespace)
             .opacity(1 - travelProgress * 0.58)
             .scaleEffect(1 - travelProgress * 0.055)
+            .scaleEffect(x: 1, y: waveformHandoffScale)
+            .opacity(waveformHandoffOpacity)
+            .rotationEffect(.degrees(Double(gestureProgress) * -2.4))
             .accessibilityHidden(true)
 
             CompactTransportButton(
@@ -709,6 +776,7 @@ struct CompactMediaContent: View {
                 action: onPlayPause
             )
             .offset(x: nextControlOffset * travelProgress)
+            .matchedGeometry(id: "music-playback-control", in: morphNamespace)
             .zIndex(2)
 
             if profile.showsNext {
@@ -742,6 +810,45 @@ struct CompactMediaContent: View {
 
     private var nextGestureProgress: CGFloat {
         min(1, max(0, gestureProgress))
+    }
+
+    private var trackHandoffTransition: AnyTransition {
+        let direction = trackHandoffDirection ?? .next
+        let insertionOffset: CGFloat = direction == .next ? 14 : -14
+        return .asymmetric(
+            insertion: .offset(x: insertionOffset).combined(with: .opacity),
+            removal: .offset(x: -insertionOffset).combined(with: .opacity)
+        )
+    }
+
+    private func performTrackHandoffPulse() {
+        handoffTask?.cancel()
+        MotionDebug.record(
+            name: "Track handoff",
+            surface: "Compact Now Playing",
+            duration: NotchMotionGraph.measurement(for: .trackHandoff).duration,
+            state: trackHandoffDirection?.accessibilityLabel ?? "Automatic next track",
+            reason: presentation.handoffIdentity
+        )
+        guard !reduceMotion else {
+            waveformHandoffScale = 1
+            waveformHandoffOpacity = 1
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.09)) {
+            waveformHandoffScale = 0.18
+            waveformHandoffOpacity = 0.42
+        }
+        handoffTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(90))
+            guard !Task.isCancelled else { return }
+            withAnimation(NotchMotionGraph.animation(for: .trackHandoff)) {
+                waveformHandoffScale = 1
+                waveformHandoffOpacity = 1
+            }
+            handoffTask = nil
+        }
     }
 }
 
@@ -777,6 +884,7 @@ private struct CompactMediaBackground: View {
     let accessibilityContrast: ColorSchemeContrast
     let reduceMotion: Bool
     let appearance: NotchSettings.MediaAppearance
+    let handoffDirection: CompactMediaSwipeDirection?
 
     var body: some View {
         ZStack {
@@ -791,6 +899,7 @@ private struct CompactMediaBackground: View {
                             .scaledToFill()
                             .id(identity)
                             .opacity(isPlaying ? (isHovering ? 0.78 : 0.72) : 0.58)
+                            .transition(artworkHandoffTransition)
                     } else {
                         LinearGradient(
                             colors: [accent.opacity(0.18), .black],
@@ -830,6 +939,15 @@ private struct CompactMediaBackground: View {
         .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: isPlaying)
         .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: appearance)
         .allowsHitTesting(false)
+    }
+
+    private var artworkHandoffTransition: AnyTransition {
+        let direction = handoffDirection ?? .next
+        let insertionOffset: CGFloat = direction == .next ? 10 : -10
+        return .asymmetric(
+            insertion: .offset(x: insertionOffset).combined(with: .opacity),
+            removal: .offset(x: -insertionOffset).combined(with: .opacity)
+        )
     }
 }
 
@@ -1130,10 +1248,23 @@ private struct CompactTransportButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                Image(systemName: symbol)
-                    .font(.system(size: isProminent ? 15.5 : 11.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.38))
-                    .contentTransition(.symbolEffect(.replace))
+                Group {
+                    if isPlaybackSymbol {
+                        CompactPlaybackGlyph(
+                            isPlaying: symbol == "pause.fill",
+                            size: isProminent ? 15.5 : 11.5,
+                            color: .white.opacity(isEnabled ? 0.96 : 0.38)
+                        )
+                    } else {
+                        Image(systemName: symbol)
+                            .font(.system(
+                                size: isProminent ? 15.5 : 11.5,
+                                weight: .semibold
+                            ))
+                            .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.38))
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                }
                     .scaleEffect(1 - sourceExitProgress * 0.12)
                     .offset(x: -2.5 * sourceExitProgress)
                     .blur(radius: sourceExitProgress * 0.55)
@@ -1202,6 +1333,43 @@ private struct CompactTransportButton: View {
         guard isProminent || isHovering else { return .clear }
         if isHovering { return .white.opacity(0.17) }
         return .white.opacity(isHoveringNotch ? 0.11 : 0.075)
+    }
+
+    private var isPlaybackSymbol: Bool {
+        symbol == "play.fill" || symbol == "pause.fill"
+    }
+}
+
+private struct CompactPlaybackGlyph: View {
+    let isPlaying: Bool
+    let size: CGFloat
+    let color: Color
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            Image(systemName: "play.fill")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(color)
+                .scaleEffect(isPlaying ? 0.72 : 1)
+                .rotationEffect(.degrees(isPlaying ? -8 : 0))
+                .blur(radius: isPlaying ? 0.8 : 0)
+                .opacity(isPlaying ? 0 : 1)
+
+            Image(systemName: "pause.fill")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(color)
+                .scaleEffect(isPlaying ? 1 : 0.72)
+                .offset(y: isPlaying ? 0 : 1.5)
+                .blur(radius: isPlaying ? 0 : 0.8)
+                .opacity(isPlaying ? 1 : 0)
+        }
+        .frame(width: size + 2, height: size + 2)
+        .animation(
+            NotchMotionGraph.animation(for: .playbackResponse, reduceMotion: reduceMotion),
+            value: isPlaying
+        )
     }
 }
 
@@ -1313,9 +1481,15 @@ private struct CompactMediaWaveform: View {
     let color: Color
     let isEmphasized: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var playbackEnergy: CGFloat = 0
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: AppMotion.FrameInterval.ambient, paused: !isPlaying || reduceMotion)) { timeline in
+        TimelineView(
+            .animation(
+                minimumInterval: AppMotion.FrameInterval.ambient,
+                paused: reduceMotion || (!isPlaying && playbackEnergy < 0.001)
+            )
+        ) { timeline in
             Canvas { context, size in
                 let barCount = 7
                 let barWidth: CGFloat = 2.4
@@ -1329,7 +1503,8 @@ private struct CompactMediaWaveform: View {
                     let edgeScale = index == 0 || index == barCount - 1 ? 0.42 : 1.0
                     let dynamic = (0.28 + abs(sin(phase)) * 0.72) * edgeScale
                     let settled = 0.22 + Double(index % 3) * 0.08
-                    let amplitude = isPlaying && !reduceMotion ? dynamic : settled
+                    let energy = reduceMotion ? 0 : Double(playbackEnergy)
+                    let amplitude = settled + (dynamic - settled) * energy
                     let height = max(3, size.height * CGFloat(amplitude))
                     let rect = CGRect(
                         x: originX + CGFloat(index) * (barWidth + spacing),
@@ -1344,7 +1519,19 @@ private struct CompactMediaWaveform: View {
                 }
             }
         }
-        .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: isPlaying)
+        .onAppear {
+            playbackEnergy = isPlaying && !reduceMotion ? 1 : 0
+        }
+        .onChange(of: isPlaying) { _, playing in
+            withAnimation(
+                NotchMotionGraph.animation(for: .playbackResponse, reduceMotion: reduceMotion)
+            ) {
+                playbackEnergy = playing ? 1 : 0
+            }
+        }
+        .onChange(of: reduceMotion) { _, isReduced in
+            playbackEnergy = isReduced ? 0 : (isPlaying ? 1 : 0)
+        }
     }
 }
 
@@ -1462,6 +1649,8 @@ struct NowPlayingExpandedView: View {
     var morphNamespace: Namespace.ID? = nil
     @State private var scrubbedProgress: Double?
     @State private var scrubClearTask: Task<Void, Never>?
+    @State private var requestedHandoffDirection: CompactMediaSwipeDirection = .next
+    @State private var handoffResetTask: Task<Void, Never>?
 
     var body: some View {
         let theme = MediaSourceTheme.resolve(for: track)
@@ -1471,7 +1660,12 @@ struct NowPlayingExpandedView: View {
 
             VStack(alignment: .leading, spacing: ExpandedMediaTokens.sectionSpacing) {
                 sourceHeader(theme: theme)
-                mediaIdentity(theme: theme)
+                ZStack(alignment: .leading) {
+                    mediaIdentity(theme: theme)
+                        .id(track.compactPresentation.handoffIdentity)
+                        .transition(expandedHandoffTransition)
+                }
+                .clipped()
                 scrubber(theme: theme)
             }
             .padding(.horizontal, ExpandedMediaTokens.horizontalPadding)
@@ -1480,9 +1674,32 @@ struct NowPlayingExpandedView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
+        .motionDebugProbe("expanded-now-playing")
+        .animation(
+            NotchMotionGraph.animation(for: .trackHandoff),
+            value: track.compactPresentation.handoffIdentity
+        )
+        .onChange(of: track.compactPresentation.handoffIdentity) { _, _ in
+            MotionDebug.record(
+                name: "Track handoff",
+                surface: "Expanded Now Playing",
+                duration: NotchMotionGraph.measurement(for: .trackHandoff).duration,
+                state: requestedHandoffDirection.accessibilityLabel,
+                reason: track.compactPresentation.handoffIdentity
+            )
+            handoffResetTask?.cancel()
+            handoffResetTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(720))
+                guard !Task.isCancelled else { return }
+                requestedHandoffDirection = .next
+                handoffResetTask = nil
+            }
+        }
         .onDisappear {
             scrubClearTask?.cancel()
             scrubClearTask = nil
+            handoffResetTask?.cancel()
+            handoffResetTask = nil
         }
     }
 
@@ -1519,7 +1736,8 @@ struct NowPlayingExpandedView: View {
                         endPoint: .bottom
                     )
                 }
-                .transition(.opacity)
+                .id(track.compactPresentation.handoffIdentity)
+                .transition(expandedBackgroundTransition)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1560,6 +1778,14 @@ struct NowPlayingExpandedView: View {
         .frame(height: 22)
     }
 
+    private var expandedBackgroundTransition: AnyTransition {
+        let insertionOffset: CGFloat = requestedHandoffDirection == .next ? 10 : -10
+        return .asymmetric(
+            insertion: .offset(x: insertionOffset).combined(with: .opacity),
+            removal: .offset(x: -insertionOffset).combined(with: .opacity)
+        )
+    }
+
     @ViewBuilder
     private func mediaIdentity(theme: MediaSourceTheme) -> some View {
         if let video = track.videoPresentation {
@@ -1579,11 +1805,19 @@ struct NowPlayingExpandedView: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.78)
                     .contentTransition(.interpolate)
+                    .matchedGeometry(
+                        id: "music-title-\(track.compactPresentation.handoffIdentity)",
+                        in: morphNamespace
+                    )
                 Text(primaryMetadata(theme: theme))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.68))
                     .lineLimit(1)
                     .padding(.top, 5)
+                    .matchedGeometry(
+                        id: "music-subtitle-\(track.compactPresentation.handoffIdentity)",
+                        in: morphNamespace
+                    )
                 if let tertiaryMetadata {
                     Text(tertiaryMetadata)
                         .font(.system(size: 10, weight: .medium, design: .rounded))
@@ -1824,7 +2058,7 @@ struct NowPlayingExpandedView: View {
     ) -> some View {
         HStack(spacing: cinematic ? 13 : 8) {
             ControlButton(
-                symbol: "backward.fill",
+                symbol: "backward.end.fill",
                 label: "Previous",
                 size: cinematic ? 15 : 13,
                 prominent: false,
@@ -1832,6 +2066,7 @@ struct NowPlayingExpandedView: View {
                 foreground: .white,
                 diameter: cinematic ? 39 : nil
             ) {
+                requestedHandoffDirection = .previous
                 NotchHaptics.perform(.navigation)
                 nowPlaying.previousTrack()
             }
@@ -1847,8 +2082,9 @@ struct NowPlayingExpandedView: View {
                 NotchHaptics.perform(.navigation)
                 nowPlaying.togglePlayPause()
             }
+            .matchedGeometry(id: "music-playback-control", in: morphNamespace)
             ControlButton(
-                symbol: "forward.fill",
+                symbol: "forward.end.fill",
                 label: "Next",
                 size: cinematic ? 15 : 13,
                 prominent: false,
@@ -1856,6 +2092,7 @@ struct NowPlayingExpandedView: View {
                 foreground: .white,
                 diameter: cinematic ? 39 : nil
             ) {
+                requestedHandoffDirection = .next
                 NotchHaptics.perform(.navigation)
                 nowPlaying.nextTrack()
             }
@@ -1883,6 +2120,14 @@ struct NowPlayingExpandedView: View {
             .foregroundStyle(Color.white.opacity(0.85))
             .frame(width: 40, height: 40)
             .contentShape(Rectangle())
+    }
+
+    private var expandedHandoffTransition: AnyTransition {
+        let insertionOffset: CGFloat = requestedHandoffDirection == .next ? 18 : -18
+        return .asymmetric(
+            insertion: .offset(x: insertionOffset).combined(with: .opacity),
+            removal: .offset(x: -insertionOffset).combined(with: .opacity)
+        )
     }
 
     private func format(_ seconds: TimeInterval) -> String {
@@ -1981,10 +2226,18 @@ private struct ControlButton: View {
                         width: resolvedDiameter,
                         height: resolvedDiameter
                     )
-                Image(systemName: symbol)
-                    .font(.system(size: size, weight: .semibold))
-                    .foregroundStyle(prominent ? foreground : Color.white.opacity(0.86))
-                    .offset(x: prominent && symbol == "play.fill" ? 1 : 0)
+                if prominent && (symbol == "play.fill" || symbol == "pause.fill") {
+                    CompactPlaybackGlyph(
+                        isPlaying: symbol == "pause.fill",
+                        size: size,
+                        color: foreground
+                    )
+                    .offset(x: symbol == "play.fill" ? 1 : 0)
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: size, weight: .semibold))
+                        .foregroundStyle(prominent ? foreground : Color.white.opacity(0.86))
+                }
             }
             .contentShape(Circle())
             .scaleEffect(isHovering ? 1.055 : 1)

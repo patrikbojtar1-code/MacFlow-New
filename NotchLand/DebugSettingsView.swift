@@ -98,6 +98,21 @@ struct DebugSettingsView: View {
                             MotionDebugEventRow(event: event)
                         }
                     }
+
+                    if !motionDebugger.renderCounts.isEmpty {
+                        DisclosureGroup("Render activity") {
+                            ForEach(
+                                motionDebugger.renderCounts.keys.sorted(),
+                                id: \.self
+                            ) { surface in
+                                LabeledContent(surface) {
+                                    Text("\(motionDebugger.renderCounts[surface, default: 0]) updates")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

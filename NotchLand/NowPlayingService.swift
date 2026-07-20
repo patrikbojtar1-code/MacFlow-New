@@ -86,6 +86,18 @@ final class NowPlayingService: ObservableObject {
         var timestamp: Date
         var playbackRate: Double
 
+        /// Stable across elapsed-time and play/pause updates, but changes when
+        /// the actual media item changes. UI motion keys off this value so the
+        /// track handoff runs once rather than on every MediaRemote refresh.
+        var handoffIdentity: String {
+            [
+                source.id.rawValue,
+                primaryTitle,
+                secondaryTitle,
+                artworkIdentifier ?? "no-artwork",
+            ].joined(separator: "|")
+        }
+
         var isSeekable: Bool {
             duration.isFinite && duration > 0
         }

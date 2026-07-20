@@ -147,7 +147,10 @@ struct FloatingNotchView: View {
     /// One continuous value avoids a discrete direction swap while a spring
     /// is settling: -1 is Previous, 0 is rest, +1 is Next.
     @State private var compactMediaGestureProgress: CGFloat = 0
+    @State private var compactMediaGestureIsArmed = false
+    @State private var compactMediaHandoffDirection: CompactMediaSwipeDirection?
     @State private var compactMediaGestureResetTask: Task<Void, Never>?
+    @State private var compactMediaHandoffResetTask: Task<Void, Never>?
     @State private var calendarCountdownShapeReveal: CGFloat = 1
     /// True for the lifetime of a transition whose source or destination is a
     /// calendar-countdown branch. Keeps `notchBody` on `calendarCountdownNotchBody`
@@ -293,6 +296,7 @@ struct FloatingNotchView: View {
         .onDisappear {
             notchTransitionTask?.cancel()
             compactMediaGestureResetTask?.cancel()
+            compactMediaHandoffResetTask?.cancel()
             zoneController.hide()
         }
     }
@@ -673,10 +677,17 @@ struct FloatingNotchView: View {
         guard isTracking || abs(horizontal) > abs(vertical) * 1.15 else { return }
 
         compactMediaGestureResetTask?.cancel()
+        let signedProgress = CompactMediaGesturePolicy.signedProgress(for: horizontal)
+        let magnitude = abs(signedProgress)
+        if magnitude >= CompactMediaGesturePolicy.armedProgress,
+           !compactMediaGestureIsArmed {
+            NotchHaptics.perform(.navigation)
+            compactMediaGestureIsArmed = true
+        } else if magnitude < CompactMediaGesturePolicy.disarmProgress {
+            compactMediaGestureIsArmed = false
+        }
         withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.tracking) {
-            compactMediaGestureProgress = CompactMediaGesturePolicy.signedProgress(
-                for: horizontal
-            )
+            compactMediaGestureProgress = signedProgress
         }
     }
 
@@ -699,7 +710,11 @@ struct FloatingNotchView: View {
         }
 
         compactMediaGestureResetTask?.cancel()
-        NotchHaptics.perform(.confirmation)
+        compactMediaHandoffResetTask?.cancel()
+        compactMediaHandoffDirection = direction
+        if !compactMediaGestureIsArmed {
+            NotchHaptics.perform(.confirmation)
+        }
         withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.completion) {
             compactMediaGestureProgress = direction == .next ? 1 : -1
         }
@@ -718,13 +733,22 @@ struct FloatingNotchView: View {
             withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.returnToRest) {
                 compactMediaGestureProgress = 0
             }
+            compactMediaGestureIsArmed = false
             compactMediaGestureResetTask = nil
+        }
+
+        compactMediaHandoffResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1_200))
+            guard !Task.isCancelled else { return }
+            compactMediaHandoffDirection = nil
+            compactMediaHandoffResetTask = nil
         }
     }
 
     private func resetCompactMediaGesture(animated: Bool) {
         compactMediaGestureResetTask?.cancel()
         compactMediaGestureResetTask = nil
+        compactMediaGestureIsArmed = false
         let updates = {
             compactMediaGestureProgress = 0
         }
@@ -1149,6 +1173,7 @@ struct FloatingNotchView: View {
                     track: track,
                     isHovering: isHoveringThisDisplay,
                     morphNamespace: morph,
+                    handoffDirection: compactMediaHandoffDirection,
                     gestureProgress: compactMediaGestureProgress
                 )
             } else {
@@ -1185,6 +1210,7 @@ struct FloatingNotchView: View {
                     track: track,
                     isHovering: isHoveringThisDisplay,
                     morphNamespace: morph,
+                    handoffDirection: compactMediaHandoffDirection,
                     gestureProgress: compactMediaGestureProgress
                 )
             } else {
