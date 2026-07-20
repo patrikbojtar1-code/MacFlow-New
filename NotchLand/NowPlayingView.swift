@@ -1786,12 +1786,15 @@ struct NowPlayingExpandedView: View {
     @EnvironmentObject var nowPlaying: NowPlayingService
     @EnvironmentObject private var settings: NotchSettings
     @EnvironmentObject private var audioOutputs: AudioDeviceActivitySource
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var trackActions = NowPlayingTrackActionsController()
     let track: NowPlayingService.Track
     var morphNamespace: Namespace.ID? = nil
     @State private var scrubbedProgress: Double?
     @State private var scrubClearTask: Task<Void, Never>?
     @State private var requestedHandoffDirection: CompactMediaSwipeDirection = .next
     @State private var handoffResetTask: Task<Void, Never>?
+    @State private var isVolumePopoverPresented = false
 
     var body: some View {
         let theme = MediaSourceTheme.resolve(for: track)
@@ -1905,17 +1908,14 @@ struct NowPlayingExpandedView: View {
                         .stroke(theme.accent.opacity(0.2), lineWidth: 0.75)
                 }
             Spacer()
-            EQBarsView(isAnimating: track.isPlaying, primaryColor: theme.accent)
-                .frame(width: 16, height: 11)
-                .matchedGeometry(id: "music-eq", in: morphNamespace)
-                .opacity(track.isPlaying ? 0.9 : 0.32)
-            Circle()
-                .fill(track.isPlaying ? theme.accent : .white.opacity(0.3))
-                .frame(width: 5, height: 5)
-            Text(track.isPlaying ? "Playing" : "Paused")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.58))
+            PlaybackStatusPill(
+                isPlaying: track.isPlaying,
+                accent: theme.accent,
+                morphNamespace: morphNamespace
+            )
             outputDeviceMenu(theme: theme)
+            volumeControl(theme: theme)
+            trackActionsMenu(theme: theme)
         }
         .frame(height: 22)
     }
@@ -2307,6 +2307,169 @@ struct NowPlayingExpandedView: View {
         }
     }
 
+    private func volumeControl(theme: MediaSourceTheme) -> some View {
+        Button {
+            withAnimation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion)) {
+                isVolumePopoverPresented.toggle()
+            }
+        } label: {
+            HeaderIconSurface(
+                accent: theme.accent,
+                isActive: isVolumePopoverPresented,
+                isEnabled: audioOutputs.volumeState.isAvailable
+            ) {
+                Image(systemName: audioVolumeSymbol)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(
+                        audioOutputs.volumeState.isAvailable
+                            ? theme.accent
+                            : .white.opacity(0.3)
+                    )
+                    .contentTransition(.symbolEffect(.replace))
+            }
+        }
+        .buttonStyle(MediaPressButtonStyle(pressedScale: 0.92))
+        .disabled(!audioOutputs.volumeState.isAvailable)
+        .help(volumeControlHelp)
+        .popover(isPresented: $isVolumePopoverPresented, arrowEdge: .top) {
+            AudioOutputVolumePopover(
+                controller: audioOutputs,
+                accent: theme.accent
+            )
+        }
+        .animation(
+            NotchMotionGraph.animation(for: .selection),
+            value: audioOutputs.volumeState
+        )
+    }
+
+    private func trackActionsMenu(theme: MediaSourceTheme) -> some View {
+        let presentation = NowPlayingTrackActionsPresentation(track: track)
+
+        return Menu {
+            Button {
+                Task { @MainActor in
+                    let succeeded = await trackActions.openSource(presentation)
+                    NotchHaptics.perform(succeeded ? .confirmation : .rejection)
+                }
+            } label: {
+                Label(
+                    "Open in \(presentation.sourceName)",
+                    systemImage: "arrow.up.forward.app.fill"
+                )
+            }
+            .disabled(!trackActions.canOpenSource(presentation) || trackActions.isOpeningSource)
+
+            Divider()
+
+            Button {
+                performRelativeSeek(-15, presentation: presentation)
+            } label: {
+                Label("Back 15 Seconds", systemImage: "gobackward.15")
+            }
+            .disabled(!presentation.isSeekable)
+
+            Button {
+                performRelativeSeek(15, presentation: presentation)
+            } label: {
+                Label("Forward 15 Seconds", systemImage: "goforward.15")
+            }
+            .disabled(!presentation.isSeekable)
+
+            Divider()
+
+            Button {
+                let succeeded = trackActions.copyCompactMetadata(presentation)
+                NotchHaptics.perform(succeeded ? .confirmation : .rejection)
+            } label: {
+                Label("Copy Track", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                let succeeded = trackActions.copyDetailedMetadata(presentation)
+                NotchHaptics.perform(succeeded ? .confirmation : .rejection)
+            } label: {
+                Label("Copy Track and Album", systemImage: "text.badge.plus")
+            }
+            .disabled(presentation.album == nil)
+        } label: {
+            HeaderIconSurface(
+                accent: trackActionColor(theme: theme),
+                isActive: trackActions.feedback != .idle || trackActions.isOpeningSource
+            ) {
+                ZStack {
+                    if trackActions.isOpeningSource {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(theme.accent)
+                            .transition(.scale.combined(with: .opacity))
+                    } else {
+                        Image(systemName: trackActions.feedback.symbolName)
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundStyle(trackActionColor(theme: theme))
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(trackActionHelp)
+        .accessibilityLabel("Track actions")
+        .accessibilityValue(trackActions.feedback.accessibilityValue ?? "Available")
+        .animation(
+            NotchMotionGraph.animation(for: .selection),
+            value: trackActions.feedback
+        )
+    }
+
+    private func performRelativeSeek(
+        _ seconds: TimeInterval,
+        presentation: NowPlayingTrackActionsPresentation
+    ) {
+        guard let target = presentation.seekTarget(by: seconds) else {
+            NotchHaptics.perform(.rejection)
+            return
+        }
+        nowPlaying.seek(to: target)
+        trackActions.confirmSeek(seconds: seconds)
+        NotchHaptics.perform(.navigation)
+    }
+
+    private func trackActionColor(theme: MediaSourceTheme) -> Color {
+        switch trackActions.feedback {
+        case .idle: .white.opacity(0.58)
+        case .success: theme.accent
+        case .failure: .red
+        }
+    }
+
+    private var trackActionHelp: String {
+        switch trackActions.feedback {
+        case .idle: "More track actions"
+        case let .success(message), let .failure(message): message
+        }
+    }
+
+    private var audioVolumeSymbol: String {
+        let state = audioOutputs.volumeState
+        if state.isMuted || state.effectiveLevel <= 0.001 { return "speaker.slash.fill" }
+        if state.effectiveLevel < 0.34 { return "speaker.wave.1.fill" }
+        if state.effectiveLevel < 0.68 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
+    }
+
+    private var volumeControlHelp: String {
+        if let volumeErrorMessage = audioOutputs.volumeErrorMessage {
+            return volumeErrorMessage
+        }
+        guard audioOutputs.volumeState.isAvailable else {
+            return "Volume is controlled by the output device"
+        }
+        return "System volume: \(Int((audioOutputs.volumeState.effectiveLevel * 100).rounded()))%"
+    }
+
     private func deviceMenuTitle(_ device: AudioOutputDevice) -> String {
         var parts = [device.isDefault ? "✓ \(device.name)" : device.name]
         if let batteryPercent = device.batteryPercent {
@@ -2372,7 +2535,7 @@ private struct AudioOutputMenuLabel: View {
                 .font(.system(size: 8.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.72))
                 .lineLimit(1)
-                .frame(maxWidth: 92, alignment: .leading)
+                .frame(maxWidth: 78, alignment: .leading)
                 .contentTransition(.interpolate)
 
             if let batteryPercent = device?.batteryPercent {
@@ -2418,6 +2581,191 @@ private struct AudioOutputMenuLabel: View {
         if percent <= 15 { return .red }
         if percent <= 30 { return .orange }
         return .white.opacity(0.58)
+    }
+}
+
+private struct AudioOutputVolumePopover: View {
+    @ObservedObject var controller: AudioDeviceActivitySource
+    let accent: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(spacing: 9) {
+                ZStack {
+                    Circle()
+                        .fill(accent.opacity(0.14))
+                    Image(systemName: controller.currentOutput?.model.symbolName ?? "speaker.wave.2.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
+                .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(controller.currentOutput?.name ?? "Audio Output")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                    Text(controller.volumeState.isAvailable ? "System volume" : "External volume control")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Text("\(Int((controller.volumeState.effectiveLevel * 100).rounded()))%")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    let succeeded = controller.toggleMuted()
+                    NotchHaptics.perform(succeeded ? .navigation : .rejection)
+                } label: {
+                    Image(systemName: volumeSymbol)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(controller.volumeState.isMuted ? .white : accent)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 28, height: 28)
+                        .background(
+                            controller.volumeState.isMuted
+                                ? Color.white.opacity(0.14)
+                                : accent.opacity(0.12),
+                            in: Circle()
+                        )
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!controller.volumeState.isAvailable)
+                .help(controller.volumeState.isMuted ? "Unmute" : "Mute")
+
+                AudioOutputVolumeSlider(
+                    value: controller.volumeState.effectiveLevel,
+                    isEnabled: controller.volumeState.isVolumeControllable,
+                    accent: accent,
+                    onChanged: { _ = controller.setVolume($0) },
+                    onEnded: { NotchHaptics.perform(.navigation) }
+                )
+                .frame(height: 24)
+
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let error = controller.volumeErrorMessage {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
+        .animation(
+            NotchMotionGraph.animation(for: .selection),
+            value: controller.volumeErrorMessage
+        )
+        .task {
+            controller.refreshVolume()
+        }
+    }
+
+    private var volumeSymbol: String {
+        let state = controller.volumeState
+        if state.isMuted || state.effectiveLevel <= 0.001 { return "speaker.slash.fill" }
+        if state.effectiveLevel < 0.34 { return "speaker.wave.1.fill" }
+        if state.effectiveLevel < 0.68 { return "speaker.wave.2.fill" }
+        return "speaker.wave.3.fill"
+    }
+}
+
+private struct AudioOutputVolumeSlider: View {
+    let value: Double
+    let isEnabled: Bool
+    let accent: Color
+    let onChanged: (Double) -> Void
+    let onEnded: () -> Void
+
+    @State private var isHovering = false
+    @State private var isDragging = false
+
+    private var clampedValue: CGFloat {
+        CGFloat(min(1, max(0, value)))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(1, geometry.size.width)
+            let fillWidth = width * clampedValue
+            let revealsThumb = isHovering || isDragging
+            let thumbSize: CGFloat = revealsThumb ? 12 : 9
+
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.11))
+                    .frame(height: 5)
+
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [accent.opacity(0.72), accent],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(0, fillWidth), height: 5)
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                    .offset(
+                        x: min(
+                            max(fillWidth - thumbSize / 2, 0),
+                            max(0, width - thumbSize)
+                        )
+                    )
+                    .opacity(isEnabled ? 1 : 0.35)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        guard isEnabled else { return }
+                        isDragging = true
+                        onChanged(progress(at: gesture.location.x, width: width))
+                    }
+                    .onEnded { gesture in
+                        guard isEnabled else { return }
+                        isDragging = false
+                        onChanged(progress(at: gesture.location.x, width: width))
+                        onEnded()
+                    }
+            )
+            .animation(NotchMotionGraph.animation(for: .selection), value: revealsThumb)
+        }
+        .opacity(isEnabled ? 1 : 0.45)
+        .accessibilityElement()
+        .accessibilityLabel("System volume")
+        .accessibilityValue("\(Int((value * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            guard isEnabled else { return }
+            switch direction {
+            case .increment: onChanged(min(1, value + 0.05))
+            case .decrement: onChanged(max(0, value - 0.05))
+            @unknown default: break
+            }
+            onEnded()
+        }
+    }
+
+    private func progress(at locationX: CGFloat, width: CGFloat) -> Double {
+        guard width > 0 else { return 0 }
+        return Double(min(1, max(0, locationX / width)))
     }
 }
 

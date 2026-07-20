@@ -61,21 +61,57 @@ enum AudioOutputSelectionState: Equatable {
     }
 }
 
+struct AudioOutputVolumeState: Equatable, Sendable {
+    static let unavailable = Self(
+        level: 0,
+        isMuted: false,
+        isVolumeControllable: false,
+        isMuteControllable: false
+    )
+
+    let level: Double
+    let isMuted: Bool
+    let isVolumeControllable: Bool
+    let isMuteControllable: Bool
+
+    init(
+        level: Double,
+        isMuted: Bool,
+        isVolumeControllable: Bool,
+        isMuteControllable: Bool
+    ) {
+        self.level = min(1, max(0, level))
+        self.isMuted = isMuted
+        self.isVolumeControllable = isVolumeControllable
+        self.isMuteControllable = isMuteControllable
+    }
+
+    var effectiveLevel: Double { isMuted ? 0 : level }
+    var isAvailable: Bool { isVolumeControllable || isMuteControllable }
+}
+
 @MainActor
 protocol AudioOutputDeviceProviding {
     func availableOutputs() -> [AudioOutputDevice]
     func defaultOutputDeviceID() -> AudioDeviceID
     func selectOutput(_ deviceID: AudioDeviceID) throws
+    func outputVolumeState() -> AudioOutputVolumeState
+    func setOutputVolume(_ level: Double) throws
+    func setOutputMuted(_ isMuted: Bool) throws
 }
 
 enum AudioOutputDeviceError: LocalizedError {
     case unavailable
     case selectionFailed(OSStatus)
+    case volumeUnavailable
+    case volumeChangeFailed(OSStatus)
 
     var errorDescription: String? {
         switch self {
         case .unavailable: "This audio output is no longer available."
         case let .selectionFailed(status): "macOS could not switch the output (\(status))."
+        case .volumeUnavailable: "This output controls its volume externally."
+        case let .volumeChangeFailed(status): "macOS could not change the volume (\(status))."
         }
     }
 }
@@ -176,6 +212,101 @@ final class CoreAudioOutputDeviceProvider: AudioOutputDeviceProviding {
         }
     }
 
+    func outputVolumeState() -> AudioOutputVolumeState {
+        let deviceID = defaultOutputDeviceID()
+        let volumeElements = propertyElements(
+            on: deviceID,
+            selector: kAudioDevicePropertyVolumeScalar
+        )
+        let muteElements = propertyElements(
+            on: deviceID,
+            selector: kAudioDevicePropertyMute
+        )
+        let levels = volumeElements.compactMap { readVolume(on: deviceID, element: $0) }
+        let level = levels.isEmpty ? 0 : levels.reduce(0, +) / Double(levels.count)
+        let hardwareMuted = muteElements.contains { readMute(on: deviceID, element: $0) == true }
+
+        return AudioOutputVolumeState(
+            level: level,
+            isMuted: hardwareMuted || (!levels.isEmpty && level <= 0.000_5),
+            isVolumeControllable: !volumeElements.isEmpty,
+            isMuteControllable: !muteElements.isEmpty
+        )
+    }
+
+    func setOutputVolume(_ level: Double) throws {
+        let deviceID = defaultOutputDeviceID()
+        let elements = propertyElements(
+            on: deviceID,
+            selector: kAudioDevicePropertyVolumeScalar
+        )
+        guard !elements.isEmpty else { throw AudioOutputDeviceError.volumeUnavailable }
+
+        let resolvedLevel = Float32(min(1, max(0, level)))
+        var firstFailure: OSStatus?
+        var didSet = false
+        for element in elements {
+            var value = resolvedLevel
+            var address = outputAddress(
+                selector: kAudioDevicePropertyVolumeScalar,
+                element: element
+            )
+            let size = UInt32(MemoryLayout<Float32>.size)
+            let status = AudioObjectSetPropertyData(
+                deviceID,
+                &address,
+                0,
+                nil,
+                size,
+                &value
+            )
+            if status == noErr {
+                didSet = true
+            } else if firstFailure == nil {
+                firstFailure = status
+            }
+        }
+        guard didSet else {
+            throw AudioOutputDeviceError.volumeChangeFailed(firstFailure ?? kAudioHardwareUnspecifiedError)
+        }
+    }
+
+    func setOutputMuted(_ isMuted: Bool) throws {
+        let deviceID = defaultOutputDeviceID()
+        let elements = propertyElements(
+            on: deviceID,
+            selector: kAudioDevicePropertyMute
+        )
+        guard !elements.isEmpty else { throw AudioOutputDeviceError.volumeUnavailable }
+
+        var firstFailure: OSStatus?
+        var didSet = false
+        for element in elements {
+            var value: UInt32 = isMuted ? 1 : 0
+            var address = outputAddress(
+                selector: kAudioDevicePropertyMute,
+                element: element
+            )
+            let size = UInt32(MemoryLayout<UInt32>.size)
+            let status = AudioObjectSetPropertyData(
+                deviceID,
+                &address,
+                0,
+                nil,
+                size,
+                &value
+            )
+            if status == noErr {
+                didSet = true
+            } else if firstFailure == nil {
+                firstFailure = status
+            }
+        }
+        guard didSet else {
+            throw AudioOutputDeviceError.volumeChangeFailed(firstFailure ?? kAudioHardwareUnspecifiedError)
+        }
+    }
+
     private var defaultOutputAddress: AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -213,6 +344,76 @@ final class CoreAudioOutputDeviceProvider: AudioOutputDeviceProviding {
         var size: UInt32 = 0
         return AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr
             && size >= UInt32(MemoryLayout<AudioStreamID>.size)
+    }
+
+    private func outputAddress(
+        selector: AudioObjectPropertySelector,
+        element: AudioObjectPropertyElement
+    ) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: element
+        )
+    }
+
+    private func propertyElements(
+        on deviceID: AudioDeviceID,
+        selector: AudioObjectPropertySelector
+    ) -> [AudioObjectPropertyElement] {
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return [] }
+        let main = AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
+        let candidates: [AudioObjectPropertyElement] = [main, 1, 2]
+        let settable = candidates.filter { element in
+            var address = outputAddress(selector: selector, element: element)
+            var canSet: DarwinBoolean = false
+            return AudioObjectHasProperty(deviceID, &address)
+                && AudioObjectIsPropertySettable(deviceID, &address, &canSet) == noErr
+                && canSet.boolValue
+        }
+        return settable.contains(main) ? [main] : settable
+    }
+
+    private func readVolume(
+        on deviceID: AudioDeviceID,
+        element: AudioObjectPropertyElement
+    ) -> Double? {
+        var value: Float32 = 0
+        var size = UInt32(MemoryLayout<Float32>.size)
+        var address = outputAddress(
+            selector: kAudioDevicePropertyVolumeScalar,
+            element: element
+        )
+        guard AudioObjectGetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &size,
+            &value
+        ) == noErr else { return nil }
+        return min(1, max(0, Double(value)))
+    }
+
+    private func readMute(
+        on deviceID: AudioDeviceID,
+        element: AudioObjectPropertyElement
+    ) -> Bool? {
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var address = outputAddress(
+            selector: kAudioDevicePropertyMute,
+            element: element
+        )
+        guard AudioObjectGetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            &size,
+            &value
+        ) == noErr else { return nil }
+        return value != 0
     }
 
     private func stringProperty(
@@ -332,6 +533,8 @@ struct IORegistryAudioAccessoryBatteryReader: AudioAccessoryBatteryReading {
 final class AudioDeviceActivitySource: ObservableObject {
     @Published private(set) var outputs: [AudioOutputDevice] = []
     @Published private(set) var selectionState: AudioOutputSelectionState = .idle
+    @Published private(set) var volumeState: AudioOutputVolumeState = .unavailable
+    @Published private(set) var volumeErrorMessage: String?
 
     private let activities: LiveActivityController
     private let provider: AudioOutputDeviceProviding
@@ -341,6 +544,14 @@ final class AudioDeviceActivitySource: ObservableObject {
     private var listenerBlock: AudioObjectPropertyListenerBlock?
     private var devicesListenerBlock: AudioObjectPropertyListenerBlock?
     private var selectionStateResetTask: Task<Void, Never>?
+    private var volumeErrorResetTask: Task<Void, Never>?
+    private var observedVolumeDeviceID = AudioDeviceID(kAudioObjectUnknown)
+    private var volumeListenerBlocks: [(
+        selector: AudioObjectPropertySelector,
+        element: AudioObjectPropertyElement,
+        block: AudioObjectPropertyListenerBlock
+    )] = []
+    private var volumeBeforeMute = 0.5
     private var address = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDefaultOutputDevice,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -367,6 +578,7 @@ final class AudioDeviceActivitySource: ObservableObject {
         guard listenerBlock == nil else { return }
         refreshOutputs()
         lastDeviceID = provider.defaultOutputDeviceID()
+        installVolumeListeners(on: lastDeviceID)
         let initialName = deviceName(lastDeviceID)
         if !isBuiltInOutput(initialName) {
             lastExternalDevice = (initialName, AudioAccessoryModel.detect(from: initialName))
@@ -400,6 +612,9 @@ final class AudioDeviceActivitySource: ObservableObject {
         transitionTask = nil
         selectionStateResetTask?.cancel()
         selectionStateResetTask = nil
+        volumeErrorResetTask?.cancel()
+        volumeErrorResetTask = nil
+        removeVolumeListeners()
         if let block = listenerBlock {
             AudioObjectRemovePropertyListenerBlock(
                 AudioObjectID(kAudioObjectSystemObject), &address, .main, block
@@ -423,6 +638,73 @@ final class AudioDeviceActivitySource: ObservableObject {
 
     func refreshOutputs() {
         outputs = provider.availableOutputs()
+        refreshVolume()
+    }
+
+    func refreshVolume() {
+        volumeState = provider.outputVolumeState()
+        if !volumeState.isMuted, volumeState.level > 0.001 {
+            volumeBeforeMute = volumeState.level
+        }
+    }
+
+    @discardableResult
+    func setVolume(_ level: Double) -> Bool {
+        let resolvedLevel = min(1, max(0, level))
+        let previousState = volumeState
+        volumeErrorResetTask?.cancel()
+        volumeErrorMessage = nil
+
+        volumeState = AudioOutputVolumeState(
+            level: resolvedLevel,
+            isMuted: resolvedLevel <= 0.000_5,
+            isVolumeControllable: previousState.isVolumeControllable,
+            isMuteControllable: previousState.isMuteControllable
+        )
+        do {
+            if previousState.isMuted,
+               resolvedLevel > 0,
+               previousState.isMuteControllable {
+                try provider.setOutputMuted(false)
+            }
+            try provider.setOutputVolume(resolvedLevel)
+            if resolvedLevel > 0.001 { volumeBeforeMute = resolvedLevel }
+            return true
+        } catch {
+            volumeState = previousState
+            presentVolumeError(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func toggleMuted() -> Bool {
+        let previousState = volumeState
+        volumeErrorResetTask?.cancel()
+        volumeErrorMessage = nil
+
+        do {
+            if previousState.isMuted {
+                if previousState.isMuteControllable {
+                    try provider.setOutputMuted(false)
+                } else {
+                    try provider.setOutputVolume(max(volumeBeforeMute, 1.0 / 16.0))
+                }
+            } else {
+                volumeBeforeMute = max(previousState.level, 1.0 / 16.0)
+                if previousState.isMuteControllable {
+                    try provider.setOutputMuted(true)
+                } else {
+                    try provider.setOutputVolume(0)
+                }
+            }
+            refreshVolume()
+            return true
+        } catch {
+            volumeState = previousState
+            presentVolumeError(error)
+            return false
+        }
     }
 
     @discardableResult
@@ -434,6 +716,7 @@ final class AudioDeviceActivitySource: ObservableObject {
 
         do {
             try provider.selectOutput(deviceID)
+            rebindVolumeListeners(to: provider.defaultOutputDeviceID())
             refreshOutputs()
             selectionState = .idle
             return true
@@ -454,8 +737,12 @@ final class AudioDeviceActivitySource: ObservableObject {
     }
 
     private func defaultDeviceChanged() {
+        let previousDeviceID = lastDeviceID
         refreshOutputs()
         let device = provider.defaultOutputDeviceID()
+        if device != previousDeviceID {
+            rebindVolumeListeners(to: device)
+        }
         guard device != lastDeviceID, device != 0 else { return }
         lastDeviceID = device
         let name = deviceName(device)
@@ -474,6 +761,80 @@ final class AudioDeviceActivitySource: ObservableObject {
 
     private func availableDevicesChanged() {
         refreshOutputs()
+    }
+
+    private func installVolumeListeners(on deviceID: AudioDeviceID) {
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return }
+        observedVolumeDeviceID = deviceID
+        let main = AudioObjectPropertyElement(kAudioObjectPropertyElementMain)
+        for selector in [kAudioDevicePropertyVolumeScalar, kAudioDevicePropertyMute] {
+            let candidates: [AudioObjectPropertyElement] = [main, 1, 2]
+            let available = candidates.filter { element in
+                var propertyAddress = audioOutputAddress(selector: selector, element: element)
+                return AudioObjectHasProperty(deviceID, &propertyAddress)
+            }
+            let elements = available.contains(main) ? [main] : available
+            for element in elements {
+                var propertyAddress = audioOutputAddress(selector: selector, element: element)
+                let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                    guard let self else { return }
+                    MainActor.assumeIsolated { self.refreshVolume() }
+                }
+                if AudioObjectAddPropertyListenerBlock(
+                    deviceID,
+                    &propertyAddress,
+                    .main,
+                    block
+                ) == noErr {
+                    volumeListenerBlocks.append((selector, element, block))
+                }
+            }
+        }
+    }
+
+    private func removeVolumeListeners() {
+        guard observedVolumeDeviceID != AudioDeviceID(kAudioObjectUnknown) else { return }
+        for listener in volumeListenerBlocks {
+            var propertyAddress = audioOutputAddress(
+                selector: listener.selector,
+                element: listener.element
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                observedVolumeDeviceID,
+                &propertyAddress,
+                .main,
+                listener.block
+            )
+        }
+        volumeListenerBlocks.removeAll()
+        observedVolumeDeviceID = AudioDeviceID(kAudioObjectUnknown)
+    }
+
+    private func rebindVolumeListeners(to deviceID: AudioDeviceID) {
+        guard observedVolumeDeviceID != deviceID else { return }
+        removeVolumeListeners()
+        installVolumeListeners(on: deviceID)
+    }
+
+    private func audioOutputAddress(
+        selector: AudioObjectPropertySelector,
+        element: AudioObjectPropertyElement
+    ) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: element
+        )
+    }
+
+    private func presentVolumeError(_ error: Error) {
+        volumeErrorMessage = error.localizedDescription
+        volumeErrorResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2.4))
+            guard !Task.isCancelled else { return }
+            self?.volumeErrorMessage = nil
+            self?.volumeErrorResetTask = nil
+        }
     }
 
     private func postConnectChip(name: String) {

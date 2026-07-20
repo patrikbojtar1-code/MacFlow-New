@@ -83,12 +83,50 @@ struct PeripheralAndMessagePresentationTests {
         }
         controller.stop()
     }
+
+    @Test func audioOutputControllerClampsAndPublishesVolumeOptimistically() {
+        let provider = FakeAudioOutputProvider()
+        let controller = AudioDeviceActivitySource(
+            activities: LiveActivityController(settings: NotchSettings()),
+            provider: provider
+        )
+        controller.refreshOutputs()
+
+        #expect(controller.volumeState.level == 0.72)
+        #expect(controller.setVolume(1.4))
+        #expect(provider.volumeState.level == 1)
+        #expect(controller.volumeState.level == 1)
+        #expect(!controller.volumeState.isMuted)
+    }
+
+    @Test func audioOutputControllerTogglesHardwareMuteAndRestoresPlaybackLevel() {
+        let provider = FakeAudioOutputProvider()
+        let controller = AudioDeviceActivitySource(
+            activities: LiveActivityController(settings: NotchSettings()),
+            provider: provider
+        )
+        controller.refreshOutputs()
+
+        #expect(controller.toggleMuted())
+        #expect(provider.volumeState.isMuted)
+        #expect(controller.volumeState.effectiveLevel == 0)
+
+        #expect(controller.toggleMuted())
+        #expect(!provider.volumeState.isMuted)
+        #expect(controller.volumeState.level == 0.72)
+    }
 }
 
 @MainActor
 private final class FakeAudioOutputProvider: AudioOutputDeviceProviding {
     var selectedDeviceID = AudioDeviceID(1)
     var selectionError: Error?
+    var volumeState = AudioOutputVolumeState(
+        level: 0.72,
+        isMuted: false,
+        isVolumeControllable: true,
+        isMuteControllable: true
+    )
 
     func availableOutputs() -> [AudioOutputDevice] {
         [
@@ -104,6 +142,28 @@ private final class FakeAudioOutputProvider: AudioOutputDeviceProviding {
     func selectOutput(_ deviceID: AudioDeviceID) throws {
         if let selectionError { throw selectionError }
         selectedDeviceID = deviceID
+    }
+
+    func outputVolumeState() -> AudioOutputVolumeState {
+        volumeState
+    }
+
+    func setOutputVolume(_ level: Double) throws {
+        volumeState = AudioOutputVolumeState(
+            level: level,
+            isMuted: level <= 0,
+            isVolumeControllable: volumeState.isVolumeControllable,
+            isMuteControllable: volumeState.isMuteControllable
+        )
+    }
+
+    func setOutputMuted(_ isMuted: Bool) throws {
+        volumeState = AudioOutputVolumeState(
+            level: volumeState.level,
+            isMuted: isMuted,
+            isVolumeControllable: volumeState.isVolumeControllable,
+            isMuteControllable: volumeState.isMuteControllable
+        )
     }
 
     private func device(
