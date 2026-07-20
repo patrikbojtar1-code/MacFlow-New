@@ -111,6 +111,53 @@ nonisolated struct CompactMediaLayoutProfile: Equatable, Sendable {
     }
 }
 
+nonisolated enum CompactMediaSwipeDirection: Equatable, Sendable {
+    case previous
+    case next
+
+    var symbol: String {
+        switch self {
+        case .previous: "backward.fill"
+        case .next: "forward.fill"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .previous: "Previous track"
+        case .next: "Next track"
+        }
+    }
+
+    /// The visual grows from the same physical edge the pointer travels to.
+    var emergesFromLeadingEdge: Bool {
+        self == .previous
+    }
+}
+
+/// Converts pointer movement into a deliberate media command. Horizontal
+/// dominance prevents a diagonal or tiny click from accidentally changing the
+/// song, while the rubber-band curve keeps the visual surface under control.
+nonisolated enum CompactMediaGesturePolicy {
+    static let activationThreshold: CGFloat = 54
+    static let verticalTolerance: CGFloat = 34
+
+    static func direction(
+        horizontalTranslation: CGFloat,
+        verticalTranslation: CGFloat
+    ) -> CompactMediaSwipeDirection? {
+        guard abs(horizontalTranslation) >= activationThreshold,
+              abs(verticalTranslation) <= verticalTolerance,
+              abs(horizontalTranslation) > abs(verticalTranslation) * 1.35 else { return nil }
+        // Product gesture: left → right advances; right → left goes back.
+        return horizontalTranslation > 0 ? .next : .previous
+    }
+
+    static func progress(for horizontalTranslation: CGFloat) -> CGFloat {
+        min(1, abs(horizontalTranslation) / activationThreshold)
+    }
+}
+
 private enum MediaSourceLogo {
     case application(NSImage)
     case youtube
@@ -301,6 +348,8 @@ struct NowPlayingCollapsedView: View {
     let track: NowPlayingService.Track
     var isHovering: Bool = false
     var morphNamespace: Namespace.ID? = nil
+    var gestureDirection: CompactMediaSwipeDirection? = nil
+    var gestureProgress: CGFloat = 0
     @StateObject private var backgroundModel = CompactArtworkBackgroundModel()
     @State private var revealsContent = false
 
@@ -320,6 +369,8 @@ struct NowPlayingCollapsedView: View {
             accessibilityContrast: accessibilityContrast,
             reduceMotion: reduceMotion,
             morphNamespace: morphNamespace,
+            gestureDirection: gestureDirection,
+            gestureProgress: gestureProgress,
             onPrevious: previousTrack,
             onPlayPause: togglePlayback,
             onNext: nextTrack,
@@ -348,6 +399,12 @@ struct NowPlayingCollapsedView: View {
         }
         .accessibilityAction(named: presentation.isPlaying ? "Pause" : "Play") {
             togglePlayback()
+        }
+        .accessibilityAction(named: "Previous track") {
+            previousTrack()
+        }
+        .accessibilityAction(named: "Next track") {
+            nextTrack()
         }
     }
 
@@ -396,6 +453,8 @@ struct CompactMediaContent: View {
     let accessibilityContrast: ColorSchemeContrast
     let reduceMotion: Bool
     var morphNamespace: Namespace.ID? = nil
+    var gestureDirection: CompactMediaSwipeDirection? = nil
+    var gestureProgress: CGFloat = 0
     var onPrevious: () -> Void = {}
     let onPlayPause: () -> Void
     var onNext: () -> Void = {}
@@ -421,6 +480,17 @@ struct CompactMediaContent: View {
                 reduceMotion: reduceMotion
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let gestureDirection, gestureProgress > 0 {
+                CompactMediaGestureBackground(
+                    direction: gestureDirection,
+                    progress: gestureProgress,
+                    accent: accent
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
 
             CompactHardwareBridgeShape(
                 bottomRadius: NowPlayingMetrics.compactHardwareBridgeBottomRadius
@@ -450,8 +520,10 @@ struct CompactMediaContent: View {
             .padding(.horizontal, profile.horizontalPadding)
             .frame(height: max(profile.sourceSize, notchSize == .small ? 33 : 38))
             .frame(maxHeight: .infinity, alignment: .center)
+            .scaleEffect(1 - min(0.012, gestureProgress * 0.012))
             .scaleEffect(isHovering ? 1.006 : 1, anchor: .center)
             .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
+
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
@@ -459,9 +531,12 @@ struct CompactMediaContent: View {
 
     private var identityWing: some View {
         HStack(spacing: profile.identitySpacing) {
-            CompactSourceIdentityView(
+            CompactSourceGestureMorph(
                 style: presentation.source,
-                size: profile.sourceSize
+                size: profile.sourceSize,
+                direction: gestureDirection,
+                progress: gestureProgress,
+                accent: accent
             )
             .scaleEffect(revealsContent && !reduceMotion ? 1 : 0.88)
             .opacity(revealsContent ? 1 : 0)
@@ -493,6 +568,8 @@ struct CompactMediaContent: View {
                 .frame(height: 5)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .offset(x: gestureDirection == .previous ? gestureProgress * 3 : 0)
+            .opacity(gestureDirection == .previous ? 1 - gestureProgress * 0.22 : 1)
             .offset(x: revealsContent || reduceMotion ? 0 : -4)
             .opacity(revealsContent ? 1 : 0)
             .animation(entranceAnimation(delay: 0.035), value: revealsContent)
@@ -507,7 +584,14 @@ struct CompactMediaContent: View {
     }
 
     private var transportWing: some View {
-        HStack(spacing: profile.controlSpacing) {
+        let nextMorphProgress = gestureDirection == .next
+            ? min(1, max(0, gestureProgress))
+            : 0
+        let nextControlOffset = profile.showsNext
+            ? profile.controlDiameter - 2 + profile.controlSpacing
+            : 0
+
+        return HStack(spacing: profile.controlSpacing) {
             if profile.showsPrevious {
                 CompactTransportButton(
                     symbol: "backward.fill",
@@ -516,6 +600,7 @@ struct CompactMediaContent: View {
                     isHoveringNotch: isHovering,
                     action: onPrevious
                 )
+                .opacity(1 - nextMorphProgress * 0.72)
             }
 
             CompactMediaWaveform(
@@ -525,17 +610,24 @@ struct CompactMediaContent: View {
             )
             .frame(width: profile.waveformWidth, height: notchSize == .large ? 19 : 17)
             .matchedGeometry(id: "music-eq", in: morphNamespace)
+            .opacity(1 - nextMorphProgress * 0.78)
+            .scaleEffect(1 - nextMorphProgress * 0.08)
             .accessibilityHidden(true)
 
             CompactTransportButton(
                 symbol: presentation.isPlaying ? "pause.fill" : "play.fill",
+                morphSymbol: "forward.fill",
+                morphProgress: nextMorphProgress,
                 label: presentation.isPlaying ? "Pause" : "Play",
                 diameter: profile.controlDiameter,
                 isProminent: true,
                 isEnabled: presentation.canPlayPause,
                 isHoveringNotch: isHovering,
+                accent: accent,
                 action: onPlayPause
             )
+            .offset(x: nextControlOffset * nextMorphProgress)
+            .zIndex(2)
 
             if profile.showsNext {
                 CompactTransportButton(
@@ -545,6 +637,8 @@ struct CompactMediaContent: View {
                     isHoveringNotch: isHovering,
                     action: onNext
                 )
+                .opacity(1 - min(1, nextMorphProgress * 2.8))
+                .scaleEffect(1 - nextMorphProgress * 0.16)
             }
         }
         .opacity(revealsContent ? (isHovering ? 1 : 0.9) : 0)
@@ -725,6 +819,64 @@ private struct CompactSourceIdentityView: View {
     }
 }
 
+/// The leading source tile is the physical origin of Previous. The frame never
+/// changes, so the source artwork and backward glyph share the exact same
+/// center and corner geometry throughout the interactive transition.
+private struct CompactSourceGestureMorph: View {
+    let style: NowPlayingService.MediaSourceStyle
+    let size: CGFloat
+    let direction: CompactMediaSwipeDirection?
+    let progress: CGFloat
+    let accent: Color
+
+    private var morphProgress: CGFloat {
+        guard direction == .previous else { return 0 }
+        return min(1, max(0, progress))
+    }
+
+    private var easedProgress: CGFloat {
+        let value = morphProgress
+        return value * value * (3 - 2 * value)
+    }
+
+    var body: some View {
+        ZStack {
+            CompactSourceIdentityView(style: style, size: size)
+                .opacity(1 - easedProgress)
+                .scaleEffect(1 - easedProgress * 0.14)
+                .blur(radius: easedProgress * 1.2)
+
+            Circle()
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    Circle()
+                        .fill(accent.opacity(0.12 + easedProgress * 0.34))
+                }
+                .overlay {
+                    Circle()
+                        .stroke(
+                            .white.opacity(0.12 + easedProgress * 0.34),
+                            lineWidth: 0.75 + easedProgress * 0.45
+                        )
+                }
+                .opacity(easedProgress)
+
+            Image(systemName: "backward.fill")
+                .font(.system(size: size * 0.36, weight: .bold))
+                .foregroundStyle(.white)
+                .scaleEffect(0.68 + easedProgress * 0.32)
+                .offset(x: -3 * (1 - easedProgress))
+                .opacity(easedProgress)
+        }
+        .frame(width: size, height: size)
+        .scaleEffect(1 + easedProgress * 0.16)
+        .shadow(color: accent.opacity(easedProgress * 0.42), radius: 12)
+        .accessibilityLabel(
+            morphProgress > 0.5 ? "Previous track" : style.displayName
+        )
+    }
+}
+
 @MainActor
 private enum CompactApplicationIconCache {
     private static let cache = NSCache<NSString, NSImage>()
@@ -821,26 +973,66 @@ private struct CompactMediaTimeline: View {
 
 private struct CompactTransportButton: View {
     let symbol: String
+    var morphSymbol: String? = nil
+    var morphProgress: CGFloat = 0
     let label: String
     let diameter: CGFloat
     var isProminent = false
     var isEnabled = true
     let isHoveringNotch: Bool
+    var accent: Color = .white
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
+    private var clampedMorphProgress: CGFloat {
+        min(1, max(0, morphProgress))
+    }
+
+    private var easedMorphProgress: CGFloat {
+        let value = clampedMorphProgress
+        return value * value * (3 - 2 * value)
+    }
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: isProminent ? 15.5 : 11.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.38))
-                .contentTransition(.symbolEffect(.replace))
-                .frame(width: diameter, height: diameter)
-                .background(background, in: Circle())
-                .contentShape(Circle())
-                .scaleEffect(isHovering ? 1.07 : (isHoveringNotch && isProminent ? 1.025 : 1))
+            ZStack {
+                Image(systemName: symbol)
+                    .font(.system(size: isProminent ? 15.5 : 11.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.38))
+                    .contentTransition(.symbolEffect(.replace))
+                    .scaleEffect(1 - easedMorphProgress * 0.18)
+                    .offset(x: -2 * easedMorphProgress)
+                    .opacity(1 - easedMorphProgress)
+
+                if let morphSymbol {
+                    Image(systemName: morphSymbol)
+                        .font(.system(size: 12 + easedMorphProgress * 2.5, weight: .bold))
+                        .foregroundStyle(.white)
+                        .scaleEffect(0.68 + easedMorphProgress * 0.32)
+                        .offset(x: 3 * (1 - easedMorphProgress))
+                        .opacity(easedMorphProgress)
+                }
+            }
+            .frame(width: diameter, height: diameter)
+            .background(background, in: Circle())
+            .overlay {
+                Circle()
+                    .stroke(
+                        .white.opacity(easedMorphProgress * 0.38),
+                        lineWidth: 0.75 + easedMorphProgress * 0.5
+                    )
+            }
+            .contentShape(Circle())
+            .scaleEffect(
+                (isHovering ? 1.07 : (isHoveringNotch && isProminent ? 1.025 : 1))
+                    + easedMorphProgress * 0.14
+            )
+            .shadow(
+                color: accent.opacity(easedMorphProgress * 0.44),
+                radius: 12 * easedMorphProgress
+            )
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -854,9 +1046,85 @@ private struct CompactTransportButton: View {
     }
 
     private var background: Color {
+        if easedMorphProgress > 0 {
+            return accent.opacity(0.12 + easedMorphProgress * 0.38)
+        }
         guard isProminent || isHovering else { return .clear }
         if isHovering { return .white.opacity(0.17) }
         return .white.opacity(isHoveringNotch ? 0.11 : 0.075)
+    }
+}
+
+/// Ambient color and the edge bubble are rendered inside CompactMediaContent,
+/// so the notch's existing clip shape naturally trims the effect at its curved
+/// boundary. It therefore feels like the black surface itself is reacting.
+private struct CompactMediaGestureBackground: View {
+    let direction: CompactMediaSwipeDirection
+    let progress: CGFloat
+    let accent: Color
+
+    private var clampedProgress: CGFloat {
+        min(1, max(0, progress))
+    }
+
+    private var easedProgress: CGFloat {
+        let value = clampedProgress
+        return value * value * (3 - 2 * value)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bubbleWidth = 44 + easedProgress * 92
+            let bubbleHeight = max(38, proxy.size.height * (0.74 + easedProgress * 0.34))
+
+            ZStack {
+                edgeSweep
+
+                HStack(spacing: 0) {
+                    if direction.emergesFromLeadingEdge {
+                        bubble(width: bubbleWidth, height: bubbleHeight)
+                        Spacer(minLength: 0)
+                    } else {
+                        Spacer(minLength: 0)
+                        bubble(width: bubbleWidth, height: bubbleHeight)
+                    }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+        }
+    }
+
+    private var edgeSweep: some View {
+        LinearGradient(
+            colors: direction.emergesFromLeadingEdge
+                ? [accent.opacity(0.29 * easedProgress), accent.opacity(0.08 * easedProgress), .clear]
+                : [.clear, accent.opacity(0.08 * easedProgress), accent.opacity(0.29 * easedProgress)],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .blendMode(.screen)
+        .opacity(0.35 + easedProgress * 0.65)
+    }
+
+    private func bubble(width: CGFloat, height: CGFloat) -> some View {
+        Capsule(style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        accent.opacity(0.38 * easedProgress),
+                        accent.opacity(0.13 * easedProgress),
+                        .clear,
+                    ],
+                    startPoint: direction.emergesFromLeadingEdge ? .leading : .trailing,
+                    endPoint: direction.emergesFromLeadingEdge ? .trailing : .leading
+                )
+            )
+            .frame(width: width, height: height)
+            .blur(radius: 1.5 + (1 - easedProgress) * 3)
+            .offset(x: direction.emergesFromLeadingEdge
+                ? -30 * (1 - easedProgress)
+                : 30 * (1 - easedProgress))
+            .shadow(color: accent.opacity(0.28 * easedProgress), radius: 18)
     }
 }
 

@@ -174,6 +174,41 @@ struct CompactMediaPresentationTests {
         #expect(medium.waveformWidth < large.waveformWidth)
     }
 
+    @Test func compactMediaGestureRequiresADeliberateHorizontalSwipe() {
+        #expect(
+            CompactMediaGesturePolicy.direction(
+                horizontalTranslation: 53,
+                verticalTranslation: 0
+            ) == nil
+        )
+        #expect(
+            CompactMediaGesturePolicy.direction(
+                horizontalTranslation: 80,
+                verticalTranslation: 50
+            ) == nil
+        )
+        #expect(
+            CompactMediaGesturePolicy.direction(
+                horizontalTranslation: 72,
+                verticalTranslation: 8
+            ) == .next
+        )
+        #expect(
+            CompactMediaGesturePolicy.direction(
+                horizontalTranslation: -72,
+                verticalTranslation: 8
+            ) == .previous
+        )
+        #expect(!CompactMediaSwipeDirection.next.emergesFromLeadingEdge)
+        #expect(CompactMediaSwipeDirection.previous.emergesFromLeadingEdge)
+    }
+
+    @Test func compactMediaGestureProgressClampsAtTheActivationPoint() {
+        #expect(CompactMediaGesturePolicy.progress(for: 20) < 1)
+        #expect(CompactMediaGesturePolicy.progress(for: -20) < 1)
+        #expect(CompactMediaGesturePolicy.progress(for: 200) == 1)
+    }
+
     @Test func appleTVSearchParserFindsExactEpisodeAndArtwork() {
         let searchHTML = #"""
         <script>{"ariaLabel":"Nechť se přihlásí skutečná May","contextAction":{"url":"https://tv.apple.com/cz/episode/necht-se-prihlasi-skutecna-may/umc.cmc.episode?showId=umc.cmc.show"},"artwork":{}}</script>
