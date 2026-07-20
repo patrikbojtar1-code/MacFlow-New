@@ -130,6 +130,64 @@ struct CompactMediaSnapshotTests {
         }
     }
 
+    @Test func capturesOriginalAndAmbientMediaSurfaces() throws {
+        let outputDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".build/CompactMediaScreenshots", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: outputDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let fixture = fixtures.first { $0.name == "spotify" }!
+        let size = NotchSize.medium
+        let bodySize = NotchLayoutMetrics.bodySize(for: size)
+        let invertedRadius = FloatingNotchView.musicInvertedRadius
+        let shape = NotchDropShape(
+            invertedCornerRadius: invertedRadius,
+            bottomCornerRadius: NotchLayoutMetrics.bottomRadius(for: size)
+        )
+
+        for appearance in NotchSettings.MediaAppearance.allCases {
+            let content = ZStack(alignment: .bottom) {
+                shape.fill(Color.black)
+                CompactMediaContent(
+                    presentation: fixture.track.compactPresentation,
+                    processedBackground: fixture.background,
+                    backgroundIdentity: "media-surface-\(appearance.rawValue)",
+                    hardwareNotchWidth: 184,
+                    notchSize: size,
+                    isHovering: false,
+                    revealsContent: true,
+                    accessibilityContrast: .standard,
+                    reduceMotion: true,
+                    mediaAppearance: appearance,
+                    onPlayPause: {}
+                )
+                .frame(width: bodySize.width, height: bodySize.height)
+            }
+            .frame(width: bodySize.width + invertedRadius * 2, height: bodySize.height)
+            .clipShape(shape)
+            .padding(18)
+
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 2
+            guard let image = renderer.nsImage,
+                  let tiff = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:]) else {
+                Issue.record("Could not render \(appearance.rawValue) media surface")
+                continue
+            }
+
+            let destination = outputDirectory
+                .appendingPathComponent("media-surface-\(appearance.rawValue).png")
+            try png.write(to: destination, options: .atomic)
+            #expect(FileManager.default.fileExists(atPath: destination.path))
+        }
+    }
+
     private var fixtures: [(name: String, track: NowPlayingService.Track, background: NSImage)] {
         [
             (

@@ -199,6 +199,23 @@ nonisolated enum CompactMediaGestureMotion {
         guard end > start else { return progress >= end ? 1 : 0 }
         return smooth((progress - start) / (end - start))
     }
+
+    /// Mostly linear for finger fidelity, with just enough endpoint easing to
+    /// remove mechanical starts and stops. A full smootherstep accelerates too
+    /// much around 50% and makes a reversible scrub feel as if it catches up.
+    static func travel(_ progress: CGFloat) -> CGFloat {
+        let value = min(1, max(0, progress))
+        return value * 0.72 + smooth(value) * 0.28
+    }
+
+    static func interactiveRamp(
+        _ progress: CGFloat,
+        from start: CGFloat,
+        to end: CGFloat
+    ) -> CGFloat {
+        guard end > start else { return progress >= end ? 1 : 0 }
+        return travel((progress - start) / (end - start))
+    }
 }
 
 private enum MediaSourceLogo {
@@ -412,18 +429,23 @@ struct NowPlayingCollapsedView: View {
             accessibilityContrast: accessibilityContrast,
             reduceMotion: reduceMotion,
             morphNamespace: morphNamespace,
+            mediaAppearance: settings.mediaAppearance,
             gestureProgress: gestureProgress,
             onPrevious: previousTrack,
             onPlayPause: togglePlayback,
             onNext: nextTrack,
             onSeek: seek
         )
-        .task(id: presentation.artworkIdentifier) {
-            await backgroundModel.update(
-                artwork: presentation.artwork,
-                identifier: presentation.artworkIdentifier,
-                reduceMotion: reduceMotion
-            )
+        .task(id: backgroundRequestIdentity) {
+            if settings.mediaAppearance == .ambient {
+                await backgroundModel.update(
+                    artwork: presentation.artwork,
+                    identifier: presentation.artworkIdentifier,
+                    reduceMotion: reduceMotion
+                )
+            } else {
+                backgroundModel.clear(reduceMotion: reduceMotion)
+            }
         }
         .onAppear {
             if reduceMotion {
@@ -454,6 +476,10 @@ struct NowPlayingCollapsedView: View {
         guard presentation.canPlayPause else { return }
         NotchHaptics.perform(.navigation)
         nowPlaying.togglePlayPause()
+    }
+
+    private var backgroundRequestIdentity: String {
+        "\(presentation.artworkIdentifier ?? "none")|\(settings.mediaAppearance.rawValue)"
     }
 
     private func previousTrack() {
@@ -495,6 +521,7 @@ struct CompactMediaContent: View {
     let accessibilityContrast: ColorSchemeContrast
     let reduceMotion: Bool
     var morphNamespace: Namespace.ID? = nil
+    var mediaAppearance: NotchSettings.MediaAppearance = .ambient
     /// Interactive value in `-1...1`: negative is Previous, positive is Next.
     var gestureProgress: CGFloat = 0
     var onPrevious: () -> Void = {}
@@ -510,6 +537,10 @@ struct CompactMediaContent: View {
         Color(presentation.accentColor)
     }
 
+    private var gestureAccent: Color {
+        mediaAppearance == .ambient ? accent : .white
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             CompactMediaBackground(
@@ -519,7 +550,8 @@ struct CompactMediaContent: View {
                 isPlaying: presentation.isPlaying,
                 isHovering: isHovering,
                 accessibilityContrast: accessibilityContrast,
-                reduceMotion: reduceMotion
+                reduceMotion: reduceMotion,
+                appearance: mediaAppearance
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -527,12 +559,12 @@ struct CompactMediaContent: View {
                 CompactMediaGestureBackground(
                     direction: .previous,
                     progress: previousGestureProgress,
-                    accent: accent
+                    accent: gestureAccent
                 )
                 CompactMediaGestureBackground(
                     direction: .next,
                     progress: nextGestureProgress,
-                    accent: accent
+                    accent: gestureAccent
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -582,7 +614,7 @@ struct CompactMediaContent: View {
                 style: presentation.source,
                 size: profile.sourceSize,
                 progress: previousGestureProgress,
-                accent: accent
+                accent: gestureAccent
             )
             .scaleEffect(revealsContent && !reduceMotion ? 1 : 0.88)
             .opacity(revealsContent ? 1 : 0)
@@ -631,11 +663,11 @@ struct CompactMediaContent: View {
 
     private var transportWing: some View {
         let nextMorphProgress = nextGestureProgress
-        let travelProgress = CompactMediaGestureMotion.smooth(nextMorphProgress)
+        let travelProgress = CompactMediaGestureMotion.travel(nextMorphProgress)
         let targetFadeProgress = CompactMediaGestureMotion.ramp(
             nextMorphProgress,
-            from: 0.05,
-            to: 0.94
+            from: 0.03,
+            to: 0.42
         )
         let nextControlOffset = profile.showsNext
             ? profile.controlDiameter - 2 + profile.controlSpacing
@@ -644,7 +676,7 @@ struct CompactMediaContent: View {
         return HStack(spacing: profile.controlSpacing) {
             if profile.showsPrevious {
                 CompactTransportButton(
-                    symbol: "backward.fill",
+                    symbol: "backward.end.fill",
                     label: "Previous",
                     diameter: profile.controlDiameter - 4,
                     isHoveringNotch: isHovering,
@@ -666,14 +698,14 @@ struct CompactMediaContent: View {
 
             CompactTransportButton(
                 symbol: presentation.isPlaying ? "pause.fill" : "play.fill",
-                morphSymbol: "forward.fill",
+                morphSymbol: "forward.end.fill",
                 morphProgress: nextMorphProgress,
                 label: presentation.isPlaying ? "Pause" : "Play",
                 diameter: profile.controlDiameter,
                 isProminent: true,
                 isEnabled: presentation.canPlayPause,
                 isHoveringNotch: isHovering,
-                accent: accent,
+                accent: gestureAccent,
                 action: onPlayPause
             )
             .offset(x: nextControlOffset * travelProgress)
@@ -681,7 +713,7 @@ struct CompactMediaContent: View {
 
             if profile.showsNext {
                 CompactTransportButton(
-                    symbol: "forward.fill",
+                    symbol: "forward.end.fill",
                     label: "Next",
                     diameter: profile.controlDiameter - 4,
                     isHoveringNotch: isHovering,
@@ -744,53 +776,59 @@ private struct CompactMediaBackground: View {
     let isHovering: Bool
     let accessibilityContrast: ColorSchemeContrast
     let reduceMotion: Bool
+    let appearance: NotchSettings.MediaAppearance
 
     var body: some View {
         ZStack {
             Color.black
 
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.medium)
-                    .scaledToFill()
-                    .id(identity)
-                    .opacity(isPlaying ? (isHovering ? 0.78 : 0.72) : 0.58)
-                    .transition(.opacity)
-            } else {
-                LinearGradient(
-                    colors: [accent.opacity(0.18), .black],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
+            if appearance == .ambient {
+                Group {
+                    if let image {
+                        Image(nsImage: image)
+                            .resizable()
+                            .interpolation(.medium)
+                            .scaledToFill()
+                            .id(identity)
+                            .opacity(isPlaying ? (isHovering ? 0.78 : 0.72) : 0.58)
+                    } else {
+                        LinearGradient(
+                            colors: [accent.opacity(0.18), .black],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    }
+
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(accessibilityContrast == .increased ? 0.68 : 0.42),
+                            Color.black.opacity(accessibilityContrast == .increased ? 0.78 : 0.58),
+                            Color.black.opacity(accessibilityContrast == .increased ? 0.86 : 0.72),
+                        ],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+
+                    LinearGradient(
+                        colors: [.black.opacity(0.12), .clear, .black.opacity(0.24)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
+                    accent
+                        .opacity(isPlaying ? 0.075 : 0.035)
+                        .blur(radius: 20)
+                        .blendMode(.screen)
+                }
+                .transition(.opacity)
             }
-
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(accessibilityContrast == .increased ? 0.68 : 0.42),
-                    Color.black.opacity(accessibilityContrast == .increased ? 0.78 : 0.58),
-                    Color.black.opacity(accessibilityContrast == .increased ? 0.86 : 0.72),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-
-            LinearGradient(
-                colors: [.black.opacity(0.12), .clear, .black.opacity(0.24)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            accent
-                .opacity(isPlaying ? 0.075 : 0.035)
-                .blur(radius: 20)
-                .blendMode(.screen)
         }
         .animation(
             reduceMotion ? NotchMotionGraph.reduced.animation : .easeInOut(duration: 0.32),
             value: identity
         )
         .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: isPlaying)
+        .animation(NotchMotionGraph.animation(for: .selection, reduceMotion: reduceMotion), value: appearance)
         .allowsHitTesting(false)
     }
 }
@@ -894,38 +932,62 @@ private struct CompactSourceGestureMorph: View {
         CompactMediaGestureMotion.smooth(morphProgress)
     }
 
+    private var sourceExitProgress: CGFloat {
+        CompactMediaGestureMotion.interactiveRamp(
+            morphProgress,
+            from: 0.08,
+            to: 0.72
+        )
+    }
+
+    private var actionEntryProgress: CGFloat {
+        CompactMediaGestureMotion.interactiveRamp(
+            morphProgress,
+            from: 0.20,
+            to: 0.86
+        )
+    }
+
     var body: some View {
         ZStack {
             CompactSourceIdentityView(style: style, size: size)
-                .opacity(1 - easedProgress)
-                .scaleEffect(1 - easedProgress * 0.14)
-                .blur(radius: easedProgress * 1.2)
+                .opacity(1 - sourceExitProgress)
+                .scaleEffect(1 - sourceExitProgress * 0.07)
+                .blur(radius: sourceExitProgress * 0.65)
 
             Circle()
-                .fill(.ultraThinMaterial)
+                .fill(.black.opacity(0.72))
                 .overlay {
                     Circle()
-                        .fill(accent.opacity(0.12 + easedProgress * 0.34))
+                        .fill(.white.opacity(0.075))
                 }
                 .overlay {
                     Circle()
                         .stroke(
-                            .white.opacity(0.12 + easedProgress * 0.34),
-                            lineWidth: 0.75 + easedProgress * 0.45
+                            .white.opacity(0.10 + easedProgress * 0.12),
+                            lineWidth: 0.8
                         )
                 }
-                .opacity(easedProgress)
+                .opacity(actionEntryProgress)
 
-            Image(systemName: "backward.fill")
-                .font(.system(size: size * 0.36, weight: .bold))
+            CompactGestureProgressRing(
+                progress: morphProgress,
+                accent: accent,
+                lineWidth: 1.45
+            )
+            .padding(1)
+
+            Image(systemName: "backward.end.fill")
+                .font(.system(size: size * 0.31, weight: .semibold))
                 .foregroundStyle(.white)
-                .scaleEffect(0.68 + easedProgress * 0.32)
-                .offset(x: -3 * (1 - easedProgress))
-                .opacity(easedProgress)
+                .scaleEffect(0.82 + actionEntryProgress * 0.18)
+                .offset(x: -3.5 * (1 - actionEntryProgress))
+                .blur(radius: (1 - actionEntryProgress) * 0.7)
+                .opacity(actionEntryProgress)
         }
         .frame(width: size, height: size)
-        .scaleEffect(1 + easedProgress * 0.16)
-        .shadow(color: accent.opacity(easedProgress * 0.42), radius: 12)
+        .scaleEffect(1 + easedProgress * 0.055)
+        .shadow(color: accent.opacity(easedProgress * 0.18), radius: 7)
         .accessibilityLabel(
             morphProgress > 0.5 ? "Previous track" : style.displayName
         )
@@ -1050,11 +1112,19 @@ private struct CompactTransportButton: View {
     }
 
     private var sourceExitProgress: CGFloat {
-        CompactMediaGestureMotion.ramp(clampedMorphProgress, from: 0.06, to: 0.88)
+        CompactMediaGestureMotion.interactiveRamp(
+            clampedMorphProgress,
+            from: 0.08,
+            to: 0.68
+        )
     }
 
     private var destinationEntryProgress: CGFloat {
-        CompactMediaGestureMotion.ramp(clampedMorphProgress, from: 0.12, to: 0.94)
+        CompactMediaGestureMotion.interactiveRamp(
+            clampedMorphProgress,
+            from: 0.22,
+            to: 0.86
+        )
     }
 
     var body: some View {
@@ -1064,40 +1134,57 @@ private struct CompactTransportButton: View {
                     .font(.system(size: isProminent ? 15.5 : 11.5, weight: .semibold))
                     .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.38))
                     .contentTransition(.symbolEffect(.replace))
-                    .scaleEffect(1 - sourceExitProgress * 0.16)
-                    .offset(x: -1.5 * sourceExitProgress)
+                    .scaleEffect(1 - sourceExitProgress * 0.12)
+                    .offset(x: -2.5 * sourceExitProgress)
+                    .blur(radius: sourceExitProgress * 0.55)
                     .opacity(1 - sourceExitProgress)
 
                 if let morphSymbol {
                     Image(systemName: morphSymbol)
-                        .font(.system(size: 12 + destinationEntryProgress * 2.5, weight: .bold))
+                        .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(.white)
-                        .scaleEffect(0.78 + destinationEntryProgress * 0.22)
-                        .offset(x: 2.5 * (1 - destinationEntryProgress))
+                        .scaleEffect(0.84 + destinationEntryProgress * 0.16)
+                        .offset(x: 4 * (1 - destinationEntryProgress))
+                        .blur(radius: (1 - destinationEntryProgress) * 0.75)
                         .opacity(destinationEntryProgress)
+                        .mask(alignment: .leading) {
+                            Rectangle()
+                                .scaleEffect(
+                                    x: max(0.001, destinationEntryProgress),
+                                    anchor: .leading
+                                )
+                        }
                 }
             }
             .frame(width: diameter, height: diameter)
             .background(background, in: Circle())
             .overlay {
                 Circle()
-                    .fill(accent.opacity(easedMorphProgress * 0.34))
+                    .fill(.black.opacity(easedMorphProgress * 0.28))
             }
             .overlay {
                 Circle()
                     .stroke(
-                        .white.opacity(easedMorphProgress * 0.34),
-                        lineWidth: 0.7 + easedMorphProgress * 0.42
+                        .white.opacity(0.08 + easedMorphProgress * 0.12),
+                        lineWidth: 0.8
                     )
+            }
+            .overlay {
+                CompactGestureProgressRing(
+                    progress: clampedMorphProgress,
+                    accent: accent,
+                    lineWidth: 1.4
+                )
+                .padding(1)
             }
             .contentShape(Circle())
             .scaleEffect(
                 (isHovering ? 1.07 : (isHoveringNotch && isProminent ? 1.025 : 1))
-                    + easedMorphProgress * 0.075
+                    + easedMorphProgress * 0.045
             )
             .shadow(
-                color: accent.opacity(easedMorphProgress * 0.44),
-                radius: 12 * easedMorphProgress
+                color: accent.opacity(easedMorphProgress * 0.18),
+                radius: 7 * easedMorphProgress
             )
         }
         .buttonStyle(.plain)
@@ -1115,6 +1202,37 @@ private struct CompactTransportButton: View {
         guard isProminent || isHovering else { return .clear }
         if isHovering { return .white.opacity(0.17) }
         return .white.opacity(isHoveringNotch ? 0.11 : 0.075)
+    }
+}
+
+private struct CompactGestureProgressRing: View {
+    let progress: CGFloat
+    let accent: Color
+    let lineWidth: CGFloat
+
+    private var easedProgress: CGFloat {
+        CompactMediaGestureMotion.travel(progress)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.10 * easedProgress), lineWidth: lineWidth)
+
+            Circle()
+                .trim(from: 0, to: max(0.001, easedProgress))
+                .stroke(
+                    accent.opacity(0.86),
+                    style: StrokeStyle(
+                        lineWidth: lineWidth,
+                        lineCap: .round,
+                        lineJoin: .round
+                    )
+                )
+                .rotationEffect(.degrees(-90))
+        }
+        .opacity(CompactMediaGestureMotion.ramp(progress, from: 0.06, to: 0.36))
+        .allowsHitTesting(false)
     }
 }
 
@@ -1136,8 +1254,8 @@ private struct CompactMediaGestureBackground: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let bubbleWidth = 44 + easedProgress * 92
-            let bubbleHeight = max(38, proxy.size.height * (0.74 + easedProgress * 0.34))
+            let bubbleWidth = 36 + easedProgress * 68
+            let bubbleHeight = max(36, proxy.size.height * (0.72 + easedProgress * 0.22))
 
             ZStack {
                 edgeSweep
@@ -1159,13 +1277,13 @@ private struct CompactMediaGestureBackground: View {
     private var edgeSweep: some View {
         LinearGradient(
             colors: direction.emergesFromLeadingEdge
-                ? [accent.opacity(0.29 * easedProgress), accent.opacity(0.08 * easedProgress), .clear]
-                : [.clear, accent.opacity(0.08 * easedProgress), accent.opacity(0.29 * easedProgress)],
+                ? [accent.opacity(0.16 * easedProgress), accent.opacity(0.045 * easedProgress), .clear]
+                : [.clear, accent.opacity(0.045 * easedProgress), accent.opacity(0.16 * easedProgress)],
             startPoint: .leading,
             endPoint: .trailing
         )
         .blendMode(.screen)
-        .opacity(0.35 + easedProgress * 0.65)
+        .opacity(0.24 + easedProgress * 0.56)
     }
 
     private func bubble(width: CGFloat, height: CGFloat) -> some View {
@@ -1173,8 +1291,8 @@ private struct CompactMediaGestureBackground: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        accent.opacity(0.38 * easedProgress),
-                        accent.opacity(0.13 * easedProgress),
+                        accent.opacity(0.19 * easedProgress),
+                        accent.opacity(0.055 * easedProgress),
                         .clear,
                     ],
                     startPoint: direction.emergesFromLeadingEdge ? .leading : .trailing,
@@ -1182,11 +1300,11 @@ private struct CompactMediaGestureBackground: View {
                 )
             )
             .frame(width: width, height: height)
-            .blur(radius: 1.5 + (1 - easedProgress) * 3)
+            .blur(radius: 2 + (1 - easedProgress) * 2.5)
             .offset(x: direction.emergesFromLeadingEdge
-                ? -30 * (1 - easedProgress)
-                : 30 * (1 - easedProgress))
-            .shadow(color: accent.opacity(0.28 * easedProgress), radius: 18)
+                ? -22 * (1 - easedProgress)
+                : 22 * (1 - easedProgress))
+            .shadow(color: accent.opacity(0.14 * easedProgress), radius: 10)
     }
 }
 
@@ -1267,6 +1385,21 @@ private final class CompactArtworkBackgroundModel: ObservableObject {
             }
         }
     }
+
+    func clear(reduceMotion: Bool) {
+        guard image != nil || identity != nil else { return }
+        let updates = {
+            self.image = nil
+            self.identity = nil
+        }
+        if reduceMotion {
+            updates()
+        } else {
+            withAnimation(.easeInOut(duration: 0.24)) {
+                updates()
+            }
+        }
+    }
 }
 
 private actor CompactArtworkCache {
@@ -1324,6 +1457,7 @@ private extension Color {
 
 struct NowPlayingExpandedView: View {
     @EnvironmentObject var nowPlaying: NowPlayingService
+    @EnvironmentObject private var settings: NotchSettings
     let track: NowPlayingService.Track
     var morphNamespace: Namespace.ID? = nil
     @State private var scrubbedProgress: Double?
@@ -1354,34 +1488,45 @@ struct NowPlayingExpandedView: View {
 
     private func ambientBackground(theme: MediaSourceTheme) -> some View {
         ZStack {
-            if let artwork = track.artwork {
-                Image(nsImage: artwork)
-                    .resizable()
-                    .interpolation(.medium)
-                    .scaledToFill()
-                    .scaleEffect(theme.usesWideArtwork ? 1.16 : ExpandedMediaTokens.backgroundScale)
-                    .blur(radius: theme.usesWideArtwork ? 28 : ExpandedMediaTokens.backgroundBlur)
-                    .saturation(1.18)
-                    .opacity(theme.usesWideArtwork ? 0.46 : 0.28)
+            Color.black
+
+            if settings.mediaAppearance == .ambient {
+                Group {
+                    if let artwork = track.artwork {
+                        Image(nsImage: artwork)
+                            .resizable()
+                            .interpolation(.medium)
+                            .scaledToFill()
+                            .scaleEffect(theme.usesWideArtwork ? 1.16 : ExpandedMediaTokens.backgroundScale)
+                            .blur(radius: theme.usesWideArtwork ? 28 : ExpandedMediaTokens.backgroundBlur)
+                            .saturation(1.18)
+                            .opacity(theme.usesWideArtwork ? 0.46 : 0.28)
+                    }
+
+                    LinearGradient(
+                        colors: [
+                            theme.ambientAccent.opacity(theme.usesWideArtwork ? 0.26 : 0.18),
+                            Color.black.opacity(0.32),
+                            Color.black.opacity(0.72),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.38)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .transition(.opacity)
             }
-
-            LinearGradient(
-                colors: [
-                    theme.ambientAccent.opacity(theme.usesWideArtwork ? 0.26 : 0.18),
-                    Color.black.opacity(0.32),
-                    Color.black.opacity(0.72),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.38)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(
+            NotchMotionGraph.animation(for: .selection),
+            value: settings.mediaAppearance
+        )
         .allowsHitTesting(false)
     }
 

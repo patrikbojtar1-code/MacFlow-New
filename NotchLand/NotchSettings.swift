@@ -35,6 +35,34 @@ nonisolated final class NotchSettings: ObservableObject {
         }
     }
 
+    enum MediaAppearance: String, CaseIterable, Identifiable, Hashable, Sendable {
+        case original
+        case ambient
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .original: "Original"
+            case .ambient: "Ambient"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .original: "Pure black hardware-style surface"
+            case .ambient: "Artwork color and responsive glow"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .original: "capsule.fill"
+            case .ambient: "sparkles"
+            }
+        }
+    }
+
     enum Defaults {
         static let showNotch = true
         static let launchAtLogin = false
@@ -61,6 +89,7 @@ nonisolated final class NotchSettings: ObservableObject {
         static let systemCallDetectionEnabled = true
 
         static let theme: Theme = .system
+        static let mediaAppearance: MediaAppearance = .ambient
         static let cornerRadius: Double = 20
         static let shadowIntensity: Double = 0
         static let useBlurMaterial = false
@@ -110,6 +139,7 @@ nonisolated final class NotchSettings: ObservableObject {
         static let systemCallDetectionEnabled = "notch.systemCallDetectionEnabled"
         static let legacyHideSystemHUD = "notch.hideSystemHUD"
         static let theme = "notch.theme"
+        static let mediaAppearance = "notch.mediaAppearance"
         static let cornerRadius = "notch.cornerRadius"
         static let shadowIntensity = "notch.shadowIntensity"
         static let useBlurMaterial = "notch.useBlurMaterial"
@@ -195,6 +225,9 @@ nonisolated final class NotchSettings: ObservableObject {
     @Published var theme: Theme = readTheme() {
         didSet { Self.write(theme.rawValue, Keys.theme) }
     }
+    @Published var mediaAppearance: MediaAppearance = readMediaAppearance() {
+        didSet { Self.write(mediaAppearance.rawValue, Keys.mediaAppearance) }
+    }
     @Published var cornerRadius: Double = read(Keys.cornerRadius, Defaults.cornerRadius) {
         didSet { Self.write(cornerRadius, Keys.cornerRadius) }
     }
@@ -257,6 +290,7 @@ nonisolated final class NotchSettings: ObservableObject {
         biometricPrivacyEnabled = Defaults.biometricPrivacyEnabled
         systemCallDetectionEnabled = Defaults.systemCallDetectionEnabled
         theme = Defaults.theme
+        mediaAppearance = Defaults.mediaAppearance
         cornerRadius = Defaults.cornerRadius
         shadowIntensity = Defaults.shadowIntensity
         useBlurMaterial = Defaults.useBlurMaterial
@@ -297,6 +331,14 @@ nonisolated final class NotchSettings: ObservableObject {
             return theme
         }
         return Defaults.theme
+    }
+
+    private static func readMediaAppearance() -> MediaAppearance {
+        guard let rawValue = AppDefaults.store.string(forKey: Keys.mediaAppearance),
+              let appearance = MediaAppearance(rawValue: rawValue) else {
+            return Defaults.mediaAppearance
+        }
+        return appearance
     }
 
     private static func readNotchSize() -> NotchSize {

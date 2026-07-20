@@ -273,6 +273,7 @@ struct MacFlowNotchWorkspaceView: View {
 private struct RealNotchMediaPreview: View {
     let size: NotchSize
 
+    @EnvironmentObject private var settings: NotchSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var accessibilityContrast
 
@@ -314,6 +315,7 @@ private struct RealNotchMediaPreview: View {
                         revealsContent: true,
                         accessibilityContrast: accessibilityContrast,
                         reduceMotion: reduceMotion,
+                        mediaAppearance: settings.mediaAppearance,
                         onPlayPause: {}
                     )
                     .frame(width: bodyWidth, height: height)
@@ -338,6 +340,10 @@ private struct RealNotchMediaPreview: View {
                     .stroke(MacFlowColor.borderSubtle, lineWidth: 1)
             }
             .animation(AppMotion.emphasized(reduceMotion: reduceMotion), value: size)
+            .animation(
+                AppMotion.emphasized(reduceMotion: reduceMotion),
+                value: settings.mediaAppearance
+            )
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Real notch media preview")
