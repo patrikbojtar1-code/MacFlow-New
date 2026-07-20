@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         library: sceneLibrary,
         performance: scenePerformance,
         focusMode: focusMode,
+        nowPlaying: nowPlaying,
         displayCoordinator: displayCoordinator
     )
     lazy var mouseFree = MouseFreeController()

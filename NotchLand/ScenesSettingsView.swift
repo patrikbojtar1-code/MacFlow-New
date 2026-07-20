@@ -18,6 +18,7 @@ struct ScenesSettingsView: View {
     @State private var newCollectionName = ""
     @State private var isImporting = false
     @State private var activationTask: Task<Void, Never>?
+    @State private var expandedComposerLayer: WallpaperSceneRenderingConfiguration.ComposerLayer.Kind? = .atmosphere
     @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -640,6 +641,51 @@ struct ScenesSettingsView: View {
             }
             Divider().overlay(MacFlowColor.borderSubtle)
             MacFlowInspectorSection("Scene Composer") {
+                HStack {
+                    Text("LAYER STACK")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(MacFlowColor.textTertiary)
+                        .tracking(0.7)
+                    Spacer()
+                    Button("Reset") {
+                        resetComposerLayers(for: scene)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(MacFlowColor.wallpaper)
+                }
+
+                VStack(spacing: MacFlowSpacing.space4) {
+                    ForEach(Array(composerLayers(for: scene).reversed())) { composerLayer in
+                        composerLayerRow(composerLayer, scene: scene)
+                    }
+                }
+
+                Divider().overlay(MacFlowColor.borderSubtle)
+
+                HStack {
+                    Text("PRESETS")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(MacFlowColor.textTertiary)
+                        .tracking(0.7)
+                    Spacer()
+                    Text(selectedComposerPreset(for: scene)?.title ?? "Custom")
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                }
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: MacFlowSpacing.space4),
+                        GridItem(.flexible(), spacing: MacFlowSpacing.space4),
+                    ],
+                    spacing: MacFlowSpacing.space4
+                ) {
+                    ForEach(WallpaperSceneComposerPreset.allCases) { preset in
+                        composerPresetButton(preset, scene: scene)
+                    }
+                }
+
                 Picker(
                     "Atmosphere",
                     selection: renderingBinding(for: scene, keyPath: \.ambientEffect)
@@ -671,8 +717,46 @@ struct ScenesSettingsView: View {
                     displaysAsPercent: true
                 )
 
+                Picker(
+                    "Music reactive",
+                    selection: renderingBinding(for: scene, keyPath: \.musicReaction)
+                ) {
+                    ForEach(WallpaperSceneRenderingConfiguration.MusicReaction.allCases) { reaction in
+                        Label(reaction.title, systemImage: reaction.systemImage).tag(reaction)
+                    }
+                }
+
+                Text(scene.rendering.musicReaction.detail)
+                    .font(.system(size: 10))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+
+                if scene.rendering.musicReaction != .none {
+                    gradingSlider(
+                        "Music intensity",
+                        value: scene.rendering.musicReactionIntensity,
+                        range: WallpaperSceneRenderingConfiguration.musicReactionIntensityRange,
+                        binding: renderingBinding(for: scene, keyPath: \.musicReactionIntensity),
+                        displaysAsPercent: true
+                    )
+
+                    Label(
+                        controller.mediaPlayback.isPlaying
+                            ? "Responding to Now Playing"
+                            : "Starts automatically when media plays",
+                        systemImage: controller.mediaPlayback.isPlaying
+                            ? "waveform.circle.fill"
+                            : "play.circle"
+                    )
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(
+                        controller.mediaPlayback.isPlaying
+                            ? MacFlowColor.wallpaper
+                            : MacFlowColor.textTertiary
+                    )
+                }
+
                 if controller.performance.effectiveProfile == .eco {
-                    Label("Composer effects pause automatically in Eco", systemImage: "leaf.fill")
+                    Label("Eco keeps effects active at reduced density", systemImage: "leaf.fill")
                         .font(.system(size: 9.5))
                         .foregroundStyle(.green)
                 }
@@ -814,6 +898,263 @@ struct ScenesSettingsView: View {
             }
             Slider(value: binding, in: range)
                 .tint(MacFlowColor.wallpaper)
+        }
+    }
+
+    private func composerLayerRow(
+        _ composerLayer: WallpaperSceneRenderingConfiguration.ComposerLayer,
+        scene: WallpaperScene
+    ) -> some View {
+        let layers = composerLayers(for: scene)
+        let index = layers.firstIndex(where: { $0.kind == composerLayer.kind }) ?? 0
+        let isExpanded = expandedComposerLayer == composerLayer.kind
+        return VStack(spacing: MacFlowSpacing.space8) {
+            HStack(spacing: MacFlowSpacing.space8) {
+                Button {
+                    updateComposerLayer(composerLayer.kind, for: scene) {
+                        $0.isVisible.toggle()
+                    }
+                } label: {
+                    Image(systemName: composerLayer.isVisible ? "eye.fill" : "eye.slash")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(
+                            composerLayer.isVisible
+                                ? MacFlowColor.wallpaper
+                                : MacFlowColor.textTertiary
+                        )
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help(composerLayer.isVisible ? "Hide layer" : "Show layer")
+
+                Image(systemName: composerLayer.kind.systemImage)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(MacFlowColor.textSecondary)
+                    .frame(width: 16)
+
+                Text(composerLayer.kind.title)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    moveComposerLayer(composerLayer.kind, by: 1, for: scene)
+                } label: {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.plain)
+                .disabled(index >= layers.count - 1)
+                .help("Move layer up")
+
+                Button {
+                    moveComposerLayer(composerLayer.kind, by: -1, for: scene)
+                } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.plain)
+                .disabled(index <= 0)
+                .help("Move layer down")
+
+                Button {
+                    withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                        expandedComposerLayer = isExpanded ? nil : composerLayer.kind
+                    }
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.up.circle.fill" : "slider.horizontal.3")
+                        .foregroundStyle(isExpanded ? MacFlowColor.wallpaper : MacFlowColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Layer settings")
+            }
+
+            if isExpanded {
+                HStack(spacing: MacFlowSpacing.space8) {
+                    Text("Opacity")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                    Slider(
+                        value: Binding(
+                            get: {
+                                composerLayers(for: scene).first(where: {
+                                    $0.kind == composerLayer.kind
+                                })?.opacity ?? composerLayer.opacity
+                            },
+                            set: { opacity in
+                                updateComposerLayer(
+                                    composerLayer.kind,
+                                    for: scene,
+                                    performsHaptic: false
+                                ) {
+                                    $0.opacity = opacity
+                                }
+                            }
+                        ),
+                        in: 0...1
+                    )
+                    .tint(MacFlowColor.wallpaper)
+                    Text(composerLayer.opacity, format: .percent.precision(.fractionLength(0)))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(MacFlowColor.textTertiary)
+                        .frame(width: 30, alignment: .trailing)
+                }
+
+                HStack {
+                    Text("Blend")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(MacFlowColor.textSecondary)
+                    Spacer()
+                    Menu(composerLayer.blendMode.title) {
+                        ForEach(
+                            WallpaperSceneRenderingConfiguration.ComposerLayer.BlendMode.allCases
+                        ) { blendMode in
+                            Button {
+                                updateComposerLayer(composerLayer.kind, for: scene) {
+                                    $0.blendMode = blendMode
+                                }
+                            } label: {
+                                if composerLayer.blendMode == blendMode {
+                                    Label(blendMode.title, systemImage: "checkmark")
+                                } else {
+                                    Text(blendMode.title)
+                                }
+                            }
+                        }
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+            }
+        }
+        .padding(.horizontal, MacFlowSpacing.space8)
+        .padding(.vertical, MacFlowSpacing.space8)
+        .background(
+            isExpanded ? MacFlowColor.surface2 : MacFlowColor.surface1,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(
+                    isExpanded
+                        ? MacFlowColor.wallpaper.opacity(0.28)
+                        : MacFlowColor.borderSubtle,
+                    lineWidth: 1
+                )
+        }
+        .opacity(composerLayer.isVisible ? 1 : 0.58)
+    }
+
+    private func composerLayers(
+        for scene: WallpaperScene
+    ) -> [WallpaperSceneRenderingConfiguration.ComposerLayer] {
+        controller.library.scene(withID: scene.id)?.rendering.composerLayers
+            ?? scene.rendering.composerLayers
+    }
+
+    private func updateComposerLayer(
+        _ kind: WallpaperSceneRenderingConfiguration.ComposerLayer.Kind,
+        for scene: WallpaperScene,
+        performsHaptic: Bool = true,
+        mutation: (inout WallpaperSceneRenderingConfiguration.ComposerLayer) -> Void
+    ) {
+        guard let latestScene = controller.library.scene(withID: scene.id),
+              let index = latestScene.rendering.composerLayers.firstIndex(where: {
+                  $0.kind == kind
+              }) else { return }
+        var rendering = latestScene.rendering
+        mutation(&rendering.composerLayers[index])
+        if performsHaptic { NotchHaptics.perform(.navigation) }
+        controller.updateRendering(for: latestScene.id, configuration: rendering)
+    }
+
+    private func moveComposerLayer(
+        _ kind: WallpaperSceneRenderingConfiguration.ComposerLayer.Kind,
+        by offset: Int,
+        for scene: WallpaperScene
+    ) {
+        guard let latestScene = controller.library.scene(withID: scene.id),
+              let index = latestScene.rendering.composerLayers.firstIndex(where: {
+                  $0.kind == kind
+              }) else { return }
+        let destination = index + offset
+        guard latestScene.rendering.composerLayers.indices.contains(destination) else { return }
+        var rendering = latestScene.rendering
+        rendering.composerLayers.swapAt(index, destination)
+        NotchHaptics.perform(.navigation)
+        controller.updateRendering(for: latestScene.id, configuration: rendering)
+    }
+
+    private func resetComposerLayers(for scene: WallpaperScene) {
+        guard let latestScene = controller.library.scene(withID: scene.id) else { return }
+        var rendering = latestScene.rendering
+        rendering.composerLayers = WallpaperSceneRenderingConfiguration.defaultComposerLayers
+        NotchHaptics.perform(.confirmation)
+        controller.updateRendering(for: latestScene.id, configuration: rendering)
+    }
+
+    private func composerPresetButton(
+        _ preset: WallpaperSceneComposerPreset,
+        scene: WallpaperScene
+    ) -> some View {
+        let isSelected = selectedComposerPreset(for: scene) == preset
+        return Button {
+            guard let latestScene = controller.library.scene(withID: scene.id) else { return }
+            NotchHaptics.perform(.navigation)
+            withAnimation(AppMotion.stateChange(reduceMotion: reduceMotion)) {
+                controller.updateRendering(
+                    for: latestScene.id,
+                    configuration: preset.applying(
+                        to: latestScene.rendering,
+                        sceneKind: latestScene.kind
+                    )
+                )
+            }
+        } label: {
+            HStack(spacing: MacFlowSpacing.space8) {
+                Image(systemName: isSelected ? "checkmark" : preset.systemImage)
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(
+                        isSelected ? MacFlowColor.wallpaper : MacFlowColor.textSecondary
+                    )
+                    .frame(width: 22, height: 22)
+                    .background(
+                        isSelected
+                            ? MacFlowColor.wallpaper.opacity(0.12)
+                            : MacFlowColor.surface2,
+                        in: Circle()
+                    )
+                Text(preset.title)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, MacFlowSpacing.space8)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(
+                isSelected ? MacFlowColor.surface3 : MacFlowColor.surface1,
+                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(
+                        isSelected
+                            ? MacFlowColor.wallpaper.opacity(0.44)
+                            : MacFlowColor.borderSubtle,
+                        lineWidth: 1
+                    )
+            }
+        }
+        .buttonStyle(MacFlowInteractiveButtonStyle())
+        .help(preset.detail)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func selectedComposerPreset(
+        for scene: WallpaperScene
+    ) -> WallpaperSceneComposerPreset? {
+        let rendering = controller.library.scene(withID: scene.id)?.rendering ?? scene.rendering
+        return WallpaperSceneComposerPreset.allCases.first {
+            $0.matches(rendering, sceneKind: scene.kind)
         }
     }
 
@@ -1108,6 +1449,9 @@ private struct WallpaperThumbnailView: View {
             ambientEffect: scene.rendering.ambientEffect,
             effectIntensity: scene.rendering.effectIntensity,
             parallaxStrength: scene.rendering.parallaxStrength,
+            musicReaction: scene.rendering.musicReaction,
+            musicReactionIntensity: scene.rendering.musicReactionIntensity,
+            composerLayers: scene.rendering.composerLayers,
             animatesMotion: animatesMotion
         )
     }

@@ -77,6 +77,9 @@ struct WallpaperPreviewImage: View {
     var ambientEffect: WallpaperSceneRenderingConfiguration.AmbientEffect = .none
     var effectIntensity: Double = 0.45
     var parallaxStrength: Double = 0
+    var musicReaction: WallpaperSceneRenderingConfiguration.MusicReaction = .none
+    var musicReactionIntensity: Double = 0.45
+    var composerLayers = WallpaperSceneRenderingConfiguration.defaultComposerLayers
     var animatesMotion = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -89,41 +92,13 @@ struct WallpaperPreviewImage: View {
             ZStack {
                 Color.black
 
-                if let image {
-                    imageView(image, size: proxy.size)
-                        .scaleEffect(motionScale * parallaxScale)
-                        .offset(combinedOffset)
-                        .saturation(saturation)
-                        .contrast(contrast)
-                        .transition(.opacity)
-                } else {
-                    Image(systemName: scene.kind.systemImage)
-                        .font(.title2.weight(.light))
-                        .foregroundStyle(.white.opacity(0.42))
+                ForEach(composerLayers) { composerLayer in
+                    if composerLayer.isVisible, composerLayer.opacity > 0.001 {
+                        previewLayer(composerLayer.kind, size: proxy.size)
+                            .opacity(composerLayer.opacity)
+                            .blendMode(composerLayer.blendMode.swiftUIBlendMode)
+                    }
                 }
-
-                if animatesMotion, !reduceMotion, ambientEffect != .none {
-                    WallpaperAmbientEffectPreview(
-                        effect: ambientEffect,
-                        intensity: effectIntensity
-                    )
-                    .allowsHitTesting(false)
-                }
-
-                RadialGradient(
-                    stops: [
-                        .init(color: .clear, location: 0.42),
-                        .init(color: .black.opacity(vignette * 0.28), location: 0.72),
-                        .init(color: .black.opacity(vignette), location: 1),
-                    ],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: max(proxy.size.width, proxy.size.height) * 0.72
-                )
-                .allowsHitTesting(false)
-
-                Color.black.opacity(dimming)
-                    .allowsHitTesting(false)
             }
             .onContinuousHover { phase in
                 guard animatesMotion, !reduceMotion, parallaxStrength > 0 else {
@@ -165,6 +140,59 @@ struct WallpaperPreviewImage: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(scene.title), \(scene.kind.displayName) wallpaper")
+    }
+
+    @ViewBuilder
+    private func previewLayer(
+        _ kind: WallpaperSceneRenderingConfiguration.ComposerLayer.Kind,
+        size: CGSize
+    ) -> some View {
+        switch kind {
+        case .media:
+            if let image {
+                imageView(image, size: size)
+                    .scaleEffect(motionScale * parallaxScale)
+                    .offset(combinedOffset)
+                    .saturation(saturation)
+                    .contrast(contrast)
+                    .transition(.opacity)
+            } else {
+                Image(systemName: scene.kind.systemImage)
+                    .font(.title2.weight(.light))
+                    .foregroundStyle(.white.opacity(0.42))
+            }
+        case .musicGlow:
+            if animatesMotion, !reduceMotion, musicReaction != .none {
+                WallpaperMusicReactionPreview(
+                    reaction: musicReaction,
+                    intensity: musicReactionIntensity
+                )
+                .allowsHitTesting(false)
+            }
+        case .atmosphere:
+            if animatesMotion, !reduceMotion, ambientEffect != .none {
+                WallpaperAmbientEffectPreview(
+                    effect: ambientEffect,
+                    intensity: effectIntensity
+                )
+                .allowsHitTesting(false)
+            }
+        case .vignette:
+            RadialGradient(
+                stops: [
+                    .init(color: .clear, location: 0.42),
+                    .init(color: .black.opacity(vignette * 0.28), location: 0.72),
+                    .init(color: .black.opacity(vignette), location: 1),
+                ],
+                center: .center,
+                startRadius: 0,
+                endRadius: max(size.width, size.height) * 0.72
+            )
+            .allowsHitTesting(false)
+        case .dimming:
+            Color.black.opacity(dimming)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
@@ -288,6 +316,56 @@ private struct WallpaperAmbientEffectPreview: View {
             return phase ? height + 24 : -24 - stagger * 0.2
         case .embers:
             return phase ? -24 : height + 24 + stagger * 0.15
+        }
+    }
+}
+
+private struct WallpaperMusicReactionPreview: View {
+    let reaction: WallpaperSceneRenderingConfiguration.MusicReaction
+    let intensity: Double
+
+    @State private var phase = false
+
+    var body: some View {
+        RadialGradient(
+            stops: [
+                .init(color: MacFlowColor.wallpaper.opacity(0.72), location: 0),
+                .init(color: Color.indigo.opacity(0.24), location: 0.5),
+                .init(color: .clear, location: 1),
+            ],
+            center: .top,
+            startRadius: 0,
+            endRadius: 420
+        )
+        .opacity(glowOpacity)
+        .blendMode(.plusLighter)
+        .task(id: reaction) {
+            phase = false
+            await Task.yield()
+            withAnimation(
+                .easeInOut(duration: reaction == .ambientGlow ? 2.8 : 1.25)
+                    .repeatForever(autoreverses: true)
+            ) {
+                phase = true
+            }
+        }
+    }
+
+    private var glowOpacity: Double {
+        let low = 0.08 + (intensity * 0.04)
+        let high = 0.18 + (intensity * 0.24)
+        return phase ? high : low
+    }
+}
+
+private extension WallpaperSceneRenderingConfiguration.ComposerLayer.BlendMode {
+    var swiftUIBlendMode: SwiftUI.BlendMode {
+        switch self {
+        case .normal: .normal
+        case .screen: .screen
+        case .add: .plusLighter
+        case .softLight: .softLight
+        case .multiply: .multiply
         }
     }
 }

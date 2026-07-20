@@ -116,7 +116,9 @@ struct WallpaperSceneTests {
                     motionPreset: .slowDrift,
                     ambientEffect: .embers,
                     effectIntensity: 0.8,
-                    parallaxStrength: 0.4
+                    parallaxStrength: 0.4,
+                    musicReaction: .playbackPulse,
+                    musicReactionIntensity: 0.7
                 )
             )
         }
@@ -371,7 +373,14 @@ struct WallpaperSceneTests {
             vignette: 2,
             ambientEffect: .embers,
             effectIntensity: 4,
-            parallaxStrength: 3
+            parallaxStrength: 3,
+            musicReaction: .playbackPulse,
+            musicReactionIntensity: 2,
+            composerLayers: [
+                .init(kind: .atmosphere, opacity: 4, blendMode: .add),
+                .init(kind: .atmosphere, isVisible: false),
+                .init(kind: .media, opacity: -2),
+            ]
         ).normalized
 
         #expect(configuration.scalingMode == .fit)
@@ -384,6 +393,46 @@ struct WallpaperSceneTests {
         #expect(configuration.ambientEffect == .embers)
         #expect(configuration.effectIntensity == 1)
         #expect(configuration.parallaxStrength == 1)
+        #expect(configuration.musicReaction == .playbackPulse)
+        #expect(configuration.musicReactionIntensity == 1)
+        #expect(configuration.composerLayers.map(\.kind) == [
+            .atmosphere, .media, .musicGlow, .vignette, .dimming,
+        ])
+        #expect(configuration.composerLayers[0].opacity == 1)
+        #expect(configuration.composerLayers[1].opacity == 0)
+    }
+
+    @Test func composerPresetsPreserveMediaSettingsAndStayWithinBudgets() {
+        let source = WallpaperSceneRenderingConfiguration(
+            scalingMode: .fit,
+            playbackRate: 1.25,
+            dimming: 0.4
+        )
+
+        for preset in WallpaperSceneComposerPreset.allCases {
+            let imageRendering = preset.applying(to: source, sceneKind: .image)
+            #expect(imageRendering.scalingMode == .fit)
+            #expect(imageRendering.playbackRate == 1.25)
+            #expect(imageRendering == imageRendering.normalized)
+            #expect(preset.matches(imageRendering, sceneKind: .image))
+
+            let videoRendering = preset.applying(to: source, sceneKind: .video)
+            #expect(videoRendering.scalingMode == .fit)
+            #expect(videoRendering.playbackRate == 1.25)
+            #expect(videoRendering.motionPreset == .none)
+            #expect(preset.matches(videoRendering, sceneKind: .video))
+        }
+    }
+
+    @Test func manualComposerChangeLeavesPresetState() {
+        let preset = WallpaperSceneComposerPreset.snowNight
+        let applied = preset.applying(to: .default, sceneKind: .image)
+        #expect(preset.matches(applied, sceneKind: .image))
+        #expect(applied.ambientEffect == .snow)
+
+        var customized = applied
+        customized.effectIntensity = 0.31
+        #expect(!preset.matches(customized, sceneKind: .image))
     }
 
     @Test func legacyRenderingConfigurationMigratesSceneStudioDefaults() throws {
@@ -407,6 +456,9 @@ struct WallpaperSceneTests {
         #expect(rendering.ambientEffect == .none)
         #expect(rendering.effectIntensity == 0.45)
         #expect(rendering.parallaxStrength == 0)
+        #expect(rendering.musicReaction == .none)
+        #expect(rendering.musicReactionIntensity == 0.45)
+        #expect(rendering.composerLayers == WallpaperSceneRenderingConfiguration.defaultComposerLayers)
     }
 
     @Test func sceneMotionPolicyProtectsEnergyAndAccessibilityBudgets() {
@@ -447,7 +499,7 @@ struct WallpaperSceneTests {
             reduceMotion: false,
             paused: false
         ))
-        #expect(!WallpaperSceneEffectsPolicy.shouldRender(
+        #expect(WallpaperSceneEffectsPolicy.shouldRender(
             effect: .embers,
             profile: .eco,
             reduceMotion: false,
@@ -471,7 +523,110 @@ struct WallpaperSceneTests {
             reduceMotion: false,
             paused: false
         ))
-        #expect(WallpaperSceneEffectsPolicy.densityMultiplier(for: .balanced) < 1)
+        #expect(WallpaperSceneEffectsPolicy.densityMultiplier(for: .eco) > 0)
+        #expect(
+            WallpaperSceneEffectsPolicy.densityMultiplier(for: .eco)
+                < WallpaperSceneEffectsPolicy.densityMultiplier(for: .balanced)
+        )
+    }
+
+    @Test func musicReactionRequiresPlaybackAndRespectsEnergyPolicy() {
+        #expect(WallpaperMusicReactionPolicy.shouldAnimate(
+            reaction: .ambientGlow,
+            isPlaying: true,
+            profile: .balanced,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperMusicReactionPolicy.shouldAnimate(
+            reaction: .playbackPulse,
+            isPlaying: false,
+            profile: .cinematic,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(WallpaperMusicReactionPolicy.shouldAnimate(
+            reaction: .playbackPulse,
+            isPlaying: true,
+            profile: .eco,
+            reduceMotion: false,
+            paused: false
+        ))
+        #expect(!WallpaperMusicReactionPolicy.shouldAnimate(
+            reaction: .ambientGlow,
+            isPlaying: true,
+            profile: .cinematic,
+            reduceMotion: true,
+            paused: false
+        ))
+        #expect(
+            WallpaperMusicReactionPolicy.intensityMultiplier(for: .eco)
+                < WallpaperMusicReactionPolicy.intensityMultiplier(for: .balanced)
+        )
+    }
+
+    @MainActor
+    @Test func desktopRendererInstallsAndPausesComposerEffects() async throws {
+        let assetURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RuntimeEffects-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: assetURL) }
+        try Self.writeGradientPNG(to: assetURL, colors: [.systemBlue, .black])
+
+        let rendering = WallpaperSceneRenderingConfiguration(
+            ambientEffect: .snow,
+            effectIntensity: 0.8,
+            musicReaction: .playbackPulse,
+            musicReactionIntensity: 0.7
+        )
+        let scene = WallpaperScene(
+            title: "Runtime Effects",
+            kind: .image,
+            assetFilename: "missing-runtime-fixture.png",
+            rendering: rendering
+        )
+        let renderer = WallpaperSceneRenderView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 360)
+        )
+        defer { renderer.stop() }
+
+        renderer.display(
+            scene: scene,
+            assetURL: assetURL,
+            profile: .eco
+        )
+        try await Task.sleep(for: .milliseconds(80))
+        var diagnostics = renderer.effectDiagnostics
+        #expect(diagnostics.ambientLayerAttached)
+        #expect(diagnostics.ambientParticleBirthRate > 0)
+        #expect(!diagnostics.musicGlowAnimating)
+        #expect(diagnostics.composerLayerOrder == rendering.composerLayers.map(\.kind))
+
+        renderer.update(mediaPlayback: WallpaperMediaPlaybackSnapshot(
+            isPlaying: true,
+            accentRed: 0.2,
+            accentGreen: 0.6,
+            accentBlue: 1
+        ))
+        diagnostics = renderer.effectDiagnostics
+        #expect(diagnostics.musicGlowAnimating)
+
+        var customizedLayers = rendering
+        customizedLayers.composerLayers.swapAt(0, 2)
+        if let atmosphereIndex = customizedLayers.composerLayers.firstIndex(where: {
+            $0.kind == .atmosphere
+        }) {
+            customizedLayers.composerLayers[atmosphereIndex].isVisible = false
+        }
+        renderer.update(rendering: customizedLayers)
+        diagnostics = renderer.effectDiagnostics
+        #expect(diagnostics.composerLayerOrder == customizedLayers.composerLayers.map(\.kind))
+        #expect(diagnostics.hiddenComposerLayers.contains(.atmosphere))
+        #expect(!diagnostics.ambientLayerAttached)
+
+        renderer.setPaused(true)
+        diagnostics = renderer.effectDiagnostics
+        #expect(!diagnostics.ambientLayerAttached)
+        #expect(!diagnostics.musicGlowAnimating)
     }
 
     @Test func legacySceneManifestDefaultsToFillAtNormalSpeed() throws {
@@ -969,7 +1124,16 @@ struct WallpaperSceneTests {
             vignette: 0.24,
             ambientEffect: .dust,
             effectIntensity: 0.7,
-            parallaxStrength: 0.35
+            parallaxStrength: 0.35,
+            musicReaction: .ambientGlow,
+            musicReactionIntensity: 0.65,
+            composerLayers: [
+                .init(kind: .media),
+                .init(kind: .atmosphere, opacity: 0.68, blendMode: .add),
+                .init(kind: .musicGlow, blendMode: .screen),
+                .init(kind: .vignette, opacity: 0.75, blendMode: .multiply),
+                .init(kind: .dimming, blendMode: .multiply),
+            ]
         )
         try sourceLibrary.updateRendering(
             forSceneID: sourceScene.id,

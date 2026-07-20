@@ -25,6 +25,14 @@ nonisolated struct WallpaperMediaPlaybackSnapshot: Equatable, Sendable {
     )
 }
 
+nonisolated struct WallpaperSceneEffectDiagnostics: Equatable, Sendable {
+    var ambientLayerAttached: Bool
+    var ambientParticleBirthRate: Float
+    var musicGlowAnimating: Bool
+    var composerLayerOrder: [WallpaperSceneRenderingConfiguration.ComposerLayer.Kind]
+    var hiddenComposerLayers: Set<WallpaperSceneRenderingConfiguration.ComposerLayer.Kind>
+}
+
 @MainActor
 final class WallpaperSceneWindow: NSWindow {
     private let rendererView = WallpaperSceneRenderView()
@@ -123,7 +131,7 @@ final class WallpaperSceneWindow: NSWindow {
 }
 
 @MainActor
-private final class WallpaperSceneRenderView: NSView {
+final class WallpaperSceneRenderView: NSView {
     private enum Motion {
         static let treatmentDuration: CFTimeInterval = 0.18
         static let animationKey = "macflow.scene.motion"
@@ -145,6 +153,10 @@ private final class WallpaperSceneRenderView: NSView {
     private var currentMediaPlayback = WallpaperMediaPlaybackSnapshot.inactive
     private var isPaused = false
     private let mediaContainerLayer = CALayer()
+    private let musicContainerLayer = CALayer()
+    private let atmosphereContainerLayer = CALayer()
+    private let vignetteContainerLayer = CALayer()
+    private let dimmingContainerLayer = CALayer()
     private var emitterLayer: CAEmitterLayer?
     private var pointerSubscriptionID: UUID?
     private let musicGlowLayer = CAGradientLayer()
@@ -180,25 +192,101 @@ private final class WallpaperSceneRenderView: NSView {
         vignetteLayer.opacity = 0
         dimmingLayer.backgroundColor = NSColor.black.cgColor
         dimmingLayer.opacity = 0
-        layer?.addSublayer(mediaContainerLayer)
-        layer?.addSublayer(musicGlowLayer)
-        layer?.addSublayer(vignetteLayer)
-        layer?.addSublayer(dimmingLayer)
+        musicContainerLayer.addSublayer(musicGlowLayer)
+        vignetteContainerLayer.addSublayer(vignetteLayer)
+        dimmingContainerLayer.addSublayer(dimmingLayer)
+        applyComposerLayerStack()
     }
 
     required init?(coder: NSCoder) {
         nil
     }
 
+    var effectDiagnostics: WallpaperSceneEffectDiagnostics {
+        let containers = composerContainers
+        let orderedLayers = layer?.sublayers?.compactMap { candidate in
+            containers.first(where: { $0.value === candidate })?.key
+        } ?? []
+        return WallpaperSceneEffectDiagnostics(
+            ambientLayerAttached: emitterLayer?.superlayer === atmosphereContainerLayer,
+            ambientParticleBirthRate: emitterLayer?.emitterCells?.first?.birthRate ?? 0,
+            musicGlowAnimating: musicGlowLayer.animation(
+                forKey: Motion.musicGlowAnimationKey
+            ) != nil,
+            composerLayerOrder: orderedLayers,
+            hiddenComposerLayers: Set(containers.compactMap { entry in
+                entry.value.isHidden ? entry.key : nil
+            })
+        )
+    }
+
     override func layout() {
         super.layout()
-        mediaContainerLayer.frame = bounds
+        composerContainers.values.forEach { $0.frame = bounds }
         imageLayer?.frame = bounds
         videoLayer?.frame = bounds
         layoutEmitterLayer()
         musicGlowLayer.frame = bounds
         vignetteLayer.frame = bounds
         dimmingLayer.frame = bounds
+    }
+
+    private var composerContainers: [
+        WallpaperSceneRenderingConfiguration.ComposerLayer.Kind: CALayer
+    ] {
+        [
+            .media: mediaContainerLayer,
+            .musicGlow: musicContainerLayer,
+            .atmosphere: atmosphereContainerLayer,
+            .vignette: vignetteContainerLayer,
+            .dimming: dimmingContainerLayer,
+        ]
+    }
+
+    private func applyComposerLayerStack() {
+        let containers = composerContainers
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        containers.values.forEach { $0.removeFromSuperlayer() }
+        for composerLayer in currentRendering.composerLayers {
+            guard let container = containers[composerLayer.kind] else { continue }
+            container.frame = bounds
+            container.isHidden = !composerLayer.isVisible
+            container.opacity = Float(composerLayer.opacity)
+            container.compositingFilter = Self.compositingFilter(
+                for: composerLayer.blendMode
+            )
+            layer?.addSublayer(container)
+        }
+        CATransaction.commit()
+    }
+
+    private static func compositingFilter(
+        for blendMode: WallpaperSceneRenderingConfiguration.ComposerLayer.BlendMode
+    ) -> Any? {
+        let filterName: String?
+        switch blendMode {
+        case .normal:
+            filterName = nil
+        case .screen:
+            filterName = "CIScreenBlendMode"
+        case .add:
+            filterName = "CIAdditionCompositing"
+        case .softLight:
+            filterName = "CISoftLightBlendMode"
+        case .multiply:
+            filterName = "CIMultiplyBlendMode"
+        }
+        return filterName.flatMap(CIFilter.init(name:))
+    }
+
+    private func isComposerLayerRenderable(
+        _ kind: WallpaperSceneRenderingConfiguration.ComposerLayer.Kind
+    ) -> Bool {
+        guard let composerLayer = currentRendering.composerLayers.first(where: {
+            $0.kind == kind
+        }) else { return false }
+        return composerLayer.isVisible && composerLayer.opacity > 0.001
     }
 
     func display(
@@ -427,6 +515,7 @@ private final class WallpaperSceneRenderView: NSView {
     ) {
         let normalized = rendering.normalized
         currentRendering = normalized
+        applyComposerLayerStack()
 
         CATransaction.begin()
         CATransaction.setAnimationDuration(
@@ -483,7 +572,7 @@ private final class WallpaperSceneRenderView: NSView {
             profile: currentProfile,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             paused: isPaused
-        ) else { return }
+        ), isComposerLayerRenderable(.media) else { return }
 
         let animation: CAAnimation
         switch currentRendering.motionPreset {
@@ -519,7 +608,8 @@ private final class WallpaperSceneRenderView: NSView {
         emitterLayer?.removeFromSuperlayer()
         emitterLayer = nil
 
-        guard WallpaperSceneEffectsPolicy.shouldRender(
+        guard isComposerLayerRenderable(.atmosphere),
+              WallpaperSceneEffectsPolicy.shouldRender(
             effect: currentRendering.ambientEffect,
             profile: currentProfile,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
@@ -528,10 +618,12 @@ private final class WallpaperSceneRenderView: NSView {
 
         let emitter = CAEmitterLayer()
         emitter.frame = bounds
-        emitter.renderMode = .additive
+        emitter.birthRate = 1
+        emitter.lifetime = 1
+        emitter.renderMode = .unordered
         emitter.masksToBounds = true
         emitter.emitterCells = [makeEmitterCell(for: currentRendering.ambientEffect)]
-        layer?.insertSublayer(emitter, below: vignetteLayer)
+        atmosphereContainerLayer.addSublayer(emitter)
         emitterLayer = emitter
         layoutEmitterLayer()
     }
@@ -613,7 +705,8 @@ private final class WallpaperSceneRenderView: NSView {
         emitterLayer?.removeAnimation(forKey: Motion.particlePulseAnimationKey)
         musicGlowLayer.opacity = 0
 
-        guard WallpaperMusicReactionPolicy.shouldAnimate(
+        guard isComposerLayerRenderable(.musicGlow),
+              WallpaperMusicReactionPolicy.shouldAnimate(
             reaction: currentRendering.musicReaction,
             isPlaying: currentMediaPlayback.isPlaying,
             profile: currentProfile,
@@ -621,7 +714,10 @@ private final class WallpaperSceneRenderView: NSView {
             paused: isPaused
         ) else { return }
 
-        let intensity = Float(currentRendering.musicReactionIntensity)
+        let profileMultiplier = WallpaperMusicReactionPolicy.intensityMultiplier(
+            for: currentProfile
+        )
+        let intensity = Float(currentRendering.musicReactionIntensity) * profileMultiplier
         let accent = NSColor(
             calibratedRed: currentMediaPlayback.accentRed,
             green: currentMediaPlayback.accentGreen,
@@ -634,9 +730,13 @@ private final class WallpaperSceneRenderView: NSView {
             NSColor.clear.cgColor,
         ]
 
+        let lowOpacity = 0.05 + (0.06 * intensity)
+        let highOpacity = 0.14 + (0.28 * intensity)
+        musicGlowLayer.opacity = lowOpacity
+
         let glow = CABasicAnimation(keyPath: "opacity")
-        glow.fromValue = 0.035 + (0.045 * intensity)
-        glow.toValue = 0.1 + (0.2 * intensity)
+        glow.fromValue = lowOpacity
+        glow.toValue = highOpacity
         glow.autoreverses = true
         glow.repeatCount = .infinity
         glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -663,7 +763,8 @@ private final class WallpaperSceneRenderView: NSView {
     }
 
     private func updateParallaxSubscription() {
-        let shouldTrack = WallpaperSceneEffectsPolicy.shouldTrackPointer(
+        let shouldTrack = isComposerLayerRenderable(.media)
+            && WallpaperSceneEffectsPolicy.shouldTrackPointer(
             strength: currentRendering.parallaxStrength,
             profile: currentProfile,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
@@ -807,7 +908,10 @@ nonisolated enum WallpaperSceneEffectsPolicy {
         reduceMotion: Bool,
         paused: Bool
     ) -> Bool {
-        effect != .none && profile != .eco && !reduceMotion && !paused
+        effect != .none
+            && densityMultiplier(for: profile) > 0
+            && !reduceMotion
+            && !paused
     }
 
     static func shouldTrackPointer(
@@ -821,8 +925,32 @@ nonisolated enum WallpaperSceneEffectsPolicy {
 
     static func densityMultiplier(for profile: WallpaperPerformanceProfile) -> Float {
         switch profile {
-        case .eco: 0
+        case .eco: 0.22
         case .automatic, .balanced: 0.62
+        case .cinematic: 1
+        }
+    }
+}
+
+nonisolated enum WallpaperMusicReactionPolicy {
+    static func shouldAnimate(
+        reaction: WallpaperSceneRenderingConfiguration.MusicReaction,
+        isPlaying: Bool,
+        profile: WallpaperPerformanceProfile,
+        reduceMotion: Bool,
+        paused: Bool
+    ) -> Bool {
+        reaction != .none
+            && isPlaying
+            && intensityMultiplier(for: profile) > 0
+            && !reduceMotion
+            && !paused
+    }
+
+    static func intensityMultiplier(for profile: WallpaperPerformanceProfile) -> Float {
+        switch profile {
+        case .eco: 0.34
+        case .automatic, .balanced: 0.72
         case .cinematic: 1
         }
     }

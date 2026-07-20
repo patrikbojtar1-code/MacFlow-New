@@ -53,6 +53,7 @@ final class WallpaperSceneController: ObservableObject {
     @Published private(set) var exportingSceneID: UUID?
     @Published private(set) var displayPolicy: NotchDisplayPolicy
     @Published private(set) var selectedDisplayIDs: Set<UInt32>
+    @Published private(set) var mediaPlayback = WallpaperMediaPlaybackSnapshot.inactive
 
     let library: WallpaperSceneLibrary
     let performance: WallpaperPerformanceMonitor
@@ -139,6 +140,7 @@ final class WallpaperSceneController: ObservableObject {
         library: WallpaperSceneLibrary,
         performance: WallpaperPerformanceMonitor,
         focusMode: FocusModeController? = nil,
+        nowPlaying: NowPlayingService? = nil,
         displayCoordinator: DisplayCoordinator,
         telemetry: WallpaperTelemetryMonitor? = nil,
         defaults: UserDefaults = .standard
@@ -168,6 +170,23 @@ final class WallpaperSceneController: ObservableObject {
         }
         libraryCancellable = library.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+
+        nowPlaying?.$track
+            .map { track in
+                guard let track else { return WallpaperMediaPlaybackSnapshot.inactive }
+                let presentation = track.compactPresentation
+                return WallpaperMediaPlaybackSnapshot(
+                    isPlaying: presentation.isPlaying,
+                    accentRed: presentation.accentColor.red,
+                    accentGreen: presentation.accentColor.green,
+                    accentBlue: presentation.accentColor.blue
+                )
+            }
+            .removeDuplicates()
+            .sink { [weak self] snapshot in
+                self?.updateMediaPlayback(snapshot)
+            }
+            .store(in: &cancellables)
     }
 
     func start() {
@@ -427,9 +446,10 @@ final class WallpaperSceneController: ObservableObject {
         configuration: WallpaperSceneRenderingConfiguration
     ) {
         do {
+            let normalizedConfiguration = configuration.normalized
             try library.updateRendering(
                 forSceneID: sceneID,
-                configuration: configuration,
+                configuration: normalizedConfiguration,
                 persistsImmediately: false
             )
             errorMessage = nil
@@ -438,7 +458,7 @@ final class WallpaperSceneController: ObservableObject {
                 windows.values.forEach {
                     $0.update(
                         profile: performance.effectiveProfile,
-                        rendering: scene.rendering,
+                        rendering: normalizedConfiguration,
                         paused: paused
                     )
                 }
@@ -512,6 +532,7 @@ final class WallpaperSceneController: ObservableObject {
                     )
                 }
             )
+            window.update(mediaPlayback: mediaPlayback)
         }
         isRunning = !windows.isEmpty
         if let transitionID, windows.isEmpty {
@@ -581,6 +602,7 @@ final class WallpaperSceneController: ObservableObject {
                     )
                 }
             )
+            window.update(mediaPlayback: mediaPlayback)
         }
 
         windows = nextWindows
@@ -669,6 +691,12 @@ final class WallpaperSceneController: ObservableObject {
                 paused: paused
             )
         }
+    }
+
+    private func updateMediaPlayback(_ snapshot: WallpaperMediaPlaybackSnapshot) {
+        mediaPlayback = snapshot
+        windows.values.forEach { $0.update(mediaPlayback: snapshot) }
+        retiringWindows.forEach { $0.update(mediaPlayback: snapshot) }
     }
 
     private func shouldPause(scene: WallpaperScene) -> Bool {
