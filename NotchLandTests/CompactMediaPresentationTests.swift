@@ -209,6 +209,17 @@ struct CompactMediaPresentationTests {
         #expect(CompactMediaGesturePolicy.progress(for: 200) == 1)
     }
 
+    @Test func compactMediaGestureProgressRemainsContinuousWhenDirectionReverses() {
+        let next = CompactMediaGesturePolicy.signedProgress(for: 27)
+        let rest = CompactMediaGesturePolicy.signedProgress(for: 0)
+        let previous = CompactMediaGesturePolicy.signedProgress(for: -27)
+
+        #expect(next > 0)
+        #expect(rest == 0)
+        #expect(previous < 0)
+        #expect(abs(next + previous) < 0.0001)
+    }
+
     @Test func appleTVSearchParserFindsExactEpisodeAndArtwork() {
         let searchHTML = #"""
         <script>{"ariaLabel":"Nechť se přihlásí skutečná May","contextAction":{"url":"https://tv.apple.com/cz/episode/necht-se-prihlasi-skutecna-may/umc.cmc.episode?showId=umc.cmc.show"},"artwork":{}}</script>

@@ -86,9 +86,12 @@ struct CompactMediaSnapshotTests {
             bottomCornerRadius: NotchLayoutMetrics.bottomRadius(for: size)
         )
 
-        for (name, direction) in [
-            ("gesture-next-right", CompactMediaSwipeDirection.next),
-            ("gesture-previous-left", CompactMediaSwipeDirection.previous),
+        for (name, progress) in [
+            ("gesture-next-025", CGFloat(0.25)),
+            ("gesture-next-050", CGFloat(0.50)),
+            ("gesture-next-075", CGFloat(0.75)),
+            ("gesture-next-right", CGFloat(1)),
+            ("gesture-previous-left", CGFloat(-1)),
         ] {
             let content = ZStack(alignment: .bottom) {
                 shape.fill(Color.black)
@@ -102,8 +105,7 @@ struct CompactMediaSnapshotTests {
                     revealsContent: true,
                     accessibilityContrast: .standard,
                     reduceMotion: true,
-                    gestureDirection: direction,
-                    gestureProgress: 1,
+                    gestureProgress: progress,
                     onPlayPause: {}
                 )
                 .frame(width: bodySize.width, height: bodySize.height)

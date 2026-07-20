@@ -144,8 +144,9 @@ struct FloatingNotchView: View {
     @State private var isNotchPhaseAnimating = false
     @State private var notchBlendMotion: FeatureBlendMotion = .return
     @State private var suppressCollapsedMusicMarquee = false
+    /// One continuous value avoids a discrete direction swap while a spring
+    /// is settling: -1 is Previous, 0 is rest, +1 is Next.
     @State private var compactMediaGestureProgress: CGFloat = 0
-    @State private var compactMediaGestureDirection: CompactMediaSwipeDirection?
     @State private var compactMediaGestureResetTask: Task<Void, Never>?
     @State private var calendarCountdownShapeReveal: CGFloat = 1
     /// True for the lifetime of a transition whose source or destination is a
@@ -666,14 +667,14 @@ struct FloatingNotchView: View {
         vertical: CGFloat,
         branchKey key: String
     ) {
-        guard key == "collapsed-music",
-              abs(horizontal) > 3,
-              abs(horizontal) > abs(vertical) * 1.15 else { return }
+        guard key == "collapsed-music" else { return }
+
+        let isTracking = abs(compactMediaGestureProgress) > 0.001
+        guard isTracking || abs(horizontal) > abs(vertical) * 1.15 else { return }
 
         compactMediaGestureResetTask?.cancel()
-        withTransaction(Transaction(animation: nil)) {
-            compactMediaGestureDirection = horizontal > 0 ? .next : .previous
-            compactMediaGestureProgress = CompactMediaGesturePolicy.progress(
+        withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.tracking) {
+            compactMediaGestureProgress = CompactMediaGesturePolicy.signedProgress(
                 for: horizontal
             )
         }
@@ -699,9 +700,8 @@ struct FloatingNotchView: View {
 
         compactMediaGestureResetTask?.cancel()
         NotchHaptics.perform(.confirmation)
-        withAnimation(NotchMotionGraph.animation(for: .success, reduceMotion: reduceMotion)) {
-            compactMediaGestureDirection = direction
-            compactMediaGestureProgress = 1
+        withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.completion) {
+            compactMediaGestureProgress = direction == .next ? 1 : -1
         }
 
         switch direction {
@@ -715,12 +715,9 @@ struct FloatingNotchView: View {
         compactMediaGestureResetTask = Task { @MainActor in
             try? await Task.sleep(for: settleDelay)
             guard !Task.isCancelled else { return }
-            withAnimation(NotchMotionGraph.animation(for: .contentReturn, reduceMotion: reduceMotion)) {
+            withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.returnToRest) {
                 compactMediaGestureProgress = 0
             }
-            try? await Task.sleep(for: .milliseconds(180))
-            guard !Task.isCancelled else { return }
-            compactMediaGestureDirection = nil
             compactMediaGestureResetTask = nil
         }
     }
@@ -732,7 +729,7 @@ struct FloatingNotchView: View {
             compactMediaGestureProgress = 0
         }
         if animated {
-            withAnimation(NotchMotionGraph.animation(for: .contentReturn, reduceMotion: reduceMotion)) {
+            withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.returnToRest) {
                 updates()
             }
         } else {
@@ -740,7 +737,6 @@ struct FloatingNotchView: View {
                 updates()
             }
         }
-        compactMediaGestureDirection = nil
     }
 
     private var zonesAreEligible: Bool {
@@ -1153,7 +1149,6 @@ struct FloatingNotchView: View {
                     track: track,
                     isHovering: isHoveringThisDisplay,
                     morphNamespace: morph,
-                    gestureDirection: compactMediaGestureDirection,
                     gestureProgress: compactMediaGestureProgress
                 )
             } else {
@@ -1190,7 +1185,6 @@ struct FloatingNotchView: View {
                     track: track,
                     isHovering: isHoveringThisDisplay,
                     morphNamespace: morph,
-                    gestureDirection: compactMediaGestureDirection,
                     gestureProgress: compactMediaGestureProgress
                 )
             } else {
