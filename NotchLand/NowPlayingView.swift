@@ -173,6 +173,103 @@ nonisolated enum CompactMediaGesturePolicy {
     }
 }
 
+/// Vertical gestures intentionally have their own policy instead of borrowing
+/// the horizontal skip thresholds. Expansion needs more travel and a stronger
+/// directional lock so a diagonal track-change gesture can never open the
+/// full player by accident.
+nonisolated enum CompactMediaExpansionGesturePolicy {
+    static let activationThreshold: CGFloat = 78
+    static let trackingDeadZone: CGFloat = 3
+    static let axisLockDistance: CGFloat = 7
+    static let directionalDominance: CGFloat = 1.12
+    static let magneticSnapStart: CGFloat = 0.82
+    static let armedProgress: CGFloat = 0.995
+    static let disarmProgress: CGFloat = 0.72
+    static let previewWidthExpansion: CGFloat = 116
+    static let previewHeightExpansion: CGFloat = 48
+
+    static func prefersVerticalAxis(
+        horizontalTranslation: CGFloat,
+        verticalTranslation: CGFloat
+    ) -> Bool {
+        verticalTranslation > axisLockDistance
+            && verticalTranslation > abs(horizontalTranslation) * directionalDominance
+    }
+
+    static func prefersHorizontalAxis(
+        horizontalTranslation: CGFloat,
+        verticalTranslation: CGFloat
+    ) -> Bool {
+        abs(horizontalTranslation) > axisLockDistance
+            && abs(horizontalTranslation) > abs(verticalTranslation) * directionalDominance
+    }
+
+    static func progress(forDownwardTranslation translation: CGFloat) -> CGFloat {
+        let distance = max(0, translation - trackingDeadZone)
+        let linear = min(1, distance / (activationThreshold - trackingDeadZone))
+        guard linear > magneticSnapStart else { return linear }
+        let snapProgress = (linear - magneticSnapStart) / (1 - magneticSnapStart)
+        return magneticSnapStart
+            + CompactMediaGestureMotion.smooth(snapProgress) * (1 - magneticSnapStart)
+    }
+
+    static func progress(forUpwardTranslation translation: CGFloat) -> CGFloat {
+        progress(forDownwardTranslation: -translation)
+    }
+
+    static func shouldExpand(
+        horizontalTranslation: CGFloat,
+        verticalTranslation: CGFloat
+    ) -> Bool {
+        prefersVerticalAxis(
+            horizontalTranslation: horizontalTranslation,
+            verticalTranslation: verticalTranslation
+        ) && verticalTranslation >= activationThreshold
+    }
+
+    static func shouldCollapse(
+        horizontalTranslation: CGFloat,
+        verticalTranslation: CGFloat
+    ) -> Bool {
+        verticalTranslation <= -activationThreshold
+            && abs(verticalTranslation) > abs(horizontalTranslation) * directionalDominance
+    }
+
+    static func previewSize(from compactSize: CGSize, progress: CGFloat) -> CGSize {
+        let value = CompactMediaGestureMotion.travel(min(1, max(0, progress)))
+        return CGSize(
+            width: compactSize.width + previewWidthExpansion * value,
+            height: compactSize.height + previewHeightExpansion * value
+        )
+    }
+
+    static func collapsePreviewSize(from expandedSize: CGSize, progress: CGFloat) -> CGSize {
+        let value = CompactMediaGestureMotion.travel(min(1, max(0, progress)))
+        return CGSize(
+            width: expandedSize.width - previewWidthExpansion * 0.56 * value,
+            height: expandedSize.height - previewHeightExpansion * 0.72 * value
+        )
+    }
+}
+
+nonisolated enum CompactMediaExpansionMotion {
+    static let tracking = Animation.interactiveSpring(
+        response: 0.16,
+        dampingFraction: 0.97,
+        blendDuration: 0.12
+    )
+    static let completion = Animation.spring(
+        response: 0.34,
+        dampingFraction: 0.91,
+        blendDuration: 0.18
+    )
+    static let returnToRest = Animation.spring(
+        response: 0.48,
+        dampingFraction: 0.93,
+        blendDuration: 0.2
+    )
+}
+
 /// One reversible motion graph drives the complete swipe. Encoding direction
 /// in the sign lets an interactive spring pass through zero when the pointer
 /// reverses, instead of swapping two independent view states mid-animation.
@@ -418,6 +515,8 @@ struct NowPlayingCollapsedView: View {
     var handoffDirection: CompactMediaSwipeDirection? = nil
     /// Interactive value in `-1...1`: negative is Previous, positive is Next.
     var gestureProgress: CGFloat = 0
+    /// Interactive pull-down progress in `0...1` that precedes full expansion.
+    var expansionProgress: CGFloat = 0
     @StateObject private var backgroundModel = CompactArtworkBackgroundModel()
     @State private var revealsContent = false
     @State private var requestedHandoffDirection: CompactMediaSwipeDirection?
@@ -442,6 +541,7 @@ struct NowPlayingCollapsedView: View {
             mediaAppearance: settings.mediaAppearance,
             trackHandoffDirection: handoffDirection ?? requestedHandoffDirection,
             gestureProgress: gestureProgress,
+            expansionProgress: expansionProgress,
             onPrevious: previousTrack,
             onPlayPause: togglePlayback,
             onNext: nextTrack,
@@ -558,6 +658,7 @@ struct CompactMediaContent: View {
     var trackHandoffDirection: CompactMediaSwipeDirection? = nil
     /// Interactive value in `-1...1`: negative is Previous, positive is Next.
     var gestureProgress: CGFloat = 0
+    var expansionProgress: CGFloat = 0
     var onPrevious: () -> Void = {}
     let onPlayPause: () -> Void
     var onNext: () -> Void = {}
@@ -616,7 +717,7 @@ struct CompactMediaContent: View {
             .fill(.black)
             .frame(
                 width: hardwareNotchWidth,
-                height: NowPlayingMetrics.compactHardwareBridgeHeight
+                height: NowPlayingMetrics.compactHardwareBridgeHeight + pullProgress * 3
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .shadow(color: .black.opacity(0.34), radius: 4, y: 2)
@@ -644,8 +745,17 @@ struct CompactMediaContent: View {
             .frame(height: max(profile.sourceSize, notchSize == .small ? 33 : 38))
             .frame(maxHeight: .infinity, alignment: .center)
             .scaleEffect(1 - abs(gestureProgress) * 0.008)
+            .scaleEffect(1 + pullProgress * 0.012, anchor: .center)
+            .offset(y: pullProgress * 4)
             .scaleEffect(isHovering ? 1.006 : 1, anchor: .center)
             .animation(NotchMotionGraph.animation(for: .hover, reduceMotion: reduceMotion), value: isHovering)
+
+            CompactMediaExpansionAffordance(
+                progress: pullProgress,
+                accent: gestureAccent
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, 7)
 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -808,6 +918,10 @@ struct CompactMediaContent: View {
         min(1, max(0, -gestureProgress))
     }
 
+    private var pullProgress: CGFloat {
+        min(1, max(0, expansionProgress))
+    }
+
     private var nextGestureProgress: CGFloat {
         min(1, max(0, gestureProgress))
     }
@@ -849,6 +963,32 @@ struct CompactMediaContent: View {
             }
             handoffTask = nil
         }
+    }
+}
+
+private struct CompactMediaExpansionAffordance: View {
+    let progress: CGFloat
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Capsule(style: .continuous)
+                .fill(.white.opacity(0.52 + progress * 0.28))
+                .frame(width: 22 + progress * 10, height: 2)
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 7, weight: .bold))
+                .foregroundStyle(accent.opacity(0.72 + progress * 0.28))
+                .rotationEffect(.degrees(progress * 180))
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 14)
+        .background(.white.opacity(0.045 + progress * 0.035), in: Capsule(style: .continuous))
+        .opacity(CompactMediaGestureMotion.ramp(progress, from: 0.08, to: 0.44))
+        .scaleEffect(0.84 + progress * 0.16)
+        .offset(y: (1 - progress) * 5)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

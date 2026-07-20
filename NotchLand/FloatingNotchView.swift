@@ -148,9 +148,17 @@ struct FloatingNotchView: View {
     /// is settling: -1 is Previous, 0 is rest, +1 is Next.
     @State private var compactMediaGestureProgress: CGFloat = 0
     @State private var compactMediaGestureIsArmed = false
+    @State private var compactMediaGestureAxis: CompactMediaGestureAxis?
     @State private var compactMediaHandoffDirection: CompactMediaSwipeDirection?
     @State private var compactMediaGestureResetTask: Task<Void, Never>?
     @State private var compactMediaHandoffResetTask: Task<Void, Never>?
+    @State private var compactMediaExpansionProgress: CGFloat = 0
+    @State private var compactMediaExpansionIsArmed = false
+    @State private var compactMediaExpansionCommit = false
+    @State private var compactMediaExpansionResetTask: Task<Void, Never>?
+    @State private var expandedMediaCollapseProgress: CGFloat = 0
+    @State private var expandedMediaCollapseIsArmed = false
+    @State private var expandedMediaCollapseCommit = false
     @State private var calendarCountdownShapeReveal: CGFloat = 1
     /// True for the lifetime of a transition whose source or destination is a
     /// calendar-countdown branch. Keeps `notchBody` on `calendarCountdownNotchBody`
@@ -254,6 +262,10 @@ struct FloatingNotchView: View {
             if newBranch != "collapsed-music" {
                 resetCompactMediaGesture(animated: false)
             }
+            if !compactMediaExpansionCommit, !expandedMediaCollapseCommit {
+                resetCompactMediaExpansion(animated: false)
+                resetExpandedMediaCollapse(animated: false)
+            }
             let transition = presentationMachine.transition(to: newBranch)
             recordBranchMotion(transition)
             handleBranchChange(from: oldBranch, to: newBranch)
@@ -297,6 +309,7 @@ struct FloatingNotchView: View {
             notchTransitionTask?.cancel()
             compactMediaGestureResetTask?.cancel()
             compactMediaHandoffResetTask?.cancel()
+            compactMediaExpansionResetTask?.cancel()
             zoneController.hide()
         }
     }
@@ -464,15 +477,15 @@ struct FloatingNotchView: View {
                 if !isExpandedBranch(key), !isCallBranch(key) {
                     NotchInteractionSurface(
                         onTap: { location in handleNotchTap(at: location, size: size) },
-                        allowsHorizontalDrag: key == "collapsed-music",
-                        onHorizontalDragChanged: { horizontal, vertical in
+                        allowsDirectionalDrag: key == "collapsed-music",
+                        onDirectionalDragChanged: { horizontal, vertical in
                             handleCompactMediaDragChanged(
                                 horizontal: horizontal,
                                 vertical: vertical,
                                 branchKey: key
                             )
                         },
-                        onHorizontalDragEnded: { horizontal, vertical in
+                        onDirectionalDragEnded: { horizontal, vertical in
                             handleCompactMediaDragEnded(
                                 horizontal: horizontal,
                                 vertical: vertical,
@@ -481,6 +494,32 @@ struct FloatingNotchView: View {
                         }
                     )
                     .clipShape(shape)
+                }
+
+                if isExpandedMediaBranch(key) {
+                    NotchInteractionSurface(
+                        onTap: { _ in },
+                        allowsDirectionalDrag: true,
+                        onDirectionalDragChanged: { horizontal, vertical in
+                            handleExpandedMediaDragChanged(
+                                horizontal: horizontal,
+                                vertical: vertical
+                            )
+                        },
+                        onDirectionalDragEnded: { horizontal, vertical in
+                            handleExpandedMediaDragEnded(
+                                horizontal: horizontal,
+                                vertical: vertical
+                            )
+                        }
+                    )
+                    .frame(width: min(CGFloat(settings.collapsedWidth), bodyWidth), height: 36)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                    ExpandedMediaCollapseAffordance(progress: expandedMediaCollapseProgress)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 25)
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -673,8 +712,40 @@ struct FloatingNotchView: View {
     ) {
         guard key == "collapsed-music" else { return }
 
-        let isTracking = abs(compactMediaGestureProgress) > 0.001
-        guard isTracking || abs(horizontal) > abs(vertical) * 1.15 else { return }
+        if compactMediaGestureAxis == nil {
+            if CompactMediaExpansionGesturePolicy.prefersVerticalAxis(
+                horizontalTranslation: horizontal,
+                verticalTranslation: vertical
+            ) {
+                compactMediaGestureAxis = .vertical
+            } else if CompactMediaExpansionGesturePolicy.prefersHorizontalAxis(
+                horizontalTranslation: horizontal,
+                verticalTranslation: vertical
+            ) {
+                compactMediaGestureAxis = .horizontal
+            } else {
+                return
+            }
+        }
+
+        if compactMediaGestureAxis == .vertical {
+            compactMediaExpansionResetTask?.cancel()
+            compactMediaExpansionResetTask = nil
+            let progress = CompactMediaExpansionGesturePolicy.progress(
+                forDownwardTranslation: vertical
+            )
+            if progress >= CompactMediaExpansionGesturePolicy.armedProgress,
+               !compactMediaExpansionIsArmed {
+                NotchHaptics.perform(.navigation)
+                compactMediaExpansionIsArmed = true
+            } else if progress < CompactMediaExpansionGesturePolicy.disarmProgress {
+                compactMediaExpansionIsArmed = false
+            }
+            withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.tracking) {
+                compactMediaExpansionProgress = progress
+            }
+            return
+        }
 
         compactMediaGestureResetTask?.cancel()
         let signedProgress = CompactMediaGesturePolicy.signedProgress(for: horizontal)
@@ -701,6 +772,41 @@ struct FloatingNotchView: View {
             return
         }
 
+        if compactMediaGestureAxis == .vertical {
+            compactMediaGestureAxis = nil
+            guard CompactMediaExpansionGesturePolicy.shouldExpand(
+                horizontalTranslation: horizontal,
+                verticalTranslation: vertical
+            ) else {
+                resetCompactMediaExpansion(animated: true)
+                return
+            }
+
+            compactMediaExpansionResetTask?.cancel()
+            compactMediaExpansionCommit = true
+            if !compactMediaExpansionIsArmed {
+                NotchHaptics.perform(.confirmation)
+            }
+            withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.completion) {
+                compactMediaExpansionProgress = 1
+            }
+            MotionDebug.record(
+                name: "media.pull-down",
+                surface: "Compact Now Playing",
+                duration: NotchMotionGraph.measurement(for: .containerExpand).duration,
+                state: "compact → expanded media",
+                reason: "Vertical gesture crossed the magnetic expansion threshold."
+            )
+
+            compactMediaExpansionResetTask = Task { @MainActor in
+                try? await Task.sleep(for: reduceMotion ? .milliseconds(20) : .milliseconds(55))
+                guard !Task.isCancelled else { return }
+                openDefaultExpansion()
+                compactMediaExpansionResetTask = nil
+            }
+            return
+        }
+
         guard let direction = CompactMediaGesturePolicy.direction(
             horizontalTranslation: horizontal,
             verticalTranslation: vertical
@@ -708,6 +814,8 @@ struct FloatingNotchView: View {
             resetCompactMediaGesture(animated: true)
             return
         }
+
+        compactMediaGestureAxis = nil
 
         compactMediaGestureResetTask?.cancel()
         compactMediaHandoffResetTask?.cancel()
@@ -749,11 +857,100 @@ struct FloatingNotchView: View {
         compactMediaGestureResetTask?.cancel()
         compactMediaGestureResetTask = nil
         compactMediaGestureIsArmed = false
+        if compactMediaGestureAxis == .horizontal {
+            compactMediaGestureAxis = nil
+        }
         let updates = {
             compactMediaGestureProgress = 0
         }
         if animated {
             withAnimation(reduceMotion ? nil : CompactMediaGestureMotion.returnToRest) {
+                updates()
+            }
+        } else {
+            withTransaction(Transaction(animation: nil)) {
+                updates()
+            }
+        }
+    }
+
+    private func resetCompactMediaExpansion(animated: Bool) {
+        compactMediaExpansionResetTask?.cancel()
+        compactMediaExpansionResetTask = nil
+        compactMediaExpansionIsArmed = false
+        compactMediaExpansionCommit = false
+        if compactMediaGestureAxis == .vertical {
+            compactMediaGestureAxis = nil
+        }
+        let updates = {
+            compactMediaExpansionProgress = 0
+        }
+        if animated {
+            withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.returnToRest) {
+                updates()
+            }
+        } else {
+            withTransaction(Transaction(animation: nil)) {
+                updates()
+            }
+        }
+    }
+
+    private func handleExpandedMediaDragChanged(horizontal: CGFloat, vertical: CGFloat) {
+        guard isExpandedMediaBranch(branchKey),
+              vertical < 0,
+              abs(vertical) > abs(horizontal) * CompactMediaExpansionGesturePolicy.directionalDominance
+        else { return }
+
+        let progress = CompactMediaExpansionGesturePolicy.progress(forUpwardTranslation: vertical)
+        if progress >= CompactMediaExpansionGesturePolicy.armedProgress,
+           !expandedMediaCollapseIsArmed {
+            NotchHaptics.perform(.navigation)
+            expandedMediaCollapseIsArmed = true
+        } else if progress < CompactMediaExpansionGesturePolicy.disarmProgress {
+            expandedMediaCollapseIsArmed = false
+        }
+        withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.tracking) {
+            expandedMediaCollapseProgress = progress
+        }
+    }
+
+    private func handleExpandedMediaDragEnded(horizontal: CGFloat, vertical: CGFloat) {
+        guard isExpandedMediaBranch(branchKey),
+              CompactMediaExpansionGesturePolicy.shouldCollapse(
+                horizontalTranslation: horizontal,
+                verticalTranslation: vertical
+              )
+        else {
+            resetExpandedMediaCollapse(animated: true)
+            return
+        }
+
+        expandedMediaCollapseCommit = true
+        if !expandedMediaCollapseIsArmed {
+            NotchHaptics.perform(.confirmation)
+        }
+        withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.completion) {
+            expandedMediaCollapseProgress = 1
+        }
+        MotionDebug.record(
+            name: "media.swipe-up",
+            surface: "Expanded Now Playing",
+            duration: NotchMotionGraph.measurement(for: .dismiss).duration,
+            state: "expanded media → compact",
+            reason: "Upward gesture crossed the magnetic collapse threshold."
+        )
+        appState.collapse()
+    }
+
+    private func resetExpandedMediaCollapse(animated: Bool) {
+        expandedMediaCollapseIsArmed = false
+        expandedMediaCollapseCommit = false
+        let updates = {
+            expandedMediaCollapseProgress = 0
+        }
+        if animated {
+            withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.returnToRest) {
                 updates()
             }
         } else {
@@ -868,6 +1065,20 @@ struct FloatingNotchView: View {
         calendarTransitionActive = isCalendarCountdownBranch(oldBranch)
             || isCalendarCountdownBranch(newBranch)
 
+        if compactMediaExpansionCommit,
+           oldBranch == "collapsed-music",
+           newBranch == "expanded-widget" {
+            startInteractiveMediaHandoff(to: newBranch, isExpanding: true)
+            return
+        }
+
+        if expandedMediaCollapseCommit,
+           oldBranch == "expanded-widget",
+           newBranch == "collapsed-music" {
+            startInteractiveMediaHandoff(to: newBranch, isExpanding: false)
+            return
+        }
+
         guard shouldUseGlobalFeatureMotion(from: oldBranch, to: newBranch) else {
             notchBlendMotion = .return
             renderedBranchKey = newBranch
@@ -886,6 +1097,33 @@ struct FloatingNotchView: View {
         }
 
         startGlobalFeatureMotion(from: oldBranch, to: newBranch)
+    }
+
+    /// A committed vertical gesture has already supplied the anticipation
+    /// phase. Going through the generic hardware-notch compression here would
+    /// visibly retract the surface before reopening it, so media hands off
+    /// directly to the destination branch using the same shared geometry.
+    private func startInteractiveMediaHandoff(to newBranch: String, isExpanding: Bool) {
+        notchBlendMotion = isExpanding ? .open : .return
+        isNotchPhaseAnimating = true
+        suppressCollapsedMusicMarquee = true
+
+        withAnimation(reduceMotion ? nil : CompactMediaExpansionMotion.completion) {
+            renderedBranchKey = newBranch
+            compactMediaExpansionProgress = 0
+            expandedMediaCollapseProgress = 0
+        }
+
+        notchTransitionTask = Task { @MainActor in
+            try? await Task.sleep(for: reduceMotion ? .milliseconds(50) : .milliseconds(430))
+            guard !Task.isCancelled else { return }
+            compactMediaExpansionCommit = false
+            compactMediaExpansionIsArmed = false
+            expandedMediaCollapseCommit = false
+            expandedMediaCollapseIsArmed = false
+            finishNotchPhase(targetBranch: newBranch)
+            notchTransitionTask = nil
+        }
     }
 
     private func startOnboardingHeightMotion(to newBranch: String) {
@@ -1114,6 +1352,8 @@ struct FloatingNotchView: View {
                 track: nowPlaying.track,
                 morphNamespace: morph
             )
+            .scaleEffect(1 - expandedMediaCollapseProgress * 0.018, anchor: .top)
+            .opacity(1 - expandedMediaCollapseProgress * 0.12)
         case "expanded-event-detail":
             if let event = countdown.trackedEvent {
                 FocusedEventDetailView(event: event)
@@ -1174,7 +1414,8 @@ struct FloatingNotchView: View {
                     isHovering: isHoveringThisDisplay,
                     morphNamespace: morph,
                     handoffDirection: compactMediaHandoffDirection,
-                    gestureProgress: compactMediaGestureProgress
+                    gestureProgress: compactMediaGestureProgress,
+                    expansionProgress: compactMediaExpansionProgress
                 )
             } else {
                 CollapsedNotchContent(isHovering: isHoveringThisDisplay)
@@ -1211,7 +1452,8 @@ struct FloatingNotchView: View {
                     isHovering: isHoveringThisDisplay,
                     morphNamespace: morph,
                     handoffDirection: compactMediaHandoffDirection,
-                    gestureProgress: compactMediaGestureProgress
+                    gestureProgress: compactMediaGestureProgress,
+                    expansionProgress: compactMediaExpansionProgress
                 )
             } else {
                 CollapsedNotchContent(isHovering: isHoveringThisDisplay)
@@ -1278,6 +1520,12 @@ struct FloatingNotchView: View {
 
     private func isMusicBranch(_ key: String) -> Bool {
         NotchPresentationResolver.isMusicBranch(key)
+    }
+
+    private func isExpandedMediaBranch(_ key: String) -> Bool {
+        key == "expanded-widget"
+            && effectiveWidgetSelection == .media
+            && nowPlaying.track != nil
     }
 
     private func isBatteryAlertBranch(_ key: String) -> Bool {
@@ -1353,7 +1601,7 @@ struct FloatingNotchView: View {
             && nowPlaying.track?.videoPresentation == nil
             ? NotchWidgetMetrics.audioExpandedSize
             : NotchWidgetMetrics.expandedSize
-        return NotchLayoutCoordinator.visibleSize(
+        let resolvedSize = NotchLayoutCoordinator.visibleSize(
             for: NotchContentLayoutRequest(
                 branchKey: key,
                 baseBodySize: CGSize(
@@ -1376,6 +1624,19 @@ struct FloatingNotchView: View {
                 showsCollapsedMusicMarquee: shouldShowCollapsedMusicMarquee(for: key)
             )
         )
+        if key == "collapsed-music", compactMediaExpansionProgress > 0 {
+            return CompactMediaExpansionGesturePolicy.previewSize(
+                from: resolvedSize,
+                progress: compactMediaExpansionProgress
+            )
+        }
+        if isExpandedMediaBranch(key), expandedMediaCollapseProgress > 0 {
+            return CompactMediaExpansionGesturePolicy.collapsePreviewSize(
+                from: resolvedSize,
+                progress: expandedMediaCollapseProgress
+            )
+        }
+        return resolvedSize
     }
 
     private var effectiveWidgetSelection: NotchWidget {
@@ -1412,6 +1673,29 @@ private enum OnboardingStage {
 private enum OnboardingHeightMotion {
     static let expandAnimation = NotchMotionGraph.animation(for: .containerExpand)
     static let contentAnimation = NotchMotionGraph.animation(for: .contentEnter)
+}
+
+private enum CompactMediaGestureAxis {
+    case horizontal
+    case vertical
+}
+
+private struct ExpandedMediaCollapseAffordance: View {
+    let progress: CGFloat
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Image(systemName: "chevron.up")
+                .font(.system(size: 7, weight: .bold))
+                .rotationEffect(.degrees(progress * 180))
+
+            Capsule(style: .continuous)
+                .frame(width: 28 + progress * 8, height: 2)
+        }
+        .foregroundStyle(.white.opacity(0.28 + progress * 0.5))
+        .scaleEffect(0.9 + progress * 0.1)
+        .accessibilityHidden(true)
+    }
 }
 
 private enum NotchFeatureMotion {
@@ -1841,31 +2125,31 @@ private struct NotchZonesOverlay: View {
 
 private struct NotchInteractionSurface: NSViewRepresentable {
     let onTap: (CGPoint) -> Void
-    var allowsHorizontalDrag = false
-    var onHorizontalDragChanged: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void = { _, _ in }
-    var onHorizontalDragEnded: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void = { _, _ in }
+    var allowsDirectionalDrag = false
+    var onDirectionalDragChanged: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void = { _, _ in }
+    var onDirectionalDragEnded: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void = { _, _ in }
 
     func makeNSView(context: Context) -> TrackingView {
         TrackingView(
             onTap: onTap,
-            allowsHorizontalDrag: allowsHorizontalDrag,
-            onHorizontalDragChanged: onHorizontalDragChanged,
-            onHorizontalDragEnded: onHorizontalDragEnded
+            allowsDirectionalDrag: allowsDirectionalDrag,
+            onDirectionalDragChanged: onDirectionalDragChanged,
+            onDirectionalDragEnded: onDirectionalDragEnded
         )
     }
 
     func updateNSView(_ nsView: TrackingView, context: Context) {
         nsView.onTap = onTap
-        nsView.allowsHorizontalDrag = allowsHorizontalDrag
-        nsView.onHorizontalDragChanged = onHorizontalDragChanged
-        nsView.onHorizontalDragEnded = onHorizontalDragEnded
+        nsView.allowsDirectionalDrag = allowsDirectionalDrag
+        nsView.onDirectionalDragChanged = onDirectionalDragChanged
+        nsView.onDirectionalDragEnded = onDirectionalDragEnded
     }
 
     final class TrackingView: NSView {
         var onTap: (CGPoint) -> Void
-        var allowsHorizontalDrag: Bool
-        var onHorizontalDragChanged: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void
-        var onHorizontalDragEnded: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void
+        var allowsDirectionalDrag: Bool
+        var onDirectionalDragChanged: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void
+        var onDirectionalDragEnded: (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void
 
         private var mouseDownLocation: CGPoint?
         private var trackpadTranslation = CGPoint.zero
@@ -1874,14 +2158,14 @@ private struct NotchInteractionSurface: NSViewRepresentable {
 
         init(
             onTap: @escaping (CGPoint) -> Void,
-            allowsHorizontalDrag: Bool,
-            onHorizontalDragChanged: @escaping (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void,
-            onHorizontalDragEnded: @escaping (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void
+            allowsDirectionalDrag: Bool,
+            onDirectionalDragChanged: @escaping (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void,
+            onDirectionalDragEnded: @escaping (_ horizontal: CGFloat, _ vertical: CGFloat) -> Void
         ) {
             self.onTap = onTap
-            self.allowsHorizontalDrag = allowsHorizontalDrag
-            self.onHorizontalDragChanged = onHorizontalDragChanged
-            self.onHorizontalDragEnded = onHorizontalDragEnded
+            self.allowsDirectionalDrag = allowsDirectionalDrag
+            self.onDirectionalDragChanged = onDirectionalDragChanged
+            self.onDirectionalDragEnded = onDirectionalDragEnded
             super.init(frame: .zero)
             wantsLayer = true
             layer?.backgroundColor = NSColor.clear.cgColor
@@ -1903,9 +2187,9 @@ private struct NotchInteractionSurface: NSViewRepresentable {
         }
 
         override func mouseDragged(with event: NSEvent) {
-            guard allowsHorizontalDrag, let start = mouseDownLocation else { return }
+            guard allowsDirectionalDrag, let start = mouseDownLocation else { return }
             let current = convert(event.locationInWindow, from: nil)
-            onHorizontalDragChanged(
+            onDirectionalDragChanged(
                 current.x - start.x,
                 current.y - start.y
             )
@@ -1922,14 +2206,14 @@ private struct NotchInteractionSurface: NSViewRepresentable {
             if hypot(delta.x, delta.y) < 8 {
                 onTap(current)
             } else {
-                onHorizontalDragEnded(delta.x, delta.y)
+                onDirectionalDragEnded(delta.x, delta.y)
             }
 
             mouseDownLocation = nil
         }
 
         override func scrollWheel(with event: NSEvent) {
-            guard allowsHorizontalDrag, event.hasPreciseScrollingDeltas else {
+            guard allowsDirectionalDrag, event.hasPreciseScrollingDeltas else {
                 super.scrollWheel(with: event)
                 return
             }
@@ -1946,14 +2230,14 @@ private struct NotchInteractionSurface: NSViewRepresentable {
             trackpadTranslation.y += event.scrollingDeltaY
 
             if event.momentumPhase.isEmpty {
-                onHorizontalDragChanged(
+                onDirectionalDragChanged(
                     trackpadTranslation.x,
                     trackpadTranslation.y
                 )
             }
 
             if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-                onHorizontalDragEnded(
+                onDirectionalDragEnded(
                     trackpadTranslation.x,
                     trackpadTranslation.y
                 )

@@ -230,6 +230,80 @@ struct CompactMediaPresentationTests {
         #expect(activated == 1)
     }
 
+    @Test func pullDownExpansionLocksToAVerticalGesture() {
+        #expect(
+            CompactMediaExpansionGesturePolicy.prefersVerticalAxis(
+                horizontalTranslation: 8,
+                verticalTranslation: 24
+            )
+        )
+        #expect(
+            !CompactMediaExpansionGesturePolicy.prefersVerticalAxis(
+                horizontalTranslation: 28,
+                verticalTranslation: 18
+            )
+        )
+        #expect(
+            CompactMediaExpansionGesturePolicy.prefersHorizontalAxis(
+                horizontalTranslation: -28,
+                verticalTranslation: 10
+            )
+        )
+    }
+
+    @Test func pullDownAndSwipeUpUseMirroredMagneticProgress() {
+        let downward = CompactMediaExpansionGesturePolicy.progress(forDownwardTranslation: 42)
+        let upward = CompactMediaExpansionGesturePolicy.progress(forUpwardTranslation: -42)
+
+        #expect(downward > 0)
+        #expect(abs(downward - upward) < 0.0001)
+        #expect(
+            CompactMediaExpansionGesturePolicy.progress(forDownwardTranslation: 200) == 1
+        )
+    }
+
+    @Test func verticalMediaGestureRequiresThresholdAndDirection() {
+        #expect(
+            !CompactMediaExpansionGesturePolicy.shouldExpand(
+                horizontalTranslation: 4,
+                verticalTranslation: 77
+            )
+        )
+        #expect(
+            CompactMediaExpansionGesturePolicy.shouldExpand(
+                horizontalTranslation: 4,
+                verticalTranslation: 90
+            )
+        )
+        #expect(
+            CompactMediaExpansionGesturePolicy.shouldCollapse(
+                horizontalTranslation: 4,
+                verticalTranslation: -90
+            )
+        )
+        #expect(
+            !CompactMediaExpansionGesturePolicy.shouldCollapse(
+                horizontalTranslation: 90,
+                verticalTranslation: -90
+            )
+        )
+    }
+
+    @Test func interactivePreviewGeometryMovesTowardItsDestination() {
+        let compact = CGSize(width: 272, height: 44)
+        let expanded = CGSize(width: 604, height: 252)
+        let pulled = CompactMediaExpansionGesturePolicy.previewSize(from: compact, progress: 1)
+        let collapsed = CompactMediaExpansionGesturePolicy.collapsePreviewSize(
+            from: expanded,
+            progress: 1
+        )
+
+        #expect(pulled.width > compact.width)
+        #expect(pulled.height > compact.height)
+        #expect(collapsed.width < expanded.width)
+        #expect(collapsed.height < expanded.height)
+    }
+
     @Test func handoffIdentityIgnoresTimelineUpdatesButChangesWithTrack() {
         var original = makeTrack(
             title: "Instant Crush",
