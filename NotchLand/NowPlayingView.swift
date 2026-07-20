@@ -1785,6 +1785,7 @@ private extension Color {
 struct NowPlayingExpandedView: View {
     @EnvironmentObject var nowPlaying: NowPlayingService
     @EnvironmentObject private var settings: NotchSettings
+    @EnvironmentObject private var audioOutputs: AudioDeviceActivitySource
     let track: NowPlayingService.Track
     var morphNamespace: Namespace.ID? = nil
     @State private var scrubbedProgress: Double?
@@ -1914,6 +1915,7 @@ struct NowPlayingExpandedView: View {
             Text(track.isPlaying ? "Playing" : "Paused")
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.58))
+            outputDeviceMenu(theme: theme)
         }
         .frame(height: 22)
     }
@@ -2254,12 +2256,75 @@ struct NowPlayingExpandedView: View {
         return album
     }
 
-    private var outputDeviceButton: some View {
-        Image(systemName: "airpods.gen3")
-            .font(.system(size: 18, weight: .regular))
-            .foregroundStyle(Color.white.opacity(0.85))
-            .frame(width: 40, height: 40)
-            .contentShape(Rectangle())
+    private func outputDeviceMenu(theme: MediaSourceTheme) -> some View {
+        Menu {
+            if audioOutputs.outputs.isEmpty {
+                Text("No audio outputs available")
+            } else {
+                ForEach(audioOutputs.outputs) { device in
+                    Button {
+                        Task { @MainActor in
+                            let succeeded = await audioOutputs.selectOutput(device.id)
+                            NotchHaptics.perform(succeeded ? .confirmation : .rejection)
+                        }
+                    } label: {
+                        Label {
+                            Text(deviceMenuTitle(device))
+                        } icon: {
+                            Image(systemName: device.model.symbolName)
+                        }
+                    }
+                    .disabled(audioOutputs.selectionState.isSwitching(device.id))
+                }
+            }
+
+            Divider()
+
+            Button {
+                audioOutputs.refreshOutputs()
+            } label: {
+                Label("Refresh Outputs", systemImage: "arrow.clockwise")
+            }
+        } label: {
+            AudioOutputMenuLabel(
+                device: audioOutputs.currentOutput,
+                state: audioOutputs.selectionState,
+                accent: theme.accent
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(audioOutputHelp)
+        .animation(
+            NotchMotionGraph.animation(for: .selection),
+            value: audioOutputs.currentOutput?.id
+        )
+        .task {
+            if audioOutputs.outputs.isEmpty {
+                audioOutputs.refreshOutputs()
+            }
+        }
+    }
+
+    private func deviceMenuTitle(_ device: AudioOutputDevice) -> String {
+        var parts = [device.isDefault ? "✓ \(device.name)" : device.name]
+        if let batteryPercent = device.batteryPercent {
+            parts.append("\(batteryPercent)%")
+        }
+        return parts.joined(separator: "  ·  ")
+    }
+
+    private var audioOutputHelp: String {
+        switch audioOutputs.selectionState {
+        case .idle:
+            audioOutputs.currentOutput.map { "Audio output: \($0.name)" }
+                ?? "Choose audio output"
+        case .switching:
+            "Switching audio output…"
+        case let .failed(message):
+            message
+        }
     }
 
     private var expandedHandoffTransition: AnyTransition {
@@ -2275,6 +2340,84 @@ struct NowPlayingExpandedView: View {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+}
+
+private struct AudioOutputMenuLabel: View {
+    let device: AudioOutputDevice?
+    let state: AudioOutputSelectionState
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Group {
+                if case .switching = state {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(accent)
+                        .transition(.scale.combined(with: .opacity))
+                } else if case .failed = state {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    Image(systemName: device?.model.symbolName ?? "speaker.wave.2.fill")
+                        .foregroundStyle(device == nil ? .white.opacity(0.52) : accent)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
+            .frame(width: 13, height: 13)
+
+            Text(device?.name ?? "Output")
+                .font(.system(size: 8.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.72))
+                .lineLimit(1)
+                .frame(maxWidth: 92, alignment: .leading)
+                .contentTransition(.interpolate)
+
+            if let batteryPercent = device?.batteryPercent {
+                HStack(spacing: 2) {
+                    Image(systemName: batterySymbol(for: batteryPercent))
+                    Text("\(batteryPercent)%")
+                        .monospacedDigit()
+                }
+                .font(.system(size: 7.5, weight: .bold, design: .rounded))
+                .foregroundStyle(batteryColor(for: batteryPercent))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 6.5, weight: .bold))
+                .foregroundStyle(.white.opacity(0.32))
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 22)
+        .background(.white.opacity(0.065), in: Capsule(style: .continuous))
+        .overlay {
+            Capsule(style: .continuous)
+                .stroke(.white.opacity(0.1), lineWidth: 0.75)
+        }
+        .contentShape(Capsule(style: .continuous))
+        .animation(NotchMotionGraph.animation(for: .selection), value: state)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Audio output")
+        .accessibilityValue(device?.name ?? "Unavailable")
+    }
+
+    private func batterySymbol(for percent: Int) -> String {
+        switch percent {
+        case ...10: "battery.0percent"
+        case ...35: "battery.25percent"
+        case ...65: "battery.50percent"
+        case ...90: "battery.75percent"
+        default: "battery.100percent"
+        }
+    }
+
+    private func batteryColor(for percent: Int) -> Color {
+        if percent <= 15 { return .red }
+        if percent <= 30 { return .orange }
+        return .white.opacity(0.58)
     }
 }
 
@@ -2842,6 +2985,9 @@ struct EQBarsView: View {
 @MainActor
 private struct NowPlayingCanvasPreview: View {
     @StateObject private var nowPlaying = NowPlayingService()
+    @StateObject private var audioOutputs = AudioDeviceActivitySource(
+        activities: LiveActivityController(settings: NotchSettings())
+    )
     let isExpanded: Bool
     var track = NowPlayingPreviewFixtures.appleMusicTrack
 
@@ -2862,6 +3008,7 @@ private struct NowPlayingCanvasPreview: View {
             }
         }
         .environmentObject(nowPlaying)
+        .environmentObject(audioOutputs)
         .background(Color.black)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .padding(24)

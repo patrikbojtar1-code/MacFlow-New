@@ -34,6 +34,7 @@ struct NotchPreviewContainer<Content: View>: View {
     @StateObject private var calls: CallActivityController
     @StateObject private var systemCalls: SystemCallActivitySource
     @StateObject private var liveActivities: LiveActivityController
+    @StateObject private var audioActivity: AudioDeviceActivitySource
     @StateObject private var eventCenter: NotchEventCenter
     @StateObject private var shortcutsBridge: ShortcutsBridgeController
     @StateObject private var dropIntelligence: DropIntelligenceController
@@ -59,6 +60,7 @@ struct NotchPreviewContainer<Content: View>: View {
         let calendar = CalendarService()
         let eventCountdown = EventCountdownController(calendar: calendar, settings: settings)
         let liveActivities = LiveActivityController(settings: settings)
+        let audioActivity = AudioDeviceActivitySource(activities: liveActivities)
         let eventCenter = NotchEventCenter(
             defaults: UserDefaults(suiteName: "NotchLandPreviewEvents")!
         )
@@ -135,6 +137,7 @@ struct NotchPreviewContainer<Content: View>: View {
         _calls = StateObject(wrappedValue: calls)
         _systemCalls = StateObject(wrappedValue: systemCalls)
         _liveActivities = StateObject(wrappedValue: liveActivities)
+        _audioActivity = StateObject(wrappedValue: audioActivity)
         _eventCenter = StateObject(wrappedValue: eventCenter)
         _shortcutsBridge = StateObject(wrappedValue: shortcutsBridge)
         _dropIntelligence = StateObject(wrappedValue: dropIntelligence)
@@ -168,6 +171,7 @@ struct NotchPreviewContainer<Content: View>: View {
             .environmentObject(calls)
             .environmentObject(systemCalls)
             .environmentObject(liveActivities)
+            .environmentObject(audioActivity)
             .environmentObject(eventCenter)
             .environmentObject(shortcutsBridge)
             .environmentObject(dropIntelligence)

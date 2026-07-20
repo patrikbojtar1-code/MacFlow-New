@@ -80,6 +80,7 @@ final class WindowManager: NSObject {
     private let calls: CallActivityController
     private let systemCalls: SystemCallActivitySource
     private let liveActivities: LiveActivityController
+    private let audioActivity: AudioDeviceActivitySource
     private let eventCenter: NotchEventCenter
     private let shortcutsBridge: ShortcutsBridgeController
     private let dropIntelligence: DropIntelligenceController
@@ -137,6 +138,7 @@ final class WindowManager: NSObject {
         calls: CallActivityController,
         systemCalls: SystemCallActivitySource,
         liveActivities: LiveActivityController,
+        audioActivity: AudioDeviceActivitySource,
         eventCenter: NotchEventCenter,
         shortcutsBridge: ShortcutsBridgeController,
         dropIntelligence: DropIntelligenceController,
@@ -168,6 +170,7 @@ final class WindowManager: NSObject {
         self.calls = calls
         self.systemCalls = systemCalls
         self.liveActivities = liveActivities
+        self.audioActivity = audioActivity
         self.eventCenter = eventCenter
         self.shortcutsBridge = shortcutsBridge
         self.dropIntelligence = dropIntelligence
@@ -1003,6 +1006,7 @@ final class WindowManager: NSObject {
                 .environmentObject(calls)
                 .environmentObject(systemCalls)
                 .environmentObject(liveActivities)
+                .environmentObject(audioActivity)
                 .environmentObject(eventCenter)
                 .environmentObject(shortcutsBridge)
                 .environmentObject(dropIntelligence)
@@ -1112,6 +1116,7 @@ final class WindowManager: NSObject {
                 .environmentObject(wallet)
                 .environmentObject(calls)
                 .environmentObject(liveActivities)
+                .environmentObject(audioActivity)
                 .environmentObject(eventCenter)
                 .environmentObject(shortcutsBridge)
                 .environmentObject(dropIntelligence)

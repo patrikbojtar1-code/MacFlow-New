@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         calls: calls,
         systemCalls: systemCalls,
         liveActivities: liveActivities,
+        audioActivity: audioActivity,
         eventCenter: eventCenter,
         shortcutsBridge: shortcutsBridge,
         dropIntelligence: dropIntelligence,
